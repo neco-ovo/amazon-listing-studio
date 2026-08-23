@@ -1,0 +1,16 @@
+{
+  "canvas": {"width": 1000, "height": 1000},
+  "facts": {"dimensions.width": {"value": 12, "unit": "in"}},
+  "items": [
+    {
+      "id": "width",
+      "type": "dimension",
+      "factRef": "dimensions.width",
+      "text": "12 in",
+      "x": 150,
+      "y": 900,
+      "width": 700,
+      "height": 60
+    }
+  ]
+}
