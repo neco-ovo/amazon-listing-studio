@@ -1,0 +1,132 @@
+goal: Refactor the current Amazon Product Launch Builder into a streamlined, Codex-primary Agent Skill for individual Amazon sellers that preserves approval, provenance, Product Master, image QA, listing traceability, and maintainable state safeguards while removing WebUI and server orchestration.
+task_type: code
+brownfield_context:
+  project_type: brownfield
+  context_references:
+    - SKILL.md
+    - package.json
+    - references/listing-and-compliance.md
+    - references/amazon-us-listing-strategy.md
+    - references/image-generation.md
+  existing_patterns:
+    - Existing Node.js scripts already validate, smoke-test, export, extract links, and manage project data; retain only reusable domain logic and remove UI/server orchestration.
+    - Existing reference documents contain listing, compliance, workflow, and image guidance that must be selectively simplified rather than discarded.
+  existing_dependencies:
+    - Node.js >=20 ESM project
+    - Codex image-generation and image-inspection capabilities supplied by the active harness
+constraints:
+  - Implementation and automated tests use the existing Node.js >=20 ESM project unless a dependency-free alternative is demonstrably smaller; no Python-only test requirement may be introduced implicitly
+  - Codex is the primary implementation and testing environment; core instructions and capability assumptions should remain reasonably portable without maintaining complex adapters for other harnesses
+  - The Skill must define capability contracts for ask_user, read_reference, generate_image, inspect_image, and workspace file access
+  - The Skill must invoke available image generation, save and present real raster image files, inspect the saved files, and perform image QA; if image generation is unavailable, returns no usable asset, or cannot save or inspect the result, it must report the failing capability and stop without emitting prompt-only success
+  - Default marketplace is Amazon.com/en-US unless the user selects another North American or international marketplace/language
+  - User-confirmed facts have highest authority; later conflicting evidence remains visible and conflicting user confirmations require a new question
+  - Do not fabricate dimensions, materials, quantities, included accessories, compatibility, certifications, performance, or other publishable claims
+  - Main images must use a pure-white background, preserve the confirmed product identity and count, exclude irrelevant text, graphics, badges, borders, watermarks, and promotions, and place the product bounding box at least 95% along its dominant canvas direction while remaining fully visible, unclipped, and undistorted; stop for user clarification when unusual geometry prevents the confirmed fill rule and complete visibility
+  - Canvas dimensions, resolution, orientation, aspect ratio, and format are separate from the undistorted physical product proportions; choose the canvas from current marketplace/category requirements, then explicit user requirements, then an Amazon.com 1:1 default, while real product dimensions always govern the product silhouette
+  - Critical infographic copy, dimensions, units, callouts, and typography must be added after visual generation through deterministic composition rather than trusted to generative text rendering; the saved composite must be reinspected
+  - Deterministic composition may use a classified local font or a suitable network font selected from user requirements, product style, AI judgment, and runtime availability; record the resolved font asset and source, and disclose any fallback to the closest available font
+  - Every image requires strict automated two-gate QA followed by explicit per-image user approval; hard failures include identity mismatch, invented elements, unsupported claims, stale Product Master, corrupt output, and applicable marketplace/category violations
+  - Rejected images must be preserved, regenerated as new versions, and fully revalidated; no more than two automatic targeted corrections may be attempted before asking the user
+  - Secondary images must preserve the locked Product Master; the default storyboard contains three distinct application scenes, one size/specification image, one material/detail image, and one back/structure/installation-detail image, with unsupported cards conditionally replaced by supported alternatives
+  - Listing copy may use only approved publishable facts and must include title, optional Item Highlights, exactly five bullets, description, backend search terms, Special Features, and supported category-relevant attributes
+  - Non-media Amazon.com titles default to 75 characters or fewer including spaces; applicable media or category rules take priority
+  - Bullets must be exactly five, target no more than 200 characters each, remain within 1000 combined characters, and obey any lower applicable hard limit; descriptions default to 2000 characters or fewer; backend search terms default to 250 bytes or fewer
+  - Over-limit listing content is auto-condensed once and blocks final approval if it still exceeds an applicable hard limit
+  - Category attributes must be schema-first; unsupported or inapplicable fields remain blank or are marked unknown or not_applicable rather than invented
+  - If official marketplace or category rules cannot be verified, show a concise warning, ask whether to continue, retain an unverified-rules note, and never claim official compliance clearance
+  - If the category schema is unavailable, only schema-dependent fields are marked rules_unverified; Special Features and category attributes are not upload-ready before authorization, no upload-ready spreadsheet is produced, and listing.json must use upload_ready=false
+  - User authorization for unavailable schema applies only to the current product, marketplace, product type, Product Master version, and Listing version and never overrides unknown facts, conflicts, or hard blockers
+  - Final delivery requires one version-bound, unambiguous consolidated user approval covering the current image set, Listing, backend search terms, Special Features, supported attributes, marketplace, product type, and schema status
+  - Requested changes override approval; affected fields, images, and direct dependents are revised and revalidated, fact changes invalidate every dependent output, and a new bundle version with a change summary requires updated approval
+  - 'Runtime state must remain small and readable: project.md is the human-facing dossier and progress record, facts.json stores structured facts, sources, status, and conflicts, and assets.json stores Product Master version and image plan, paths, and approvals'
+  - Product Master locking records canonical identity facts, dimensions and proportions, color and variant, count and included components, canonical reference asset hashes, a stable version, and dependency links so only affected outputs become stale
+  - The readable final Listing document and listing.json are generated delivery artifacts rather than additional runtime state; listing.json records field-level fact references, validation status, rules_unverified, schema authorization scope, and upload_ready
+  - The final bundle includes an artifact manifest containing current versions, relative paths, media types, byte sizes, and SHA-256 hashes; missing, corrupt, stale, or unapproved files block delivery
+  - Font inventory must scan directories and ZIP archives, deduplicate formats into font families, and classify family, variant, language coverage, visual style, and source label without separate license verification
+  - Use a stable curated upstream e-commerce template snapshot at runtime with recorded source/version and local adaptations; maintainer synchronization may produce a reviewable diff but must never automatically overwrite the snapshot
+  - 'Out of scope: WebUI, HTTP server, browser/frontend state management, background monitoring, complex task queues, automatic Seller Central publishing, engineering CAD, production drawings, and automatic trademark, patent, regulatory, or Amazon clearance claims'
+acceptance_criteria:
+  - description: An end-to-end fixture completes fact/reference intake, asks only for blocking missing information, locks a hashed Product Master, generates and individually approves real images, generates the complete Listing, and records version-bound final approval without importing or starting WebUI, HTTP server, frontend state, task-queue, or background-monitoring code
+    semantic_ac_key: ac_0db7588cfe96cdbf
+    verify_command: npm test
+  - description: Schema validation fixtures prove project.md remains human-readable and facts.json and assets.json contain required IDs, normalized values, source/status/conflict data, Product Master version and hashes, dependency links, image paths, QA results, approvals, and Listing/bundle version references
+    semantic_ac_key: ac_2fcbce52b14015f5
+    verify_command: npm test
+  - description: Image adapter tests prove the Skill invokes image generation, saves and presents a decodable raster file, reinspects the saved artifact, and refuses prompt-only, missing, corrupt, unsaved, or uninspectable results; accepted files pass current-version, identity, factual-support, composition, text, watermark, and applicable rule checks before per-image approval
+    semantic_ac_key: ac_12ce7a1bc0e2ff99
+    verify_command: npm test
+  - description: Geometry fixtures independently validate canvas selection and undistorted product proportions, including a 12W-by-8L product rendered as a 3:2 silhouette, dominant-direction occupancy of at least 95% within the configured tolerance, full visibility, no clipping, and no convenience crop
+    semantic_ac_key: ac_44c07a6ae4afe616
+    verify_command: npm test
+  - description: Infographic fixtures prove critical copy, dimensions, units, callouts, and selected local or network fonts are deterministically composed after visual generation, the resolved font source or disclosed fallback is recorded, and the final composite is checked for exact text, legibility, bounds, and factual accuracy
+    semantic_ac_key: ac_deterministic_overlay
+    verify_command: npm test
+  - description: The workflow preserves rejected image versions, records rejection reasons, creates replacement versions, reruns QA, and pauses for user input after two failed automatic targeted corrections
+    semantic_ac_key: ac_f2eb593475761176
+    verify_command: npm test
+  - description: The default secondary storyboard produces supported distinct application, specification, material/detail, and back/structure/installation content, replacing unsupported cards with supported alternatives while preserving Product Master identity
+    semantic_ac_key: ac_817ac6581cc7114c
+    verify_command: npm test
+  - description: The final listing bundle contains grounded title, optional Item Highlights, exactly five bullets, description, backend search terms, Special Features, and supported category attributes with character, byte, count, prohibited-claim, format, and fact-traceability validation
+    semantic_ac_key: ac_85a47b88e3d0f708
+    verify_command: npm test
+  - description: When marketplace or category rules are unavailable, the handoff identifies only affected fields as rules_unverified, retains concise warnings, excludes upload-ready spreadsheet delivery before authorization, and sets listing.json upload_ready=false
+    semantic_ac_key: ac_e833b48c33f04557
+    verify_command: npm test
+  - description: 'After authorized unverified-schema delivery, all six required checks pass: authorization is version-bound, facts are confirmed and traceable, images and copy pass verified general rules, affected fields are labeled consistently, warnings make no compliance or upload-readiness claim, and no upload-ready spreadsheet is generated'
+    semantic_ac_key: ac_02375798984c9455
+    verify_command: npm test
+  - description: A final bundle is delivered only after explicit unambiguous approval of the identified current version; requested changes invalidate the old approval, revise only affected dependents where applicable, create a new version and change summary, and request updated approval
+    semantic_ac_key: ac_376a856d93c247f2
+    verify_command: npm test
+  - description: The curated e-commerce template snapshot and listing-copy playbook are available as deterministic internal references with recorded upstream provenance and maintainer-reviewable synchronization output that cannot overwrite the snapshot automatically
+    semantic_ac_key: ac_d10aefe6a7c4e896
+    verify_command: npm test
+  - description: Font fixtures prove recursive directory and ZIP discovery, safe archive inspection, cross-format family deduplication, and deterministic family, variant, language-coverage, visual-style, and source-label output without relying on an approximate family count
+    semantic_ac_key: ac_54e63f9c0fc3ab63
+    verify_command: npm test
+  - description: The automated matrix covers complete input, blocking missing facts, conflicting sources with latest explicit user confirmation winning, image capability failure, image rejection and regeneration, Product Master mutation with dependency-scoped invalidation, unavailable category schema with version-bound authorization, final approval followed by scoped revision, backend search-term byte counting, curated-template diff without overwrite, and bundle-manifest integrity
+    semantic_ac_key: ac_required_test_matrix
+    verify_command: npm test
+ontology_schema:
+  name: Amazon Product Launch Project
+  description: A versioned Amazon product-launch domain model representing confirmed product facts, evidence and conflicts, Product Master identity, generated image assets and approvals, marketplace and category rules, listing content, schema status, and final delivery authorization.
+  fields:
+    - {name: project, type: object, description: Human-facing project dossier marketplace language product type progress and current bundle version, required: true}
+    - {name: facts, type: array, description: Structured product facts with value provenance authority confirmation status conflicts and publishability, required: true}
+    - {name: product_master, type: object, description: Locked canonical product identity version geometry count and invariant attributes, required: true}
+    - {name: image_assets, type: array, description: Main and secondary image versions with brief path QA Product Master dependency approval and rejection, required: true}
+    - {name: storyboard, type: array, description: Planned secondary-image cards evidence support status and replacement rationale, required: true}
+    - {name: marketplace_rules, type: object, description: Marketplace and category requirements verification status attempted sources scope date and warnings, required: true}
+    - {name: listing, type: object, description: Versioned copy search terms Special Features attributes traceability and validation, required: true}
+    - {name: schema_status, type: object, description: Category-template availability affected fields authorization scope and upload_ready, required: true}
+    - {name: approval, type: object, description: Per-image and consolidated final approval with user action scope and timestamp, required: true}
+    - {name: references, type: array, description: User references official checks curated templates playbook source versions and adaptations, required: true}
+    - {name: typography, type: object, description: Deterministic overlay plan resolved local or network font source fallback disclosure exact copy units bounds and composite QA, required: true}
+    - {name: final_bundle, type: object, description: Bundle version artifact manifest relative paths media types byte sizes SHA-256 hashes change summary and approval scope, required: true}
+evaluation_principles:
+  - {name: Truthfulness and provenance, description: Every publishable fact and claim is confirmed traceable conflict-aware and never fabricated, weight: 0.24}
+  - {name: Product identity integrity, description: All generated assets and listing content match the locked Product Master and dependency versions, weight: 0.18}
+  - {name: Marketplace compliance, description: Verified rules are applied and unverifiable rules are clearly labeled without false claims, weight: 0.16}
+  - {name: User control, description: Questions approvals rejection handling and scoped re-review remain authoritative, weight: 0.15}
+  - {name: Artifact quality, description: Images are real valid legible supported composed geometrically truthful and inspected, weight: 0.12}
+  - {name: Listing usefulness, description: Copy is conversion-oriented readable natural and grounded without guarantees, weight: 0.08}
+  - {name: Maintainability and determinism, description: State is small readable curated versioned and testable without orchestration complexity, weight: 0.07}
+exit_conditions:
+  - {name: Approved delivery, description: Current version is complete and approved, criteria: All current images listing fields marketplace product type Product Master and schema status pass checks and user approves identified bundle version}
+  - {name: Blocked for missing information, description: Required facts or category fields cannot be supported, criteria: Pause and ask when required information is missing or conflicts remain}
+  - {name: Blocked for image failure, description: Image cannot satisfy hard requirements, criteria: Pause after two targeted corrections or immediately for unresolvable hard blocker}
+  - {name: Warned delivery with unverified rules, description: User authorizes despite unavailable rules, criteria: Deliver only with version-bound authorization warnings no upload-ready spreadsheet and upload_ready false}
+  - {name: Revision required, description: User requests changes, criteria: Reject old approval revise affected dependents create new bundle and request approval}
+metadata:
+  seed_id: seed_d4711d0dfb4f
+  version: 1.0.0
+  created_at: '2026-08-23T18:55:52.460771Z'
+  ambiguity_score: 0.074
+  interview_id: interview_20260823_164426
+  parent_seed_id: null
+  generation_mode: normal
+  degraded: false
+  unresolved_slots: []
+  recovery_reason: null
