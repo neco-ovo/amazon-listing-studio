@@ -1,0 +1,100 @@
+{
+  "schema_version": 1,
+  "upstream": {
+    "repository": "https://github.com/freestylefly/awesome-gpt-image-2",
+    "template_document": "https://github.com/freestylefly/awesome-gpt-image-2/blob/main/docs/templates.md",
+    "style_library": "https://github.com/freestylefly/awesome-gpt-image-2/blob/main/data/style-library.json",
+    "gallery": "https://github.com/freestylefly/awesome-gpt-image-2/blob/main/docs/gallery.md",
+    "reviewed_on": "2026-08-24",
+    "usage": "Layout, hierarchy, photography, and pitfall inspiration only; all local templates are rewritten for Product Master and fact grounding."
+  },
+  "preview_generation": {
+    "mode": "built-in image_gen",
+    "fictional_product": "unbranded sage-green rectangular rechargeable task light with a frosted white front diffuser, one black side button, and a simple black fold-out rear stand",
+    "policy": "Self-generated previews are layout/style references only and cannot establish product facts.",
+    "accepted_previews": 10,
+    "rejected_candidates": 5
+  },
+  "previews": [
+    {
+      "template_id": "amazon-main",
+      "path": "assets/template-previews/amazon-main.webp",
+      "sha256": "68a6486472969eb0aefaf5800933c7f0005a2d3f36792349c987256d13a74369",
+      "reference_inputs": [],
+      "final_prompt": "Use case: product-mockup. Asset type: Amazon main-image layout preview. Primary request: create an unbranded preview using a fictional generic product: a sage-green rectangular rechargeable task light with frosted white front diffuser, one black side button, rounded aluminum body, and a simple black fold-out rear stand. Scene/backdrop: pure white seamless background. Composition: single complete product centered, dominant direction nearly fills the square while every edge remains visible, neutral front three-quarter view. Lighting: soft even catalog studio light with minimal natural contact shadow. Constraints: preserve a believable 3:2 face ratio; exactly one product; no props, packaging, logo, text, badge, price, promotion, watermark, or extra parts.",
+      "inspection": {"saved_file": true, "visual_ok": true, "width": 1024, "height": 1024}
+    },
+    {
+      "template_id": "application-home",
+      "path": "assets/template-previews/application-home-v2.webp",
+      "sha256": "cee482a616594fb0dc45e6eab5d18d5038b305e1e359af05325518386eb411b4",
+      "reference_inputs": ["assets/template-previews/amazon-main.webp"],
+      "final_prompt": "Use case: product-mockup. Asset type: home application layout preview. Input image 1: product identity reference; preserve its exact rectangular body, frosted front diffuser, sage-green frame, black side button, black fold-out rear stand, proportions, and silhouette. Primary request: place that same unbranded fictional generic product naturally on a calm modern home desk; change only the environment and camera framing. Composition: product is the clear hero, restrained notebook and plant only as quiet context, clean negative space above for later deterministic copy. Lighting: soft morning window light. Constraints: do not redesign, unfold into a tall lamp, rotate into a different form, or add controls; no readable text, logo, brand, price, promotion, watermark, or cables.",
+      "inspection": {"saved_file": true, "visual_ok": true, "width": 1024, "height": 1024}
+    },
+    {
+      "template_id": "application-outdoor",
+      "path": "assets/template-previews/application-outdoor-v2.webp",
+      "sha256": "0d6ba733bae1ce879cb07c91d17ef92ab53b3a36ff18e1491d5eb83cae9203e0",
+      "reference_inputs": ["assets/template-previews/amazon-main.webp"],
+      "final_prompt": "Use case: product-mockup. Asset type: outdoor application layout preview. Input image 1: product identity reference; preserve its exact rectangular body, frosted front diffuser, sage-green frame, black side button, black fold-out rear stand, proportions, and silhouette. Primary request: place that same unbranded fictional generic product as the hero on a dry wooden patio table at calm dusk; change only the environment and camera framing. Composition: credible outdoor context, product prominent and fully recognizable, subtle foliage depth, clean copy space. Constraints: do not redesign it into a vertical bar or tall lamp; no rain, water splash, extreme conditions, gear, readable text, logo, brand, price, promotion, watermark, cables, or new parts.",
+      "inspection": {"saved_file": true, "visual_ok": true, "width": 1024, "height": 1024}
+    },
+    {
+      "template_id": "application-commercial",
+      "path": "assets/template-previews/application-commercial-v3.webp",
+      "sha256": "297c64e639ce70831200f5e0f24e5c9fee5b136bb9fedec678eb417af2a09920",
+      "reference_inputs": ["assets/template-previews/amazon-main.webp"],
+      "final_prompt": "Use case: product-mockup. Asset type: commercial application layout preview. Input image 1: product identity reference; preserve its exact rectangular body, frosted front diffuser, sage-green frame, black side button, black fold-out rear stand, proportions, and silhouette. Primary request: place that same unbranded fictional generic product clearly in a tidy modern design studio workspace; change only the environment and camera framing. Composition: product dominates foreground, restrained professional background, clean negative space. Lighting: neutral professional studio-window mix. Constraints: do not redesign, hinge into a long-arm desk lamp, or add joints; no performance claims, readable text, logo, brand, price, promotion, watermark, cables, or added parts.",
+      "inspection": {"saved_file": true, "visual_ok": true, "width": 1024, "height": 1024}
+    },
+    {
+      "template_id": "size-spec",
+      "path": "assets/template-previews/size-spec.webp",
+      "sha256": "1b2557418ddaf35365cc239f8e1566bf426cda8df67ce77ae08d991482059636",
+      "reference_inputs": ["assets/template-previews/amazon-main.webp"],
+      "final_prompt": "Use case: infographic-diagram. Asset type: size specification layout preview. Input image 1: product identity reference; preserve the exact fictional generic product, including its sage-green rectangular frame, 3:2 face, frosted diffuser, black side button, and fold-out stand. Primary request: show the same product straight-on in a clean square technical layout. Composition: centered complete product with generous blank perimeter and thin unlabeled measurement guide lines only. Scene: light neutral technical background. Constraints: no numbers, units, readable labels, logo, price, promotion, watermark, perspective distortion, crop, or invented parts; all exact measurements will be added deterministically later.",
+      "inspection": {"saved_file": true, "visual_ok": true, "width": 1024, "height": 1024}
+    },
+    {
+      "template_id": "material-detail",
+      "path": "assets/template-previews/material-detail.webp",
+      "sha256": "dddcfd2f161c2a64f2ddaaf6201a36f414b38be700356b88fa2a99550c6fe539",
+      "reference_inputs": ["assets/template-previews/amazon-main.webp"],
+      "final_prompt": "Use case: product-mockup. Asset type: material-detail layout preview. Input image 1: product identity reference; preserve the exact fictional generic product. Primary request: create a premium square material study of the same product. Composition: a believable large macro view of the sage-green matte anodized aluminum frame and frosted diffuser texture, plus a smaller complete product identity anchor and blank copy zone. Lighting: soft raking studio light revealing texture without exaggeration. Constraints: no redesign, microscopic or scientific implication, readable text, logo, brand, price, promotion, watermark, scratches, or invented layers.",
+      "inspection": {"saved_file": true, "visual_ok": true, "width": 1024, "height": 1024}
+    },
+    {
+      "template_id": "back-structure",
+      "path": "assets/template-previews/back-structure.webp",
+      "sha256": "c281302ba0f890a4a4f8eda144f5a6325eb70989fda813530e6734db17113f40",
+      "reference_inputs": ["assets/template-previews/amazon-main.webp"],
+      "final_prompt": "Use case: infographic-diagram. Asset type: rear-structure layout preview. Input image 1: product identity reference; preserve the exact fictional generic product. Primary request: show the back of the same sage-green rectangular rechargeable task light in a large rear three-quarter hero view, with only its simple black fold-out stand and plain rear panel visible. Composition: neutral technical square layout with two blank detail inset zones and no labels. Lighting: crisp edge-defining studio light. Constraints: no exploded floating parts, readable text, logo, brand, price, promotion, watermark, extra ports, holes, screws, buttons, accessories, or changed proportions.",
+      "inspection": {"saved_file": true, "visual_ok": true, "width": 1024, "height": 1024}
+    },
+    {
+      "template_id": "installation-use",
+      "path": "assets/template-previews/installation-use-v2.webp",
+      "sha256": "17e3643f8515906d8b376f5c81ea67017dbe858032aeb059cc219c875bbe1a1c",
+      "reference_inputs": ["assets/template-previews/amazon-main.webp", "assets/template-previews/back-structure.webp"],
+      "final_prompt": "Use case: infographic-diagram. Asset type: installation-use sequence layout preview. Input image 1: front product identity reference. Input image 2: rear structure identity reference. Preserve the exact same fictional generic product in all three panels, especially the same single-piece black U-shaped fold-out stand, sage-green rear shell, rectangular 3:2 body, side button, and proportions. Primary request: a clean three-panel square visual sequence: panel 1 stand folded flat against the rear, panel 2 that identical U-shaped stand being opened by one natural hand, panel 3 the same product resting upright on that stand. Composition: consistent product scale and rear structure across three equal panels with blank caption bands. Constraints: no alternate handle, no rectangular inset stand, no changed hinge geometry, no text, numbers, arrows, logo, brand, price, promotion, watermark, extra hardware, or extra fingers.",
+      "inspection": {"saved_file": true, "visual_ok": true, "width": 1024, "height": 1024}
+    },
+    {
+      "template_id": "feature-callout",
+      "path": "assets/template-previews/feature-callout.webp",
+      "sha256": "b45fad4ebceeb9c2e05eae1f0cfa93171d4755b879f00d8ccfadb0ba5cc5df51",
+      "reference_inputs": ["assets/template-previews/amazon-main.webp"],
+      "final_prompt": "Use case: ads-marketing. Asset type: grounded feature-callout layout preview. Input image 1: product identity reference; preserve the exact fictional generic product. Primary request: create a polished conversion-oriented square composition for the same sage-green rectangular rechargeable task light. Composition: one large complete product hero, one close detail of the frosted diffuser, one blank feature callout zone connected by a simple unlabeled leader line, restrained neutral-to-sage gradient. Lighting: realistic premium studio highlights. Constraints: no claims, comparison, readable text, logo, brand, price, promotion, badge, watermark, redesign, or invented features.",
+      "inspection": {"saved_file": true, "visual_ok": true, "width": 1024, "height": 1024}
+    },
+    {
+      "template_id": "package-confirmed-components",
+      "path": "assets/template-previews/package-confirmed-components.webp",
+      "sha256": "54dd7f8eff01ecbb7a18585d88a87bb1a9b685c7035846087b5b8bcdc569e03b",
+      "reference_inputs": ["assets/template-previews/amazon-main.webp"],
+      "final_prompt": "Use case: product-mockup. Asset type: confirmed package-components layout preview. Input image 1: product identity reference; preserve the exact fictional generic product. Primary request: create an orderly top-down catalog flat lay with the same sage-green rectangular rechargeable task light beside one plain generic charging cable and one plain blank instruction-card shape as fictional layout placeholders. Composition: each item separated with blank label space on a pure light neutral surface. Lighting: soft even contact shadows. Constraints: layout reference only; no quantities, readable labels, packaging claims, logo, brand, price, promotion, watermark, or additional components.",
+      "inspection": {"saved_file": true, "visual_ok": true, "width": 1024, "height": 1024}
+    }
+  ]
+}

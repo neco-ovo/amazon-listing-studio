@@ -1,0 +1,6 @@
+{
+  "templates": [
+    {"id": "product-commerce", "version": 1, "exampleCases": [178, 190]},
+    {"id": "technical-breakdown", "version": 1, "exampleCases": [310]}
+  ]
+}

@@ -1,0 +1,6 @@
+{
+  "templates": [
+    {"id": "product-commerce", "version": 2, "exampleCases": [178, 190, 194]},
+    {"id": "photography-realism", "version": 1, "exampleCases": [519]}
+  ]
+}
