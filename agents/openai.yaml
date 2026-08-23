@@ -1,0 +1,6 @@
+interface:
+  display_name: "Amazon Listing Studio"
+  short_description: "Generate approved Amazon images and grounded listings"
+  default_prompt: "Use $amazon-listing-studio to create product images and a grounded Amazon listing from my references."
+policy:
+  allow_implicit_invocation: true

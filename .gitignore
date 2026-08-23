@@ -1,1 +1,9 @@
 .worktrees/
+node_modules/
+.npm-cache/
+.pip-cache/
+.python-deps/
+amazon-listing-projects/
+evals/live-smoke/artifacts/
+*.tmp
+.DS_Store
