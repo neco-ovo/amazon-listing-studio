@@ -1,0 +1,23 @@
+{
+  "schema_version": 1,
+  "version": 1,
+  "project_id": "{{project_id}}",
+  "updated_at": "{{iso_timestamp}}",
+  "product_master": {
+    "version": 0,
+    "status": "unlocked",
+    "dependency_ids": []
+  },
+  "storyboard": [],
+  "images": [],
+  "listing": {
+    "id": null,
+    "version": 0,
+    "status": "not_started"
+  },
+  "approvals": [],
+  "final_bundle": {
+    "version": 0,
+    "status": "not_built"
+  }
+}
