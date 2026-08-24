@@ -1,0 +1,10 @@
+{
+  "id": "approval-1",
+  "finalized": true,
+  "ambiguous": false,
+  "product_master_version": 2,
+  "listing_version": 1,
+  "artifact_ids": ["main-v2", "secondary-size-v1"],
+  "upload_ready": true,
+  "change_summary": "Approved main, size image, and Listing version 1"
+}

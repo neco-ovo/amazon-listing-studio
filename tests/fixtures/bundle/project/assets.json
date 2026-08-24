@@ -1,0 +1,55 @@
+{
+  "schema_version": 1,
+  "product_master": {"version": 2, "asset_id": "main-v2"},
+  "images": [
+    {
+      "id": "main-v2",
+      "kind": "main",
+      "path": "assets/main-v2.png",
+      "media_type": "image/png",
+      "version": 2,
+      "product_master_version": 2,
+      "status": "approved",
+      "approval_id": "approval-1",
+      "selected": true,
+      "sha256": "24545da1db054e14bfadf473682894a5299c530b697f824211922e5292dd6bbb",
+      "change_summary": "Approved Product Master main image"
+    },
+    {
+      "id": "secondary-size-v1",
+      "kind": "secondary",
+      "path": "assets/secondary-size-v1.png",
+      "media_type": "image/png",
+      "version": 1,
+      "product_master_version": 2,
+      "status": "approved",
+      "approval_id": "approval-1",
+      "selected": true,
+      "sha256": "24545da1db054e14bfadf473682894a5299c530b697f824211922e5292dd6bbb",
+      "change_summary": "Approved size secondary image"
+    },
+    {
+      "id": "rejected-history",
+      "kind": "secondary",
+      "path": "assets/rejected-history.png",
+      "media_type": "image/png",
+      "version": 1,
+      "product_master_version": 2,
+      "status": "rejected",
+      "approval_id": null,
+      "selected": false,
+      "sha256": "6eb5d5b59905d0ae1e11a6c800c1d76a77d263a090544b386393d16f139e48f4",
+      "change_summary": "Rejected historical candidate"
+    }
+  ],
+  "listing": {
+    "version": 1,
+    "product_master_version": 2,
+    "status": "approved",
+    "approval_id": "approval-1",
+    "json_path": "listing.json",
+    "json_sha256": "ee27a6f7a04ad36e24d7125d1a11f96c486a2e16d4ab73db6dda9bc7ab9fdc48",
+    "markdown_path": "listing.md",
+    "markdown_sha256": "329c16cb5f52d676e47e609f127824ad563c346f7c7826e2c70f69f546c374b2"
+  }
+}
