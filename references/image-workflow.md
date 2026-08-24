@@ -5,7 +5,7 @@ Read this reference only for image work. Keep generation in the active harness a
 ## Positive recipe
 
 1. Compile one brief with `compileImageBrief`: identity, goal, source roles, permitted claims, difference plan, text strategy, exclusions, and output requirements.
-2. Call the harness's real image capability for a **one-pass complete image**, including short copy. Save the raster locally.
+2. Generate the **one-pass complete image** with required exact text first. Call the harness's real image capability and save the raster locally.
 3. Run only relevant file and geometry checks, then inspect that exact saved file once for identity, text, claims, misleading components, and commerce quality.
 4. Record it with `scripts/studio.js record-candidate`. A failed candidate receives a compact rejection record and no SHA-256.
 5. Present a passing candidate. On explicit approval, run `scripts/studio.js approve`; approval hashes once, binds the artifact, and returns the next action.
@@ -16,9 +16,15 @@ The brief is the plan. Do not create a separate planning artifact or request con
 
 Treat product references as identity evidence, layout references as layout only, and competitor links as market data only. Preserve construction, printed copy, palette, warning semantics, and defining motifs by default. The user may authorize a redesign; changing those elements after a Product Master is locked requires a new Product Master.
 
+The compact brief records `identity invariants`, `emphasis_fields`, `layout_variant`, `font_mood`, `reference_fidelity`, and `text_render_strategy` instead of creating a second planning artifact.
+
 Without a more specific request, adapt at least two coherent presentation elements: orientation-aware hierarchy, emphasis typography, type scale, line breaks, region proportions, visual center, spacing, or negative-space distribution. Changes may add a visual or information module when its content is supported by permitted facts. They must not create novelty that weakens recognition or style coherence.
 
+For a portrait product, plan the hierarchy around its tall face and redistribute negative space instead of copying a horizontal reference and leaving the lower area empty.
+
 Use local fonts or Google Fonts as visual style references in speed-first mode. Do not claim exact font embedding. Switch to deterministic, traceable typography only when the user requests it or an otherwise accepted image has a localized exact-text failure.
+
+When typography needs contrast, choose a display font for the emphasis field and a body font for supporting copy only when their weight, width, and industrial or retail mood preserve style coherence.
 
 ## Main image and Product Master
 
@@ -37,6 +43,8 @@ After the user approves a secondary, register it and follow the returned `genera
 Audit props and visible fasteners as possible included-package claims. Omit screws, hooks, brackets, tools, or accessories unless confirmed, even when a realistic scene would normally show them.
 
 ## Repair ladder
+
+Use deterministic repair for a localized geometry or typography defect before spending another generation call.
 
 Choose the cheapest valid action from diagnosed defects:
 
