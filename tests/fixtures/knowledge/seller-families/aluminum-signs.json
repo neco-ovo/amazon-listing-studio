@@ -1,0 +1,15 @@
+{
+  "schema_version": 1,
+  "family_id": "aluminum-signs",
+  "scope": {
+    "product_family": "aluminum safety signs"
+  },
+  "confirmed_at": "2026-08-24T00:00:00.000Z",
+  "confirmed_by": "user",
+  "facts": {
+    "rust_resistant": {
+      "value": true,
+      "source_ids": ["user-family-confirmation-1"]
+    }
+  }
+}
