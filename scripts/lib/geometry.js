@@ -8,8 +8,8 @@ export function physicalRatio({width, length}) {
   return positiveNumber(width, 'width') / positiveNumber(length, 'length');
 }
 
-export function selectCanvas({user, category}) {
-  return {ratio: user?.ratio ?? category?.ratio ?? '1:1'};
+export function selectCanvas({user, category, generated}) {
+  return {ratio: user?.ratio ?? category?.ratio ?? generated?.ratio ?? '1:1'};
 }
 
 export function validateRenderedRatio({physicalWidth, physicalHeight, renderedWidth, renderedHeight, tolerance = 0.02}) {

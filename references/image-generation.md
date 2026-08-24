@@ -3,7 +3,7 @@
 Keep three geometries separate:
 
 - Physical product ratio comes from confirmed dimensions and must remain unchanged in every rendered view where it is measurable. A confirmed 12 × 8 inch face is 3:2, regardless of canvas shape.
-- Canvas ratio follows an explicit user request, then verified category guidance, then the Amazon square default.
+- Canvas ratio follows an explicit user request, then verified category guidance, then an already-generated canvas that meets applicable requirements and preserves the complete product. Use the Amazon square canvas only as a final fallback when none of those supplies a ratio. Square is not a general acceptance requirement; do not pad, crop, stretch, or regenerate solely to force 1:1.
 - Main-image occupancy is measured along the product bounding box's dominant direction. Use the current marketplace/category minimum; for Amazon.com the dated base fallback is 85%. A stricter verified category rule or explicit user/project target, such as 95% for a sign project, raises the minimum for that scope only. Preserve at least one pixel of visible white margin on every side.
 
 Do not stretch, crop, or silently change the product to satisfy canvas or occupancy targets. Generate a new candidate when the requirements cannot coexist.

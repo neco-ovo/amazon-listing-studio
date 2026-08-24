@@ -46,7 +46,7 @@ At intake, ask one concise question whenever information blocking the current ph
 
 ## Image sequence
 
-1. Separate confirmed physical ratio from canvas ratio. For a confirmed 12 × 8 face, preserve 3:2 even on a square canvas.
+1. Separate confirmed physical ratio from canvas ratio. For a confirmed 12 × 8 face, preserve 3:2 on any accepted canvas. Resolve canvas ratio from an explicit user request, then verified marketplace/category guidance, then an already-generated compliant canvas; use 1:1 only as the final fallback. Square is not an acceptance requirement. Do not pad, crop, stretch, or regenerate solely to force 1:1.
 2. Generate and save the main image. For the Amazon main image, use a white background, one complete product, and no promotional or unrelated text. Resolve occupancy from the current marketplace/category rule; use Amazon.com's 85% base when no stricter rule is verified, and apply a stricter user/project target such as 95% only where requested. Keep the product fully visible. Run `scripts/validate-image.js`, then perform semantic saved-file inspection.
 3. Present the candidate and findings. Only explicit approval may lock Product Master.
 4. Plan the default gallery: three distinct application scenes, one size/spec card, one material/detail card, and one back/structure card. Replace a card whose required facts are unavailable.

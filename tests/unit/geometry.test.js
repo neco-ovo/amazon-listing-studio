@@ -13,7 +13,7 @@ test('physicalRatio preserves the real product orientation', () => {
   assert.throws(() => physicalRatio({width: 0, length: 8}), /positive/i);
 });
 
-test('selectCanvas uses user choice, then category guidance, then Amazon square default', () => {
+test('selectCanvas preserves an acceptable generated canvas before using the square fallback', () => {
   assert.deepEqual(
     selectCanvas({user: null, category: null, marketplace: 'amazon.com'}),
     {ratio: '1:1'},
@@ -25,6 +25,10 @@ test('selectCanvas uses user choice, then category guidance, then Amazon square 
   assert.deepEqual(
     selectCanvas({user: null, category: {ratio: '3:4'}, marketplace: 'amazon.com'}),
     {ratio: '3:4'},
+  );
+  assert.deepEqual(
+    selectCanvas({user: null, category: null, generated: {ratio: '1133:1388'}, marketplace: 'amazon.com'}),
+    {ratio: '1133:1388'},
   );
 });
 
