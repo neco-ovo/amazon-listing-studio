@@ -6,6 +6,7 @@ const ROUTES = Object.freeze({
   next_gallery_item: {mode: 'fast', reason: 'APPROVED_GALLERY_PLAN'},
   approve_asset: {mode: 'fast', reason: 'CURRENT_ARTIFACT_APPROVAL'},
   knowledge_lookup: {mode: 'fast', reason: 'LOCAL_LIBRARY_LOOKUP'},
+  learn_category: {mode: 'full', reason: 'SHARED_KNOWLEDGE_CHANGE'},
   new_project: {mode: 'full', reason: 'NEW_PROJECT'},
   first_product_master: {mode: 'full', reason: 'PRODUCT_MASTER_LOCK'},
   product_identity_change: {mode: 'full', reason: 'IDENTITY_DEPENDENCIES'},
