@@ -10,15 +10,13 @@ Create real image and Listing artifacts through a short, approval-driven workflo
 ## Start or resume a product
 
 1. Read `references/capability-contracts.md` and confirm `ask_user`, `read_reference`, `generate_image`, `inspect_image`, and workspace-file capabilities.
-2. Run `scripts/init-project.js` or resume `project.md`, `facts.json`, and `assets.json` in a per-product workspace outside this Skill directory.
+2. Run `scripts/studio.js init` or resume `project.md` and `state.json` in a per-product workspace outside this Skill directory.
 3. Read `references/workflow.md` before changing phase, locking Product Master, generating an image, or approving delivery. Resume from recorded state; do not infer approval from existing files.
 
 ## Progressive-disclosure route
 
 - Intake, fact priority, conflicts, missing information, Product Master, or invalidation: read `references/state-and-facts.md`.
-- Image planning, canvas, physical ratio, template choice, main image, or secondary storyboard: read `references/image-generation.md`.
-- Saved-image inspection, Amazon main-image raster checks, corrections, or semantic QA: read `references/image-qa.md`.
-- Local/ZIP/network fonts or exact dimension/callout composition: read `references/font-selection.md`.
+- Image planning, generation, saved-file inspection, font strategy, repair, main-image lock, or secondary gallery work: read only `references/image-workflow.md`.
 - Title, Item Highlights, five Bullets, Description, search terms, Special Features, attributes, or conversion review: read `references/listing-copy-playbook.md`.
 - Current limits, category Schema, prohibited content, or `upload_ready`: read `references/listing-and-compliance.md`.
 
@@ -31,7 +29,7 @@ Create real image and Listing artifacts through a short, approval-driven workflo
 - Do not lock Product Master from facts or a plan alone. Lock Product Master only after a real main raster is saved, decoded, hashed, inspected, presented, and explicitly approved.
 - Do not generate secondary images before the current Product Master is locked. Use that master as the first authoritative product reference.
 - Generate secondary images one at a time. Inspect the saved file and obtain explicit approval before generating the next. Replace unsupported back/installation cards with supported alternatives.
-- Do not trust generative text for critical infographic copy, dimensions, units, or callouts. Add them deterministically and reinspect the composite.
+- Default to a complete one-pass image, including short copy. Use deterministic typography only for requested traceability or targeted repair, then reinspect the final composite.
 - Generate exactly five Listing Bullets in `[HEADING] Body` format. Include Item Highlights, Description, Backend Search Terms, Special Features, and supported attributes. Conduct one consolidated Listing review after the selected images are approved.
 - When the category Schema is unavailable, mark only affected fields `rules_unverified`, set `upload_ready=false`, and do not claim or produce an upload-ready spreadsheet.
 - Require final approval bound to the current Product Master, selected image versions, Listing version, marketplace, product type, and Schema status. Deliver only that scope after integrity checks with `scripts/build-delivery.js`.
@@ -42,16 +40,11 @@ Existing work, ownership, or urgency never bypasses these gates. Six already-gen
 
 `intake -> main image -> Product Master -> secondary images -> Listing -> delivery`
 
-At intake, ask one concise question whenever information blocking the current phase is missing or user confirmations conflict. During image work, preserve rejected files as historical versions and attempt at most two targeted automatic corrections. During Listing work, use approved publishable facts only. Any fact or Product Master change makes only its explicit dependents stale.
+At intake, ask one concise question whenever information blocking the current phase is missing or user confirmations conflict. During image work, keep rejected files without full approval provenance and attempt at most one unpresented automatic correction. During Listing work, use approved publishable facts only. Any fact or Product Master change makes only its explicit dependents stale.
 
-## Image sequence
+## Image route
 
-1. Separate confirmed physical ratio from canvas ratio. For a confirmed 12 × 8 face, preserve 3:2 on any accepted canvas. Resolve canvas ratio from an explicit user request, then verified marketplace/category guidance, then an already-generated compliant canvas; use 1:1 only as the final fallback. Square is not an acceptance requirement. Do not pad, crop, stretch, or regenerate solely to force 1:1.
-2. Generate and save the main image. For the Amazon main image, use a white background, one complete product, and no promotional or unrelated text. Resolve occupancy from the current marketplace/category rule; use Amazon.com's 85% base when no stricter rule is verified, and apply a stricter user/project target such as 95% only where requested. Keep the product fully visible. Run `scripts/validate-image.js`, then perform semantic saved-file inspection.
-3. Present the candidate and findings. Only explicit approval may lock Product Master.
-4. Plan the default gallery: three distinct application scenes, one size/spec card, one material/detail card, and one back/structure card. Replace a card whose required facts are unavailable.
-5. Generate, inspect, present, and approve each secondary sequentially. Use the locked Product Master as the first identity reference.
-6. For fixed product-face copy, generate the complete exact-text composition first. If the saved product and layout pass but text fails, use `scripts/scan-fonts.js` and `scripts/compose-overlay.js` for deterministic text repair, then inspect the repaired composite. Do not default to a text-free base.
+Read `references/image-workflow.md`, compile one compact brief, call `generate_image`, inspect the exact saved file, and use `scripts/studio.js record-candidate`. Present a passing candidate once. After explicit approval, use `scripts/studio.js approve`; its returned action either locks Product Master or continues to the next already-planned gallery item.
 
 ## Listing and delivery sequence
 

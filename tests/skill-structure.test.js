@@ -89,3 +89,16 @@ test('main-image guidance adapts reference layouts and uses deterministic text o
   assert.match(skill, /deterministic.+repair/i);
   assert.doesNotMatch(skill, /For exact text, choose a font.+compose-overlay/i);
 });
+
+test('image route is compact and defaults to complete one-pass generation', async () => {
+  const skill = await readFile(path.join(root, 'SKILL.md'), 'utf8');
+  const imageWorkflow = await readFile(path.join(root, 'references', 'image-workflow.md'), 'utf8');
+
+  assert.match(skill, /references\/image-workflow\.md/);
+  assert.doesNotMatch(skill, /references\/(?:image-generation|image-qa)\.md/);
+  assert.match(skill, /scripts\/studio\.js/);
+  assert.match(imageWorkflow, /one-pass complete image/i);
+  assert.doesNotMatch(imageWorkflow, /generate a text-free base first/i);
+  assert.match(imageWorkflow, /deterministic edit.*targeted AI edit.*regenerate/is);
+  assert.match(imageWorkflow, /at most one unpresented automatic correction/i);
+});
