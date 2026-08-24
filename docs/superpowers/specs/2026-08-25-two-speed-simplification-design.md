@@ -97,7 +97,7 @@ Store purchase intents, shopper vocabulary, typical application scenes, gallery 
 
 ### Seller-family defaults
 
-Store facts the user has explicitly confirmed as applicable to a named product family. They may support images and Listing claims in matching projects without repeated confirmation. Their scope, confirmation date, and source action are required.
+Store facts the user has explicitly confirmed as applicable to a named product family. Match families from stable material and product-form traits rather than requiring the same Amazon category, so rigid aluminum yard, store, and safety signs may share one family. Category labels remain hints. Structural family claims may support matching projects without repeated confirmation. Process-dependent claims such as fade resistance, reflectivity, or waterproofing require matching process evidence or one consolidated user confirmation before formal image and Listing work. Record that answer at project scope or, when the manufacturing series shares the process, at seller-family scope. Scope, confirmation date, and source action are required.
 
 ### Project facts
 

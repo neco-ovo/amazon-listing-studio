@@ -2,13 +2,25 @@
   "schema_version": 1,
   "family_id": "aluminum-signs",
   "scope": {
-    "product_family": "aluminum safety signs"
+    "product_family": "rigid aluminum signs"
+  },
+  "match": {
+    "required_traits": {
+      "material": ["aluminum"],
+      "product_form": ["rigid_sign", "metal_sign", "aluminum_plate_sign"]
+    },
+    "category_hints": ["yard_sign", "store_sign", "safety_sign"],
+    "excluded_traits": {
+      "material": ["corrugated_plastic", "vinyl"],
+      "product_form": ["decal", "digital_sign"]
+    }
   },
   "confirmed_at": "2026-08-24T00:00:00.000Z",
   "confirmed_by": "user",
   "facts": {
     "rust_resistant": {
       "value": true,
+      "inheritance": "structural",
       "source_ids": ["user-family-confirmation-1"]
     }
   }

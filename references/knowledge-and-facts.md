@@ -15,10 +15,12 @@ A higher source overrides a lower one. Preserve source IDs and the losing value 
 ## Three knowledge scopes
 
 - Project facts live in `state.json`. A user-confirmed project fact is publishable and overrides reusable knowledge.
-- Seller-family facts live under `library/seller-families/`. They require one explicit user confirmation with a recorded product-family scope, then can support later products in that scope without repeated confirmation.
+- Seller-family facts live under `library/seller-families/`. Match the family from stable construction traits such as material and product form, not an exact Amazon category. A rigid aluminum yard sign, store sign, and safety sign may share one family; corrugated plastic, vinyl decals, and digital signs do not. Category names are hints, not hard boundaries.
 - Category observations live under `library/categories/<marketplace>/`. Store recurring benefits, shopper language, visual patterns, and source dates here. They may guide briefs and keywords but are not automatically product claims.
 
 Use `scripts/studio.js learn-category` to merge market observations. Promote a common performance point to a seller-family fact only after the user confirms it applies to that family. This preserves the requested reuse without turning competitor language into unsupported product facts.
+
+Separate family membership from claim applicability. Structural claims such as rust resistance may inherit with the confirmed aluminum construction. Process-dependent claims such as fade resistance, reflectivity, or waterproofing require matching finish/process evidence. When that evidence is absent, ask one consolidated question before formal image and Listing work. Record a confirmation for only the current project or, when the user says the manufacturing series shares the process, for the seller family so later matching projects do not ask again. A negative or uncertain answer omits only those claims and does not block the workflow.
 
 ## Product identity and invalidation
 

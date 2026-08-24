@@ -6,7 +6,7 @@
 
 ## Automated evidence
 
-- `npm test`: PASS, 162 tests passed, 0 failed.
+- `npm test`: PASS, 167 tests passed, 0 failed.
 - Focused finalization and unified-CLI tests: PASS, 7 passed, 0 failed.
 - `node --check` over every JavaScript file in `scripts/` and `tests/`: PASS.
 - `git diff --check`: PASS.

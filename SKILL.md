@@ -25,6 +25,7 @@ Use at most one domain reference for ordinary work. Add the delivery reference o
 
 - Treat current explicit user facts as authoritative over links, documents, market observations, and AI suggestions. Ask one concise question when a fact blocking the current step is missing or two user confirmations conflict.
 - Never invent dimensions, material, quantity, components, back construction, installation, compatibility, certification, performance, or another publishable claim. Category observations guide market language; only current project or approved seller-family facts support claims.
+- Match seller families by stable material and product-form traits rather than exact Amazon categories. Before formal image or Listing work, ask one consolidated question for process-dependent family claims whose applicability is still unknown; record the answer at project or manufacturing-family scope.
 - Call `generate_image` for every requested image using the active harness. Save a real raster and call `inspect_image` on the exact saved file. A prompt-only response, missing path, corrupt file, or uninspectable file is `CAPABILITY_FAILURE`.
 - Lock Product Master only after the exact main raster is saved, decoded, inspected, presented, and explicitly approved. Generate secondary images one at a time from the locked master and obtain explicit approval before the next.
 - Default to a complete one-pass image with short copy. Use deterministic typography for requested traceability or targeted repair, then inspect the final composite again.
