@@ -29,6 +29,8 @@ Use at most one domain reference for ordinary work. Add the delivery reference o
 - Call `generate_image` for every requested image using the active harness. Save a real raster and call `inspect_image` on the exact saved file. A prompt-only response, missing path, corrupt file, or uninspectable file is `CAPABILITY_FAILURE`.
 - Lock Product Master only after the exact main raster is saved, decoded, inspected, presented, and explicitly approved. Generate secondary images one at a time from the locked master and obtain explicit approval before the next.
 - Default to a complete one-pass image with short copy. Use deterministic typography for requested traceability or targeted repair, then inspect the final composite again.
+- Treat scene props and visible fasteners as product claims when they could imply included package contents. Keep unconfirmed screws, hooks, brackets, tools, and accessories out of the composition.
+- Anchor repaired dimension lines to measured product bounds, not isolated canvas coordinates. Check regional visual balance so an empty corridor cannot pass merely because every element remains in-canvas.
 - Build Listing copy from publishable facts. Generate Title, Item Highlights, exactly five benefit-led Bullets, Description, Backend Search Terms, Special Features, and supported product details. Hold one consolidated Listing review.
 - A micro revision changes only requested fields and direct dependents. It increments the mutable draft revision, not the formal Listing version. Formal version and hashes are created only on explicit Listing approval.
 - When only category Schema fields are unverified, preserve supported copy, mark affected fields `rules_unverified`, set `upload_ready=false`, and do not claim upload readiness.

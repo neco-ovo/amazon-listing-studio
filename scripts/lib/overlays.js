@@ -38,6 +38,34 @@ function assertFactText(item, fact) {
   }
 }
 
+function resolveDimensionAnchor(plan, item) {
+  if (!item.anchor) return null;
+  if (item.type !== 'dimension') throw invalid('Only dimension items may use a subject anchor.', {id: item.id});
+  const subject = plan.subjectBounds;
+  if (!subject) throw invalid('Anchored dimensions require actual product bounds.', {id: item.id});
+  for (const field of ['x', 'y']) finiteNonnegative(subject[field], `subjectBounds.${field}`);
+  for (const field of ['width', 'height']) finitePositive(subject[field], `subjectBounds.${field}`);
+  if (subject.x + subject.width > plan.canvas.width || subject.y + subject.height > plan.canvas.height) {
+    throw invalid('Actual product bounds exceed the canvas.', {subjectBounds: subject});
+  }
+  const gapRatio = item.anchor.gapRatio;
+  if (!Number.isFinite(gapRatio) || gapRatio < 0.02 || gapRatio > 0.06) {
+    throw invalid('Dimension anchor gap must remain between 2% and 6% of the canvas short side.', {id: item.id, gapRatio});
+  }
+  const gap = Math.min(plan.canvas.width, plan.canvas.height) * gapRatio;
+  if (item.anchor.edge === 'right' && item.orientation === 'vertical') {
+    const position = subject.x + subject.width + gap;
+    if (position >= plan.canvas.width) throw invalid('Anchored vertical dimension line exceeds the canvas.', {id: item.id});
+    return {orientation: 'vertical', subject_edge: 'right', gap_ratio: gapRatio, gap, position, start: subject.y, end: subject.y + subject.height};
+  }
+  if (item.anchor.edge === 'bottom' && item.orientation !== 'vertical') {
+    const position = subject.y + subject.height + gap;
+    if (position >= plan.canvas.height) throw invalid('Anchored horizontal dimension line exceeds the canvas.', {id: item.id});
+    return {orientation: 'horizontal', subject_edge: 'bottom', gap_ratio: gapRatio, gap, position, start: subject.x, end: subject.x + subject.width};
+  }
+  throw invalid('Dimension anchor edge and orientation are incompatible.', {id: item.id, anchor: item.anchor});
+}
+
 export function layoutOverlay(plan) {
   finitePositive(plan?.canvas?.width, 'Canvas width');
   finitePositive(plan?.canvas?.height, 'Canvas height');
@@ -58,12 +86,14 @@ export function layoutOverlay(plan) {
       if (fact === undefined) throw new DomainError('FACT_UNKNOWN', 'Overlay references an unknown fact.', {id: item.id, factRef: item.factRef});
       assertFactText(item, fact);
     }
+    const resolvedLine = resolveDimensionAnchor(plan, item);
     return {
       ...item,
       text: item.text,
       unit: fact?.unit ?? item.unit ?? null,
       fact_value: fact?.value ?? null,
       bounds: {x: item.x, y: item.y, width: item.width, height: item.height},
+      ...(resolvedLine ? {resolved_line: resolvedLine} : {}),
     };
   });
   return {canvas: {...plan.canvas}, items, bounds_ok: true};
@@ -140,12 +170,26 @@ function itemSvg(item, font) {
   const fit = fitText(item, font);
   const text = textPathSvg(item, font, color, fit);
   if (item.type !== 'dimension') return text;
-  const lineY = item.y + item.height - 4;
+  if (item.orientation === 'vertical') {
+    const lineX = item.resolved_line?.position ?? item.x + item.width - 4;
+    const lineStart = item.resolved_line?.start ?? item.y;
+    const lineEnd = item.resolved_line?.end ?? item.y + item.height;
+    const arrow = Math.min(12, item.width / 4);
+    return [
+      `<line x1="${lineX}" y1="${lineStart}" x2="${lineX}" y2="${lineEnd}" stroke="${color}" stroke-width="3"/>`,
+      `<polyline points="${lineX - arrow / 2},${lineStart + arrow} ${lineX},${lineStart} ${lineX + arrow / 2},${lineStart + arrow}" fill="none" stroke="${color}" stroke-width="3"/>`,
+      `<polyline points="${lineX - arrow / 2},${lineEnd - arrow} ${lineX},${lineEnd} ${lineX + arrow / 2},${lineEnd - arrow}" fill="none" stroke="${color}" stroke-width="3"/>`,
+      text,
+    ].join('');
+  }
+  const lineY = item.resolved_line?.position ?? item.y + item.height - 4;
+  const lineStart = item.resolved_line?.start ?? item.x;
+  const lineEnd = item.resolved_line?.end ?? item.x + item.width;
   const arrow = Math.min(12, item.height / 4);
   return [
-    `<line x1="${item.x}" y1="${lineY}" x2="${item.x + item.width}" y2="${lineY}" stroke="${color}" stroke-width="3"/>`,
-    `<polyline points="${item.x + arrow},${lineY - arrow / 2} ${item.x},${lineY} ${item.x + arrow},${lineY + arrow / 2}" fill="none" stroke="${color}" stroke-width="3"/>`,
-    `<polyline points="${item.x + item.width - arrow},${lineY - arrow / 2} ${item.x + item.width},${lineY} ${item.x + item.width - arrow},${lineY + arrow / 2}" fill="none" stroke="${color}" stroke-width="3"/>`,
+    `<line x1="${lineStart}" y1="${lineY}" x2="${lineEnd}" y2="${lineY}" stroke="${color}" stroke-width="3"/>`,
+    `<polyline points="${lineStart + arrow},${lineY - arrow / 2} ${lineStart},${lineY} ${lineStart + arrow},${lineY + arrow / 2}" fill="none" stroke="${color}" stroke-width="3"/>`,
+    `<polyline points="${lineEnd - arrow},${lineY - arrow / 2} ${lineEnd},${lineY} ${lineEnd - arrow},${lineY + arrow / 2}" fill="none" stroke="${color}" stroke-width="3"/>`,
     text,
   ].join('');
 }

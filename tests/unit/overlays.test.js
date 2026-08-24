@@ -168,3 +168,82 @@ test('composeOverlay shrinks real glyphs to remain inside the approved text box'
     assert.ok(manifest.items[0].rendered_text_width <= plan.items[0].width);
   });
 });
+
+test('composeOverlay draws a vertical dimension line when orientation is vertical', async () => {
+  await withTempWorkspace(async root => {
+    const inputPath = path.join(root, 'input.png');
+    const outputPath = path.join(root, 'vertical.png');
+    await sharp({create: {width: 500, height: 300, channels: 3, background: '#ffffff'}})
+      .png()
+      .toFile(inputPath);
+    const plan = {
+      canvas: {width: 500, height: 300},
+      facts: {'dimensions.height': {value: 12, unit: 'in'}},
+      items: [{
+        id: 'height',
+        type: 'dimension',
+        orientation: 'vertical',
+        factRef: 'dimensions.height',
+        text: '12 in',
+        x: 300,
+        y: 30,
+        width: 150,
+        height: 240,
+        fontSize: 42,
+      }],
+    };
+    await composeOverlay({
+      inputPath,
+      outputPath,
+      plan,
+      resolvedFont: {path: 'C:/Windows/Fonts/arialbd.ttf', family: 'Arial Bold', source: 'system'},
+    });
+    const {data, info} = await sharp(outputPath).removeAlpha().raw().toBuffer({resolveWithObject: true});
+    const hasDarkPixel = (x0, x1, y0, y1) => {
+      for (let y = y0; y < y1; y += 1) {
+        for (let x = x0; x < x1; x += 1) {
+          const offset = (y * info.width + x) * info.channels;
+          if (data[offset] < 80 && data[offset + 1] < 80 && data[offset + 2] < 80) return true;
+        }
+      }
+      return false;
+    };
+    assert.equal(hasDarkPixel(440, 450, 30, 55), true, 'top vertical arrow is missing');
+    assert.equal(hasDarkPixel(440, 450, 245, 270), true, 'bottom vertical arrow is missing');
+  });
+});
+
+test('layoutOverlay anchors dimension lines to subject bounds with a proportional gap', () => {
+  const plan = {
+    canvas: {width: 1000, height: 1000},
+    subjectBounds: {x: 100, y: 100, width: 400, height: 600},
+    facts: {'dimensions.height': {value: 12, unit: 'in'}},
+    items: [{
+      id: 'height',
+      type: 'dimension',
+      orientation: 'vertical',
+      anchor: {edge: 'right', gapRatio: 0.04},
+      factRef: 'dimensions.height',
+      text: '12 in',
+      x: 550,
+      y: 100,
+      width: 300,
+      height: 600,
+    }],
+  };
+
+  const layout = layoutOverlay(plan);
+  assert.deepEqual(layout.items[0].resolved_line, {
+    orientation: 'vertical',
+    subject_edge: 'right',
+    gap_ratio: 0.04,
+    gap: 40,
+    position: 540,
+    start: 100,
+    end: 700,
+  });
+  assert.throws(
+    () => layoutOverlay({...plan, items: [{...plan.items[0], anchor: {edge: 'right', gapRatio: 0.28}}]}),
+    error => error.code === 'OVERLAY_INVALID' && /2%.+6%/i.test(error.message),
+  );
+});
