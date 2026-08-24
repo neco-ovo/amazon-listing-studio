@@ -37,6 +37,14 @@ test('entrypoint describes two modes and four focused references', async () => {
   assert.doesNotMatch(skill, /read `?references\/capability-contracts\.md`?.*before every/is);
 });
 
+test('entrypoint confines each product to a portable collection-root child directory', async () => {
+  const skill = await readFile(path.join(root, 'SKILL.md'), 'utf8');
+  assert.match(skill, /projects-root/i);
+  assert.match(skill, /product.+root.+before.+(?:design|artifact)/is);
+  assert.match(skill, /all.+(?:design|image|Listing|delivery).+inside.+product/is);
+  assert.doesNotMatch(skill, /D:\\Amazon/);
+});
+
 test('skill routes every hard workflow requirement without bloating frontmatter', async () => {
   const skill = await readFile(path.join(root, 'SKILL.md'), 'utf8');
   const lines = skill.split(/\r?\n/);

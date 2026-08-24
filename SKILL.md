@@ -7,6 +7,8 @@ description: Generate, inspect, approve, and package real Amazon product images 
 
 Create real Amazon image and Listing artifacts in a per-product workspace. Default to Amazon.com and en-US unless the user requests another marketplace or language. Run deterministic state work through `scripts/studio.js`; use the active harness for real image generation and inspection.
 
+Before writing a design or artifact, select a portable `projects-root` and a safe single-directory product slug, then create or reuse only `<projects-root>/<product-slug>` as the product root. Keep every product design, reference, image, Listing file, state file, and delivery artifact inside that product root. A pre-existing product root may contain only `docs/superpowers/specs` and `docs/superpowers/plans` before initialization; preserve those documents. Never use the workspace root, projects-root itself, the Skill source repository, or another product directory as the product root.
+
 ## Choose one mode
 
 - **Fast mode:** one Listing field, presentation-only image repair, next approved gallery item, candidate recording, approval, or local knowledge lookup. Validate only the changed field or current artifact. Do not repeat market research, rule refresh, unrelated image work, or repository-wide tests.

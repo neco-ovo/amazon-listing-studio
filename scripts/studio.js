@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { access, mkdir, readFile, rename, writeFile } from 'node:fs/promises';
+import { access, mkdir, readFile, readdir, rename, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import sharp from 'sharp';
@@ -43,9 +43,49 @@ async function writeJsonAtomically(filePath, value) {
   await rename(temporary, filePath);
 }
 
+function blocking(message, details = {}) {
+  return Object.assign(new Error(message), {code: 'BLOCKING_INPUT', details});
+}
+
+function resolveInitProjectDir(options) {
+  if (!options['projects-root']) return path.resolve(requireOption(options, 'project-dir'));
+  const projectsRoot = path.resolve(options['projects-root']);
+  const projectId = requireOption(options, 'project-id');
+  if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(projectId)) {
+    throw blocking('Project ID must be a safe single-directory slug', {project_id: projectId});
+  }
+  const projectDir = path.resolve(projectsRoot, projectId);
+  if (path.dirname(projectDir) !== projectsRoot) {
+    throw blocking('Project path escapes the selected projects root', {project_id: projectId});
+  }
+  return projectDir;
+}
+
+function allowedPlanningPath(relativePath) {
+  const normalized = relativePath.split(path.sep).join('/');
+  return ['docs', 'docs/superpowers', 'docs/superpowers/specs', 'docs/superpowers/plans'].includes(normalized)
+    || normalized.startsWith('docs/superpowers/specs/')
+    || normalized.startsWith('docs/superpowers/plans/');
+}
+
+async function assertPlanningOnly(directory, current = directory) {
+  for (const entry of await readdir(current, {withFileTypes: true})) {
+    const absolute = path.join(current, entry.name);
+    const relative = path.relative(directory, absolute);
+    if (!allowedPlanningPath(relative) || entry.isSymbolicLink()) {
+      throw blocking('Pre-existing project directory contains unexpected content', {path: relative});
+    }
+    if (entry.isDirectory()) await assertPlanningOnly(directory, absolute);
+  }
+}
+
 async function initProject(options) {
-  const projectDir = path.resolve(requireOption(options, 'project-dir'));
-  if (await pathExists(projectDir)) throw Object.assign(new Error('Project directory already exists'), {code: 'BLOCKING_INPUT'});
+  const projectDir = resolveInitProjectDir(options);
+  const exists = await pathExists(projectDir);
+  if (exists) {
+    if (!options['projects-root']) throw blocking('Project directory already exists');
+    await assertPlanningOnly(projectDir);
+  }
   const state = createProjectState({
     projectId: requireOption(options, 'project-id'),
     productName: requireOption(options, 'product-name'),
@@ -56,8 +96,13 @@ async function initProject(options) {
   await mkdir(projectDir, {recursive: true});
   await writeFile(path.join(projectDir, 'state.json'), `${JSON.stringify(state, null, 2)}\n`, {flag: 'wx'});
   await writeFile(path.join(projectDir, 'project.md'), renderProjectSummary(state), {flag: 'wx'});
-  for (const directory of ['references', 'images', 'listing', 'delivery']) await mkdir(path.join(projectDir, directory));
-  return {project_dir: projectDir, created: ['project.md', 'state.json', 'references', 'images', 'listing', 'delivery']};
+  const directories = [
+    'docs/superpowers/specs', 'docs/superpowers/plans', 'references',
+    'images/main', 'images/secondary', 'images/candidates',
+    'listing/drafts', 'listing/approved', 'delivery'
+  ];
+  for (const directory of directories) await mkdir(path.join(projectDir, directory), {recursive: true});
+  return {project_dir: projectDir, created: ['project.md', 'state.json', ...directories]};
 }
 
 async function learnCategory(options) {
@@ -92,6 +137,15 @@ function candidatePath(projectDir, relativePath) {
   const resolved = path.resolve(root, relativePath);
   if (!resolved.startsWith(`${root}${path.sep}`)) {
     throw Object.assign(new Error('Candidate path escapes the project directory'), {code: 'BLOCKING_INPUT'});
+  }
+  return resolved;
+}
+
+function projectOutputPath(projectDir, requestedPath, label) {
+  const root = path.resolve(projectDir);
+  const resolved = path.resolve(requestedPath);
+  if (!resolved.startsWith(`${root}${path.sep}`)) {
+    throw blocking(`${label} must remain inside the product root`, {path: requestedPath, product_root: root});
   }
   return resolved;
 }
@@ -277,7 +331,7 @@ export async function runCli(argv, {clock = Date.now, candidateDependencies, lis
       });
     } else if (command === 'finalize') {
       const projectDir = path.resolve(requireOption(options, 'project-dir'));
-      const outputDir = path.resolve(requireOption(options, 'output'));
+      const outputDir = projectOutputPath(projectDir, requireOption(options, 'output'), 'Delivery output');
       const finalApproval = JSON.parse(await readFile(path.resolve(requireOption(options, 'approval')), 'utf8'));
       result = await buildV2({projectDir, outputDir, finalApproval});
     } else {
