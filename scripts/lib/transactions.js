@@ -3,6 +3,7 @@ import { readFile, rename, unlink, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fail } from './errors.js';
 import { renderProjectSummary, validateProjectState } from './project-state.js';
+import { approveDraft } from './listing-drafts.js';
 
 const SHA256 = /^[a-f0-9]{64}$/i;
 
@@ -90,6 +91,10 @@ export async function approveArtifact(state, input, {
       ? {kind: 'generate_gallery_item', gallery_item_id: following.id}
       : {kind: 'review_listing'};
   return {state: next, approval, next_action: nextAction};
+}
+
+export function approveListingDraft(state, input) {
+  return approveDraft(state, input);
 }
 
 async function replaceProjectFiles({statePath, projectPath, stateText, projectText}) {
