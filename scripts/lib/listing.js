@@ -22,6 +22,23 @@ export function utf8Bytes(value) {
   return Buffer.byteLength(String(value ?? ''), 'utf8');
 }
 
+const SCHEMA_SCOPE_FIELDS = ['marketplace', 'product_type', 'product_master_version', 'listing_version'];
+
+export function createSchemaAuthorization(scope, { authorized_at = new Date().toISOString() } = {}) {
+  const missing = SCHEMA_SCOPE_FIELDS.filter(field => scope?.[field] === undefined || scope[field] === null || scope[field] === '');
+  if (missing.length) throw new TypeError(`Schema authorization scope is incomplete: ${missing.join(', ')}`);
+  return {
+    status: 'authorized_to_continue_with_warnings',
+    ...Object.fromEntries(SCHEMA_SCOPE_FIELDS.map(field => [field, scope[field]])),
+    authorized_at
+  };
+}
+
+export function isSchemaAuthorizationCurrent(authorization, scope) {
+  return authorization?.status === 'authorized_to_continue_with_warnings'
+    && SCHEMA_SCOPE_FIELDS.every(field => authorization[field] === scope?.[field]);
+}
+
 function asArray(value) {
   if (Array.isArray(value)) return value;
   if (value === null || value === undefined || value === '') return [];

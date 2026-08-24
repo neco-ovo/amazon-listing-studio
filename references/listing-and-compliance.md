@@ -16,3 +16,5 @@ User urgency may authorize continuing the supported draft for that exact version
 Deterministic validation checks Unicode character counts, backend UTF-8 byte count, five-Bullet structure, `[HEADING] Body` format, claim references, prohibited promotion/contact/competitor patterns, current Product Master version, and one-condense limit. Semantic review remains responsible for natural retail language, conversion strength, unsupported implications, image/copy agreement, and category-specific policy meaning.
 
 Run `scripts/validate-listing.js` before review and again after every revision.
+
+For a user-approved warning path, create a scope with `createSchemaAuthorization` and verify it with `isSchemaAuthorizationCurrent` from `scripts/lib/listing.js`. Authorization is invalid after any marketplace, product type, Product Master version, or Listing version change.

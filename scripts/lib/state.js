@@ -182,13 +182,112 @@ export function lockProductMaster(assets, input) {
     status: 'approved',
     kind: 'main',
     is_product_master: true,
-    master_version: version
+    master_version: version,
+    product_master_version: version
   };
   const existingIndex = next.images.findIndex(image => image.id === approvedMain.id);
   if (existingIndex >= 0) next.images[existingIndex] = masterImage;
   else next.images.push(masterImage);
   next.updated_at = input.now || new Date().toISOString();
   return next;
+}
+
+export function planImageCorrection(image, { maxAutomaticCorrections = 2 } = {}) {
+  const attempts = Number(image?.correction_attempts ?? 0);
+  if (attempts >= maxAutomaticCorrections) {
+    fail('BLOCKING_INPUT', 'Automatic image correction limit reached; user direction is required', {
+      image_id: image?.id ?? null,
+      correction_attempts: attempts,
+      limit: maxAutomaticCorrections
+    });
+  }
+  return {
+    ...structuredClone(image),
+    parent_id: image?.id ?? null,
+    status: 'planned',
+    correction_attempts: attempts + 1
+  };
+}
+
+export function approveSecondaryImage(assets, input) {
+  const next = structuredClone(assets);
+  const image = input?.image;
+  const currentVersion = next.product_master?.version;
+  if (next.product_master?.status !== 'locked' || input?.product_master_version !== currentVersion) {
+    fail('BLOCKING_INPUT', 'Secondary approval requires the current locked Product Master', {
+      requested: input?.product_master_version ?? null,
+      current: currentVersion ?? null
+    });
+  }
+  if (!image?.id || image.kind === 'main' || !image.path || !sha256Pattern.test(image.sha256 || '') || image.inspection_status !== 'pass') {
+    fail('BLOCKING_INPUT', 'A saved, hashed, inspected secondary image is required');
+  }
+  const unresolved = next.images.find(candidate => candidate.kind !== 'main'
+    && !['approved', 'rejected', 'stale'].includes(candidate.status));
+  if (unresolved) fail('BLOCKING_INPUT', 'Approve or reject the current secondary before starting another', { image_id: unresolved.id });
+  if (next.images.some(candidate => candidate.id === image.id)) fail('BLOCKING_INPUT', 'Image ID already exists', { image_id: image.id });
+  next.images.push({
+    ...structuredClone(image),
+    status: 'approved',
+    approval_id: input.approval_id,
+    approved_at: input.now || new Date().toISOString(),
+    product_master_version: currentVersion,
+    selected: false
+  });
+  next.updated_at = input.now || new Date().toISOString();
+  return next;
+}
+
+export function recordListingApproval(assets, listing) {
+  const next = structuredClone(assets);
+  if (next.product_master?.status !== 'locked' || listing?.product_master_version !== next.product_master.version) {
+    fail('BLOCKING_INPUT', 'Listing approval requires the current Product Master');
+  }
+  if (!listing?.id || !(Number(listing.version) > 0) || listing.status !== 'approved'
+      || !['PASS', 'PASS_WITH_WARNINGS'].includes(listing.validation_status)
+      || !listing.json_path || !sha256Pattern.test(listing.json_sha256 || '')
+      || !listing.markdown_path || !sha256Pattern.test(listing.markdown_sha256 || '')) {
+    fail('BLOCKING_INPUT', 'A validated, versioned Listing with saved file hashes is required');
+  }
+  next.listing = structuredClone(listing);
+  next.updated_at = listing.approved_at || new Date().toISOString();
+  return next;
+}
+
+export function recordFinalApproval(assets, input) {
+  const next = structuredClone(assets);
+  if (!input?.id || input.finalized !== true || input.product_master_version !== next.product_master?.version
+      || input.listing_version !== next.listing?.version || next.listing?.status !== 'approved') {
+    fail('BLOCKING_INPUT', 'Final approval must match the current Product Master and Listing');
+  }
+  if (!input.marketplace || !input.product_type || !input.schema_status) {
+    fail('BLOCKING_INPUT', 'Marketplace, product type, and Schema status are required in final approval');
+  }
+  if (input.upload_ready === true && input.schema_status !== 'verified') {
+    fail('BLOCKING_INPUT', 'Schema-unverified approval cannot be upload-ready');
+  }
+  const ids = Array.isArray(input.artifact_ids) ? input.artifact_ids : [];
+  if (!ids.length || new Set(ids).size !== ids.length) fail('BLOCKING_INPUT', 'Final approval requires a unique image selection');
+  for (const id of ids) {
+    const image = next.images.find(candidate => candidate.id === id);
+    if (!image || image.status !== 'approved' || image.product_master_version !== next.product_master.version) {
+      fail('BLOCKING_INPUT', 'Final approval includes an unapproved or stale image', { image_id: id });
+    }
+  }
+  next.images = next.images.map(image => ({
+    ...image,
+    selected: ids.includes(image.id),
+    approval_id: ids.includes(image.id) ? input.id : image.approval_id
+  }));
+  next.listing = { ...next.listing, approval_id: input.id };
+  const approval = {
+    ...structuredClone(input),
+    ambiguous: false,
+    approved_at: input.now || new Date().toISOString()
+  };
+  next.approvals = [...(next.approvals || []), approval];
+  next.updated_at = approval.approved_at;
+  return { assets: next, approval };
 }
 
 export function invalidateDependents(state, changedFactIds, {
@@ -207,6 +306,14 @@ export function invalidateDependents(state, changedFactIds, {
     : image);
   if (next.assets.listing?.id && dependentIds.has(next.assets.listing.id)) {
     next.assets.listing = { ...next.assets.listing, status: 'stale', stale_at: now, stale_reason: reason };
+  }
+  if (dependentIds.size > 0 && Array.isArray(next.assets.approvals)) {
+    next.assets.approvals = next.assets.approvals.map(approval => approval.finalized === true
+      ? { ...approval, status: 'stale', stale_at: now, stale_reason: reason }
+      : approval);
+  }
+  if (dependentIds.size > 0 && next.assets.final_bundle?.status === 'built') {
+    next.assets.final_bundle = { ...next.assets.final_bundle, status: 'stale', stale_at: now, stale_reason: reason };
   }
   next.assets.updated_at = now;
   return next;

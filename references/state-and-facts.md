@@ -29,3 +29,5 @@ Record product identity, confirmed physical dimensions and ratio, color, materia
 An identity fact change increments Product Master when the identity lock is revised and marks only explicit dependent images and Listing fields stale. A presentation-only change such as crop, white-background correction, exposure, or shadow replaces only affected presentation assets.
 
 Never erase the older file, rejection, approval, or version history.
+
+The file-first orchestration helpers are `planImageCorrection`, `approveSecondaryImage`, `recordListingApproval`, and `recordFinalApproval` in `scripts/lib/state.js`. They enforce the two-correction stop, current Product Master binding, saved hashes, sequential image approval, validated Listing state, and exact final artifact scope without a server or global singleton.
