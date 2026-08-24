@@ -1,12 +1,10 @@
-import { validateState } from './lib/state.js';
+#!/usr/bin/env node
+import { runCli } from './studio.js';
 
-const target = process.argv[2];
-if (!target) {
-  console.error('Usage: node scripts/validate-state.js <project-dir>');
-  process.exitCode = 1;
-} else {
-  const result = await validateState(target);
-  console.log(result.valid ? 'PASS' : 'FAIL');
-  for (const error of result.errors) console.error(`- ${error}`);
-  process.exitCode = result.valid ? 0 : 1;
-}
+console.error('[deprecated] Use scripts/studio.js validate.');
+const projectDir = process.argv[2];
+const result = projectDir
+  ? await runCli(['validate', '--project-dir', projectDir])
+  : {ok: false, code: 'BLOCKING_INPUT', message: 'Project directory is required'};
+process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
+if (!result.ok || result.result?.valid === false) process.exitCode = 1;

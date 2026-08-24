@@ -22,6 +22,42 @@ export function utf8Bytes(value) {
   return Buffer.byteLength(String(value ?? ''), 'utf8');
 }
 
+function searchTokens(value) {
+  return String(value ?? '').toLocaleLowerCase('en-US').match(/[\p{L}\p{N}]+/gu) ?? [];
+}
+
+function frontText(listing) {
+  const bullets = (listing?.bullets ?? []).map(bullet => typeof bullet === 'string'
+    ? bullet
+    : `${bullet?.heading ?? ''} ${bullet?.body ?? ''}`);
+  return [
+    listing?.title,
+    listing?.item_highlights,
+    ...bullets,
+    listing?.description,
+    ...(listing?.special_features ?? []),
+    ...Object.values(listing?.attributes ?? {})
+  ].filter(value => value !== null && value !== undefined).join(' ');
+}
+
+export function findFrontBackDuplicates(listing = {}) {
+  const frontend = new Set(searchTokens(frontText(listing)));
+  return [...new Set(searchTokens(listing.backend_search_terms))].filter(token => frontend.has(token));
+}
+
+const EMPTY_BENEFIT = /^(?:supports?|provides?|offers?)\s+(?:a\s+|an\s+)?(?:(?:various|different|exposed|general|everyday|straightforward|versatile)\s+)*(?:settings?|applications?|uses?|needs?|placement|contexts?)\.?$/i;
+
+export function findEmptyBenefitPhrases(listing = {}) {
+  const flagged = [];
+  for (const [index, bullet] of (listing.bullets ?? []).entries()) {
+    const body = typeof bullet === 'string'
+      ? bullet.replace(/^\[[^\]]+\]\s*/, '')
+      : String(bullet?.body ?? '');
+    if (EMPTY_BENEFIT.test(body.trim())) flagged.push(`bullets.${index}.body`);
+  }
+  return flagged;
+}
+
 const SCHEMA_SCOPE_FIELDS = ['project_id', 'marketplace', 'product_type', 'product_master_version', 'listing_version'];
 
 export function createSchemaAuthorization(scope, { authorized_at = new Date().toISOString() } = {}) {

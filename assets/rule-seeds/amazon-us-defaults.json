@@ -1,6 +1,7 @@
 {
   "schema_version": 1,
   "marketplace": "amazon.com",
+  "product_types": ["*"],
   "language": "en-US",
   "verified_on": "2026-08-24",
   "effective_date": "2026-07-27",

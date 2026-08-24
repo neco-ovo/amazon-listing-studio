@@ -16,7 +16,7 @@ import {withTempWorkspace} from '../helpers/temp-workspace.js';
 const hash = bytes => createHash('sha256').update(bytes).digest('hex');
 const now = '2026-08-24T12:00:00.000Z';
 
-test('runs the complete file-first launch workflow without a server', async () => {
+test('keeps the legacy v1 file-first launch workflow compatible without a server', async () => {
   await withTempWorkspace(async root => {
     for (const name of ['approveSecondaryImage', 'recordListingApproval', 'recordFinalApproval']) {
       assert.equal(typeof state[name], 'function', `${name} orchestration helper is required`);

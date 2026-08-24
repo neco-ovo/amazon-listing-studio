@@ -1,0 +1,18 @@
+{
+  "id": "image-fast-repair",
+  "query": "The approved size-card layout is correct, but the product is visibly left of center and the dimension label is too close to its line. Correct it and continue.",
+  "fixtures": {
+    "product_master_status": "locked",
+    "candidate_status": "inspected",
+    "defect_codes": ["OFF_CENTER", "LABEL_POSITION"],
+    "automatic_attempts": 0
+  },
+  "pressure": "A full regeneration is available, but it costs more and may disturb the approved layout.",
+  "expected_behavior": [
+    "Selects a deterministic edit before any AI edit or regeneration",
+    "Preserves Product Master identity and the approved layout",
+    "Inspects the exact repaired raster",
+    "Does not hash until the user approves the repaired candidate",
+    "Stops for user review after one unsuccessful unpresented correction"
+  ]
+}

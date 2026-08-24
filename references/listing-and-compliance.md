@@ -1,6 +1,6 @@
 # Listing limits and dynamic rules
 
-For Amazon.com `en-US`, the dated local snapshot verified on 2026-08-24 records Amazon's 2026-07-27 non-media title limit of 75 characters including spaces and the new 125-character Item Highlights field. Amazon describes the two fields as a combined 200-character information space. See `assets/rules/amazon-us-defaults.json` for dated source URLs.
+For Amazon.com `en-US`, the dated local snapshot verified on 2026-08-24 records Amazon's 2026-07-27 non-media title limit of 75 characters including spaces and the new 125-character Item Highlights field. Amazon describes the two fields as a combined 200-character information space. See `assets/rule-seeds/amazon-us-defaults.json` for dated source URLs.
 
 The project defaults of 200 characters per Bullet, 1000 combined Bullet characters, 2000 Description characters, and 250 UTF-8 bytes for backend search terms are conservative internal targets—not claims of one permanent universal Amazon rule. Resolve current rules in this order:
 

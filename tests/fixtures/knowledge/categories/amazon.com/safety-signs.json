@@ -1,0 +1,18 @@
+{
+  "schema_version": 1,
+  "marketplace": "amazon.com",
+  "category_id": "safety-signs",
+  "observations": {
+    "weatherproof": {
+      "value": true,
+      "observed_at": "2026-08-24T00:00:00.000Z",
+      "source_ids": ["amazon-competitor-set-1"]
+    },
+    "reflective": {
+      "value": true,
+      "observed_at": "2026-08-24T00:00:00.000Z",
+      "source_ids": ["amazon-competitor-set-1"]
+    }
+  },
+  "market_language": ["jobsite", "PPE area", "construction site"]
+}
