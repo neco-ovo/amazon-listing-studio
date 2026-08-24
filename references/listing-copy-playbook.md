@@ -15,3 +15,5 @@ Generate one consolidated conversion-oriented Listing review after all selected 
 Use user-confirmed facts first. Link observations, competitor language, style references, target specifications, and AI suggestions cannot become product claims. Avoid prices, promotions, guarantees, superiority, competitor brands, medical implications, contact details, URLs, and unsupported compatibility, performance, material-grade, certification, durability, safety, or included-component statements.
 
 Review the complete package once for conversion quality, clarity, natural keyword coverage, non-repetition, fact support, and agreement with approved images. Ask the user for one consolidated Listing approval; revise only the selected findings and revalidate the new version.
+
+Present the review in this order: Title; Item Highlights; five Bullets; Description; Backend Search Terms; Special Features; attributes; claim references; validation counts; Schema warnings; `upload_ready`. Final approval must name the current Listing version and Product Master version so a later scoped revision cannot inherit the earlier approval.

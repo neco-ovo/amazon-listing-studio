@@ -11,4 +11,8 @@ The project defaults of 200 characters per Bullet, 1000 combined Bullet characte
 
 When a current category Schema is unavailable, keep all fact-supported copy, list only the affected fields in `rules_unverified`, bind any user authorization to the current marketplace/product type/Product Master/Listing version, and set `upload_ready: false`. Do not label the bundle platform-approved or directly uploadable. Ask one concise question if permission to continue is required; no Case ID or exhaustive proof package is needed.
 
+User urgency may authorize continuing the supported draft for that exact version, but it cannot remove the warning, verify unknown field names or accepted values, or change `upload_ready` to true. Recheck after any marketplace, product type, Product Master, or Listing-version change.
+
 Deterministic validation checks Unicode character counts, backend UTF-8 byte count, five-Bullet structure, `[HEADING] Body` format, claim references, prohibited promotion/contact/competitor patterns, current Product Master version, and one-condense limit. Semantic review remains responsible for natural retail language, conversion strength, unsupported implications, image/copy agreement, and category-specific policy meaning.
+
+Run `scripts/validate-listing.js` before review and again after every revision.

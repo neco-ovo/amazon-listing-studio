@@ -16,6 +16,8 @@ Current explicit user confirmation is authoritative. A conflicting link or docum
 
 Every publishable fact records its source IDs and dependent artifact IDs. Unknown or conflicting facts cannot support image labels, Listing claims, Special Features, or category attributes.
 
+Ask one concise question when a missing or conflicting fact blocks the current phase. Do not stop the entire project for a field that affects only a later optional card or Schema-dependent attribute; record it as `unknown` and continue supported work.
+
 ## Product Master lock
 
 Facts alone do not create a Product Master. Lock only after the main raster has been generated, saved, decoded, hashed, inspected at its saved path, presented, and explicitly approved.

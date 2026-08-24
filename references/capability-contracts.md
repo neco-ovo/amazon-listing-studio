@@ -2,6 +2,8 @@
 
 Check capabilities at project start and again when the relevant operation is first used.
 
+Existing artifacts, user ownership, deadlines, and provider success messages do not weaken these contracts. Resume only from evidence recorded for the exact saved artifact and current version.
+
 ## `ask_user`
 
 Ask one concise question when the current phase lacks a required fact, two user confirmations conflict, unusual geometry needs a choice, or unverified category Schema needs authorization. Do not demand Case IDs or exhaustive forms.

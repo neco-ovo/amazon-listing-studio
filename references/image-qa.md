@@ -4,6 +4,8 @@
 
 The validator reports failures and never crops or repairs the asset. Its passing result is not semantic approval: identity, product count, invented parts, misleading claims, text, logos, watermarks, and marketplace/category rules still require saved-file inspection before user approval.
 
+Run `scripts/validate-image.js` on the exact saved raster, then inspect that same file visually. Six existing images, a trusted provider, user ownership, or an urgent deadline never substitutes for inspection. A hard failure creates a new historical candidate; do not reinterpret it as approval because regeneration is costly.
+
 ## Deterministic overlays
 
 Add exact dimensions, labels, and benefit copy after image generation through a bounded SVG overlay. Every item must contain nonempty approved text, remain fully inside the canvas, and resolve any `factRef` from the current fact ledger. The composer embeds the resolved font, draws dimension lines and arrowheads explicitly, and records exact text, unit, fact value, bounds, font path/source/hash/fallback, input/output hashes, and composite dimensions.

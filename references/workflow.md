@@ -20,7 +20,7 @@ Default to three distinct application scenes, one size/spec image, one material/
 
 ## Listing
 
-Start after the chosen secondary set is current. Generate Title, optional Item Highlights, exactly five Bullets, Description, Backend Search Terms, Special Features, and supported category attributes. Use approved publishable facts only. If Schema is unavailable, ask once whether to continue, label only affected fields, and keep `upload_ready=false`.
+Start after the chosen secondary set is current. Generate Title, Item Highlights, exactly five Bullets, Description, Backend Search Terms, Special Features, and supported category attributes. Use approved publishable facts only. Present all fields and warnings together for one consolidated review. If Schema is unavailable, ask once whether to continue, label only affected fields, and keep `upload_ready=false`.
 
 ## Rejection and change
 
@@ -29,3 +29,5 @@ Never overwrite a rejected or approved asset. Create a child version with one ta
 ## Delivery
 
 Require one consolidated approval bound to the current Product Master, image set, Listing, marketplace, product type, and Schema status. Reject missing, corrupt, stale, or unapproved artifacts. Produce relative paths, media types, byte sizes, and SHA-256 hashes.
+
+Sunk cost, product ownership, and urgency do not bypass saved-file inspection, sequential secondary approval, Schema warnings, or version-bound final approval. Resume from recorded evidence rather than assuming existing files were approved.
