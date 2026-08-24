@@ -78,13 +78,53 @@ function escapeXml(value) {
     .replaceAll("'", '&apos;');
 }
 
-function textPathSvg(item, font, color, fontSize) {
+function glyphBounds(run) {
+  let penX = 0;
+  let penY = 0;
+  let minX = Infinity;
+  let minY = Infinity;
+  let maxX = -Infinity;
+  let maxY = -Infinity;
+  run.glyphs.forEach((glyph, index) => {
+    const position = run.positions[index];
+    const bounds = glyph.bbox;
+    minX = Math.min(minX, penX + position.xOffset + bounds.minX);
+    maxX = Math.max(maxX, penX + position.xOffset + bounds.maxX);
+    minY = Math.min(minY, penY + position.yOffset + bounds.minY);
+    maxY = Math.max(maxY, penY + position.yOffset + bounds.maxY);
+    penX += position.xAdvance;
+    penY += position.yAdvance;
+  });
+  if (![minX, minY, maxX, maxY].every(Number.isFinite) || maxX <= minX || maxY <= minY) {
+    throw invalid('Overlay text has no measurable glyph bounds.');
+  }
+  return {minX, minY, maxX, maxY, width: maxX - minX, height: maxY - minY};
+}
+
+function fitText(item, font) {
   const run = font.layout(item.text);
+  const bounds = glyphBounds(run);
+  const requested = Math.min(item.fontSize ?? item.height * 0.55, item.height * 0.8);
+  const widthFit = item.width * font.unitsPerEm / bounds.width;
+  const heightFit = item.height * font.unitsPerEm / bounds.height;
+  const fontSize = Math.max(1, Math.min(requested, widthFit, heightFit) * 0.98);
   const scale = fontSize / font.unitsPerEm;
+  return {
+    run,
+    bounds,
+    fontSize,
+    scale,
+    renderedWidth: bounds.width * scale,
+    renderedHeight: bounds.height * scale,
+  };
+}
+
+function textPathSvg(item, font, color, fit) {
+  const {run, bounds, scale} = fit;
   const centerX = item.x + item.width / 2;
   const centerY = item.y + item.height / 2;
-  const startX = centerX - (run.advanceWidth * scale) / 2;
-  const baseline = centerY + ((font.ascent + font.descent) * scale) / 2;
+  const startX = centerX - ((bounds.minX + bounds.maxX) * scale) / 2;
+  const baseline = centerY + ((bounds.minY + bounds.maxY) * scale) / 2;
   let penX = 0;
   const paths = run.glyphs.map((glyph, index) => {
     const position = run.positions[index];
@@ -97,8 +137,8 @@ function textPathSvg(item, font, color, fontSize) {
 
 function itemSvg(item, font) {
   const color = escapeXml(item.color ?? '#111111');
-  const fontSize = Math.max(12, Math.min(item.fontSize ?? item.height * 0.55, item.height * 0.8));
-  const text = textPathSvg(item, font, color, fontSize);
+  const fit = fitText(item, font);
+  const text = textPathSvg(item, font, color, fit);
   if (item.type !== 'dimension') return text;
   const lineY = item.y + item.height - 4;
   const arrow = Math.min(12, item.height / 4);
@@ -140,9 +180,18 @@ export async function composeOverlay({inputPath, outputPath, plan, resolvedFont}
       actual: {width: inputMetadata.width, height: inputMetadata.height},
     });
   }
+  const fittedItems = layout.items.map(item => {
+    const fit = fitText(item, font);
+    return {
+      ...item,
+      resolved_font_size: fit.fontSize,
+      rendered_text_width: fit.renderedWidth,
+      rendered_text_height: fit.renderedHeight,
+    };
+  });
   const svg = Buffer.from(
     `<svg xmlns="http://www.w3.org/2000/svg" width="${layout.canvas.width}" height="${layout.canvas.height}">`
-    + layout.items.map(item => itemSvg(item, font)).join('')
+    + fittedItems.map(item => itemSvg(item, font)).join('')
     + '</svg>',
   );
   await sharp(inputBytes).composite([{input: svg, left: 0, top: 0}]).toFile(outputPath);
@@ -156,7 +205,7 @@ export async function composeOverlay({inputPath, outputPath, plan, resolvedFont}
     input_path: inputPath,
     output_path: outputPath,
     canvas: layout.canvas,
-    items: layout.items,
+    items: fittedItems,
     bounds_ok: layout.bounds_ok,
     font: {
       path: resolvedFont.path,

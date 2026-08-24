@@ -121,3 +121,50 @@ test('composeOverlay renders the selected font bytes into different glyph pixels
     assert.notEqual(arial.output_sha256, times.output_sha256);
   });
 });
+
+test('composeOverlay shrinks real glyphs to remain inside the approved text box', async () => {
+  await withTempWorkspace(async root => {
+    const inputPath = path.join(root, 'input.png');
+    const outputPath = path.join(root, 'fitted.png');
+    await sharp({create: {width: 400, height: 220, channels: 3, background: '#ffffff'}})
+      .png()
+      .toFile(inputPath);
+    const plan = {
+      canvas: {width: 400, height: 220},
+      facts: {},
+      items: [{
+        id: 'display-copy',
+        type: 'text',
+        text: 'WWWWWW',
+        x: 120,
+        y: 40,
+        width: 160,
+        height: 140,
+        fontSize: 120,
+        color: '#000000',
+      }],
+    };
+    const manifest = await composeOverlay({
+      inputPath,
+      outputPath,
+      plan,
+      resolvedFont: {path: 'C:/Windows/Fonts/arialbd.ttf', family: 'Arial Bold', source: 'system'},
+    });
+    const {data, info} = await sharp(outputPath).removeAlpha().raw().toBuffer({resolveWithObject: true});
+    let minX = info.width;
+    let maxX = -1;
+    for (let y = 0; y < info.height; y += 1) {
+      for (let x = 0; x < info.width; x += 1) {
+        const offset = (y * info.width + x) * info.channels;
+        if (data[offset] < 245 || data[offset + 1] < 245 || data[offset + 2] < 245) {
+          minX = Math.min(minX, x);
+          maxX = Math.max(maxX, x);
+        }
+      }
+    }
+    assert.ok(minX >= plan.items[0].x, `glyph begins at ${minX}`);
+    assert.ok(maxX < plan.items[0].x + plan.items[0].width, `glyph ends at ${maxX}`);
+    assert.ok(manifest.items[0].resolved_font_size < plan.items[0].fontSize);
+    assert.ok(manifest.items[0].rendered_text_width <= plan.items[0].width);
+  });
+});

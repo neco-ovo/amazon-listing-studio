@@ -68,3 +68,24 @@ test('implementation has no legacy WebUI, server, or worker lifecycle', async ()
     assert.doesNotMatch(text, prohibited, path.relative(root, file));
   }
 });
+
+test('main-image guidance adapts reference layouts and uses deterministic text only as repair', async () => {
+  const imageGuidance = await readFile(path.join(root, 'references', 'image-generation.md'), 'utf8');
+  const fontGuidance = await readFile(path.join(root, 'references', 'font-selection.md'), 'utf8');
+  const skill = await readFile(path.join(root, 'SKILL.md'), 'utf8');
+
+  assert.match(imageGuidance, /generate.+complete.+exact text.+first/i);
+  assert.match(imageGuidance, /deterministic.+repair/i);
+  assert.match(imageGuidance, /portrait.+(?:negative|empty) space/i);
+  assert.match(imageGuidance, /identity invariants/i);
+  assert.match(imageGuidance, /emphasis_fields/);
+  assert.match(imageGuidance, /layout_variant/);
+  assert.match(imageGuidance, /font_mood/);
+  assert.match(imageGuidance, /reference_fidelity/);
+  assert.match(imageGuidance, /text_render_strategy/);
+  assert.match(fontGuidance, /Google Fonts/);
+  assert.match(fontGuidance, /display font.+body font/i);
+  assert.match(fontGuidance, /style coherence/i);
+  assert.match(skill, /deterministic.+repair/i);
+  assert.doesNotMatch(skill, /For exact text, choose a font.+compose-overlay/i);
+});

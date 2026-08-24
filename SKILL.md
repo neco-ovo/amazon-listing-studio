@@ -51,7 +51,7 @@ At intake, ask one concise question whenever information blocking the current ph
 3. Present the candidate and findings. Only explicit approval may lock Product Master.
 4. Plan the default gallery: three distinct application scenes, one size/spec card, one material/detail card, and one back/structure card. Replace a card whose required facts are unavailable.
 5. Generate, inspect, present, and approve each secondary sequentially. Use the locked Product Master as the first identity reference.
-6. For exact text, choose a font using `scripts/scan-fonts.js`, compose with `scripts/compose-overlay.js`, and inspect the final composite—not only the generated base.
+6. For fixed product-face copy, generate the complete exact-text composition first. If the saved product and layout pass but text fails, use `scripts/scan-fonts.js` and `scripts/compose-overlay.js` for deterministic text repair, then inspect the repaired composite. Do not default to a text-free base.
 
 ## Listing and delivery sequence
 
