@@ -3,11 +3,12 @@ import { access, mkdir, readFile, rename, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import sharp from 'sharp';
-import { classifyOperation } from './lib/operations.js';
+import { classifyOperation, validateChangedListing } from './lib/operations.js';
 import { createProjectState, renderProjectSummary, validateProjectState } from './lib/project-state.js';
-import { approveArtifact, updateProject } from './lib/transactions.js';
+import { approveArtifact, approveListingDraft, updateProject } from './lib/transactions.js';
 import { migrateLegacyProject } from './lib/migration.js';
 import { validateMainImage } from './lib/images.js';
+import { renderListing, reviseDraft } from './lib/listing-drafts.js';
 
 function parseArgs(argv) {
   const [command, ...rest] = argv;
@@ -177,13 +178,51 @@ export async function runRecordCandidate({projectDir, candidate}, {
 }
 
 export async function runApprove(input, {hashFile} = {}) {
+  if (input.artifactType === 'listing') {
+    return updateProject(input.projectDir, state => approveListingDraft(state, {
+      userAction: 'approved',
+      now: input.now
+    }));
+  }
   return updateProject(input.projectDir, state => approveArtifact(state, {
-    artifactId: input.artifactId,
-    artifactType: input.artifactType ?? 'image',
-    path: input.path,
-    userAction: 'approved',
-    now: input.now
-  }, {projectDir: input.projectDir, hashFile}));
+      artifactId: input.artifactId,
+      artifactType: input.artifactType ?? 'image',
+      path: input.path,
+      userAction: 'approved',
+      now: input.now
+    }, {projectDir: input.projectDir, hashFile}));
+}
+
+async function defaultLoadState(projectDir) {
+  return JSON.parse(await readFile(path.join(path.resolve(projectDir), 'state.json'), 'utf8'));
+}
+
+async function defaultWriteListingTransaction({projectDir, state, markdown}) {
+  const result = await updateProject(projectDir, () => state);
+  const listingDir = path.join(path.resolve(projectDir), 'listing');
+  await mkdir(listingDir, {recursive: true});
+  const outputPath = path.join(listingDir, 'draft.md');
+  const temporary = `${outputPath}.tmp-${process.pid}-${Date.now()}`;
+  await writeFile(temporary, markdown, {encoding: 'utf8', flag: 'wx'});
+  await rename(temporary, outputPath);
+  return result;
+}
+
+export async function runListingRevision(input, dependencies = {}) {
+  const route = classifyOperation({kind: 'listing_field_edit'});
+  const changedPaths = Object.keys(input?.patch?.fields ?? {});
+  const loadState = dependencies.loadState ?? defaultLoadState;
+  const patchDraft = dependencies.patchDraft ?? ((state, patch) => reviseDraft(state, patch, {now: input.now}));
+  const validateChanged = dependencies.validateChanged ?? validateChangedListing;
+  const renderMarkdown = dependencies.renderMarkdown ?? renderListing;
+  const writeTransaction = dependencies.writeTransaction ?? defaultWriteListingTransaction;
+
+  const current = await loadState(input.projectDir);
+  const next = patchDraft(current, input.patch);
+  const validation = validateChanged(next, changedPaths);
+  const markdown = renderMarkdown(next.listing.draft);
+  const transaction = await writeTransaction({projectDir: input.projectDir, state: next, markdown});
+  return {...transaction, mode: route.mode, changed_paths: changedPaths, validation};
 }
 
 function operationFor(command) {
@@ -191,6 +230,7 @@ function operationFor(command) {
     init: 'new_project',
     'learn-category': 'learn_category',
     'record-candidate': 'record_candidate',
+    'revise-listing': 'listing_field_edit',
     approve: 'approve_asset',
     validate: 'knowledge_lookup',
     migrate: 'migrate'
@@ -198,7 +238,7 @@ function operationFor(command) {
   return classifyOperation({kind: kinds[command] ?? command});
 }
 
-export async function runCli(argv, {clock = Date.now, candidateDependencies, hashFile} = {}) {
+export async function runCli(argv, {clock = Date.now, candidateDependencies, listingDependencies, hashFile} = {}) {
   const started = clock();
   let parsed;
   try {
@@ -214,13 +254,18 @@ export async function runCli(argv, {clock = Date.now, candidateDependencies, has
     }
     else if (command === 'approve') {
       const projectDir = path.resolve(requireOption(options, 'project-dir'));
+      const artifactType = options.type ?? 'image';
       result = await runApprove({
         projectDir,
-        artifactId: requireOption(options, 'artifact-id'),
-        artifactType: options.type ?? 'image',
-        path: requireOption(options, 'path'),
+        artifactId: artifactType === 'listing' ? null : requireOption(options, 'artifact-id'),
+        artifactType,
+        path: artifactType === 'listing' ? null : requireOption(options, 'path'),
         now: options.now
       }, {hashFile});
+    } else if (command === 'revise-listing') {
+      const projectDir = path.resolve(requireOption(options, 'project-dir'));
+      const patch = JSON.parse(await readFile(path.resolve(requireOption(options, 'patch')), 'utf8'));
+      result = await runListingRevision({projectDir, patch, now: options.now}, listingDependencies);
     } else if (command === 'validate') {
       const state = JSON.parse(await readFile(path.join(path.resolve(requireOption(options, 'project-dir')), 'state.json'), 'utf8'));
       result = validateProjectState(state);

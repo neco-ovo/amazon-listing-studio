@@ -1,4 +1,5 @@
 import { fail } from './errors.js';
+import { findEmptyBenefitPhrases, findFrontBackDuplicates } from './listing.js';
 
 const ROUTES = Object.freeze({
   listing_field_edit: {mode: 'fast', reason: 'LOCAL_LISTING_CHANGE'},
@@ -62,5 +63,35 @@ export function validationPlan({operation, changedPaths = []}) {
     scope: 'final',
     changed_paths: [...new Set(changedPaths)],
     checks: ['state.complete', 'facts.complete', 'dependencies.complete']
+  };
+}
+
+function valueAtPath(root, fieldPath) {
+  return fieldPath.split('.').reduce((value, part) => {
+    if (value === null || value === undefined) return undefined;
+    return value[Array.isArray(value) ? Number(part) : part];
+  }, root);
+}
+
+export function validateChangedListing(state, changedPaths = []) {
+  const content = state?.listing?.draft?.content;
+  if (!content) fail('BLOCKING_INPUT', 'A working Listing draft is required');
+  const paths = [...new Set(changedPaths)];
+  if (paths.length === 0) fail('BLOCKING_INPUT', 'Changed Listing paths are required');
+  for (const fieldPath of paths) {
+    const value = valueAtPath(content, fieldPath);
+    if (value === undefined) fail('BLOCKING_INPUT', 'Changed Listing field does not exist', {field: fieldPath});
+    if (typeof value === 'string' && value.trim() === '') {
+      fail('BLOCKING_INPUT', 'Changed Listing field cannot be blank', {field: fieldPath});
+    }
+  }
+
+  const emptyPhrases = findEmptyBenefitPhrases(content).filter(field => paths.includes(field));
+  if (emptyPhrases.length) fail('BLOCKING_INPUT', 'Changed Bullet uses empty benefit phrasing', {fields: emptyPhrases});
+  const backendChanged = paths.includes('backend_search_terms');
+  return {
+    ok: true,
+    plan: validationPlan({operation: {kind: 'listing_field_edit'}, changedPaths: paths}),
+    advisories: backendChanged ? {frontend_duplicates: findFrontBackDuplicates(content)} : {}
   };
 }

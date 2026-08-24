@@ -94,7 +94,12 @@ export async function approveArtifact(state, input, {
 }
 
 export function approveListingDraft(state, input) {
-  return approveDraft(state, input);
+  const next = approveDraft(state, input);
+  return {
+    state: next,
+    approval: next.approvals.at(-1),
+    next_action: {kind: 'finalize'}
+  };
 }
 
 async function replaceProjectFiles({statePath, projectPath, stateText, projectText}) {
