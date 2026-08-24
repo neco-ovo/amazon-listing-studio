@@ -39,14 +39,17 @@ export async function approveArtifact(state, input, {
 } = {}) {
   if (input?.userAction !== 'approved') fail('BLOCKING_INPUT', 'Explicit approved user action is required');
   if (input.artifactType !== 'image') fail('BLOCKING_INPUT', 'Unsupported artifact type', {artifact_type: input.artifactType});
-  if (state.product_master?.status !== 'locked') fail('BLOCKING_INPUT', 'Image approval requires a locked Product Master');
 
   const candidate = state.gallery?.assets?.[input.artifactId];
   if (!candidate || candidate.status !== 'candidate' || candidate.inspection_status !== 'pass') {
     fail('BLOCKING_INPUT', 'A passing current image candidate is required', {artifact_id: input.artifactId ?? null});
   }
+  const isMain = candidate.kind === 'main';
+  if (!isMain && state.product_master?.status !== 'locked') {
+    fail('BLOCKING_INPUT', 'Secondary image approval requires a locked Product Master');
+  }
   if (candidate.path !== input.path) fail('BLOCKING_INPUT', 'Approval path does not match the presented candidate');
-  if (candidate.product_master_version !== state.product_master.version) {
+  if (!isMain && candidate.product_master_version !== state.product_master.version) {
     fail('STALE_DEPENDENCY', 'Candidate is not bound to the current Product Master');
   }
 
@@ -63,7 +66,7 @@ export async function approveArtifact(state, input, {
     artifact_id: input.artifactId,
     path: input.path,
     sha256,
-    product_master_version: next.product_master.version,
+    product_master_version: isMain ? 0 : next.product_master.version,
     fact_ids: [...new Set(candidate.fact_ids ?? [])],
     approved_at: approvedAt,
     user_action: input.userAction
@@ -81,9 +84,11 @@ export async function approveArtifact(state, input, {
   next.project.updated_at = approvedAt;
 
   const following = next.gallery.plan.find(item => !['approved', 'rejected', 'not_applicable'].includes(item.status));
-  const nextAction = following
-    ? {kind: 'generate_gallery_item', gallery_item_id: following.id}
-    : {kind: 'review_listing'};
+  const nextAction = isMain
+    ? {kind: 'lock_product_master', approved_main_id: input.artifactId}
+    : following
+      ? {kind: 'generate_gallery_item', gallery_item_id: following.id}
+      : {kind: 'review_listing'};
   return {state: next, approval, next_action: nextAction};
 }
 

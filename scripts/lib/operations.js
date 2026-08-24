@@ -4,6 +4,7 @@ const ROUTES = Object.freeze({
   listing_field_edit: {mode: 'fast', reason: 'LOCAL_LISTING_CHANGE'},
   image_presentation_edit: {mode: 'fast', reason: 'PRESENTATION_ONLY_CHANGE'},
   next_gallery_item: {mode: 'fast', reason: 'APPROVED_GALLERY_PLAN'},
+  record_candidate: {mode: 'fast', reason: 'CURRENT_IMAGE_CANDIDATE'},
   approve_asset: {mode: 'fast', reason: 'CURRENT_ARTIFACT_APPROVAL'},
   knowledge_lookup: {mode: 'fast', reason: 'LOCAL_LIBRARY_LOOKUP'},
   learn_category: {mode: 'full', reason: 'SHARED_KNOWLEDGE_CHANGE'},
@@ -32,6 +33,10 @@ const CHECKS = Object.freeze({
   image_presentation_edit: {
     scope: 'changed',
     checks: ['image.decode', 'image.changed-geometry', 'image.saved-file-inspection']
+  },
+  record_candidate: {
+    scope: 'changed',
+    checks: ['image.decode', 'image.relevant-checks', 'image.saved-file-inspection']
   },
   approve_asset: {
     scope: 'artifact',

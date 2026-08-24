@@ -2,10 +2,12 @@
 import { access, mkdir, readFile, rename, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
+import sharp from 'sharp';
 import { classifyOperation } from './lib/operations.js';
 import { createProjectState, renderProjectSummary, validateProjectState } from './lib/project-state.js';
 import { approveArtifact, updateProject } from './lib/transactions.js';
 import { migrateLegacyProject } from './lib/migration.js';
+import { validateMainImage } from './lib/images.js';
 
 function parseArgs(argv) {
   const [command, ...rest] = argv;
@@ -80,24 +82,115 @@ async function learnCategory(options) {
   return {path: outputPath, observation_count: Object.keys(output.observations).length};
 }
 
-async function recordCandidate(options) {
-  const projectDir = path.resolve(requireOption(options, 'project-dir'));
-  const candidate = JSON.parse(await readFile(path.resolve(requireOption(options, 'input')), 'utf8'));
-  return updateProject(projectDir, state => {
+function candidatePath(projectDir, relativePath) {
+  if (!relativePath || path.isAbsolute(relativePath)) {
+    throw Object.assign(new Error('Candidate path must be project-relative'), {code: 'BLOCKING_INPUT'});
+  }
+  const root = path.resolve(projectDir);
+  const resolved = path.resolve(root, relativePath);
+  if (!resolved.startsWith(`${root}${path.sep}`)) {
+    throw Object.assign(new Error('Candidate path escapes the project directory'), {code: 'BLOCKING_INPUT'});
+  }
+  return resolved;
+}
+
+async function defaultDecode(filePath) {
+  const metadata = await sharp(filePath).metadata();
+  if (!(metadata.width > 0) || !(metadata.height > 0)) {
+    throw Object.assign(new Error('Candidate raster has invalid dimensions'), {code: 'CAPABILITY_FAILURE'});
+  }
+  return {width: metadata.width, height: metadata.height, format: metadata.format};
+}
+
+async function defaultCheck({filePath, candidate}) {
+  if (candidate.kind !== 'main') return {ok: true, failures: []};
+  return validateMainImage(filePath, candidate.check_options ?? {});
+}
+
+async function defaultInspect({candidate}) {
+  if (!candidate.inspection_status) {
+    throw Object.assign(new Error('Saved-file inspection evidence is required'), {code: 'BLOCKING_INPUT'});
+  }
+  return {
+    status: candidate.inspection_status,
+    findings: candidate.inspection_findings ?? [],
+    reason_codes: candidate.inspection_reason_codes ?? []
+  };
+}
+
+export async function runRecordCandidate({projectDir, candidate}, {
+  decode = defaultDecode,
+  check = defaultCheck,
+  inspect = defaultInspect
+} = {}) {
+  if (!candidate?.id || !candidate.kind || !candidate.path) {
+    throw Object.assign(new Error('Candidate ID, kind, and path are required'), {code: 'BLOCKING_INPUT'});
+  }
+  const filePath = candidatePath(projectDir, candidate.path);
+  const decoded = await decode(filePath, candidate);
+  const deterministic = await check({filePath, candidate, decoded});
+  const inspection = await inspect({filePath, candidate, decoded, deterministic});
+  const passed = deterministic?.ok === true && inspection?.status === 'pass';
+  const reasonCodes = [...new Set([
+    ...(deterministic?.failures ?? []).map(failure => failure.code).filter(Boolean),
+    ...(inspection?.reason_codes ?? []),
+    ...(!passed && inspection?.status !== 'pass' ? ['SAVED_FILE_INSPECTION_FAILED'] : [])
+  ])];
+
+  const transaction = await updateProject(projectDir, state => {
     const next = structuredClone(state);
-    next.gallery.assets[candidate.id] = {...candidate, status: 'candidate'};
-    if (!next.gallery.plan.some(item => item.id === candidate.id)) {
-      next.gallery.plan.push({id: candidate.id, kind: candidate.kind, status: 'candidate'});
+    if (candidate.kind !== 'main' && (
+      next.product_master?.status !== 'locked'
+      || candidate.product_master_version !== next.product_master.version
+    )) {
+      throw Object.assign(new Error('Candidate is not bound to the current Product Master'), {code: 'STALE_DEPENDENCY'});
     }
+    const automaticAttempts = Number(candidate.automatic_attempts ?? 0);
+    next.gallery.assets[candidate.id] = passed
+      ? {
+          id: candidate.id,
+          kind: candidate.kind,
+          status: 'candidate',
+          path: candidate.path,
+          dimensions: {width: decoded.width, height: decoded.height},
+          format: decoded.format ?? null,
+          inspection_status: 'pass',
+          inspection_findings: inspection.findings ?? [],
+          product_master_version: candidate.kind === 'main' ? 0 : candidate.product_master_version,
+          fact_ids: [...new Set(candidate.fact_ids ?? [])],
+          automatic_attempts: automaticAttempts
+        }
+      : {
+          id: candidate.id,
+          kind: candidate.kind,
+          status: 'rejected',
+          reason_codes: reasonCodes,
+          automatic_attempts: automaticAttempts
+        };
+    const planIndex = next.gallery.plan.findIndex(item => item.id === candidate.id);
+    const planItem = {id: candidate.id, kind: candidate.kind, status: passed ? 'candidate' : 'rejected'};
+    if (planIndex >= 0) next.gallery.plan[planIndex] = {...next.gallery.plan[planIndex], ...planItem};
+    else next.gallery.plan.push(planItem);
     return next;
   });
+  return {...transaction, candidate: transaction.state.gallery.assets[candidate.id]};
+}
+
+export async function runApprove(input, {hashFile} = {}) {
+  return updateProject(input.projectDir, state => approveArtifact(state, {
+    artifactId: input.artifactId,
+    artifactType: input.artifactType ?? 'image',
+    path: input.path,
+    userAction: 'approved',
+    now: input.now
+  }, {projectDir: input.projectDir, hashFile}));
 }
 
 function operationFor(command) {
   const kinds = {
     init: 'new_project',
     'learn-category': 'learn_category',
-    'record-candidate': 'next_gallery_item',
+    'record-candidate': 'record_candidate',
     approve: 'approve_asset',
     validate: 'knowledge_lookup',
     migrate: 'migrate'
@@ -105,7 +198,7 @@ function operationFor(command) {
   return classifyOperation({kind: kinds[command] ?? command});
 }
 
-export async function runCli(argv, {clock = Date.now} = {}) {
+export async function runCli(argv, {clock = Date.now, candidateDependencies, hashFile} = {}) {
   const started = clock();
   let parsed;
   try {
@@ -114,16 +207,20 @@ export async function runCli(argv, {clock = Date.now} = {}) {
     let result;
     if (command === 'init') result = await initProject(options);
     else if (command === 'learn-category') result = await learnCategory(options);
-    else if (command === 'record-candidate') result = await recordCandidate(options);
+    else if (command === 'record-candidate') {
+      const projectDir = path.resolve(requireOption(options, 'project-dir'));
+      const candidate = JSON.parse(await readFile(path.resolve(requireOption(options, 'input')), 'utf8'));
+      result = await runRecordCandidate({projectDir, candidate}, candidateDependencies);
+    }
     else if (command === 'approve') {
       const projectDir = path.resolve(requireOption(options, 'project-dir'));
-      result = await updateProject(projectDir, state => approveArtifact(state, {
+      result = await runApprove({
+        projectDir,
         artifactId: requireOption(options, 'artifact-id'),
         artifactType: options.type ?? 'image',
         path: requireOption(options, 'path'),
-        userAction: 'approved',
         now: options.now
-      }, {projectDir}));
+      }, {hashFile});
     } else if (command === 'validate') {
       const state = JSON.parse(await readFile(path.join(path.resolve(requireOption(options, 'project-dir')), 'state.json'), 'utf8'));
       result = validateProjectState(state);
