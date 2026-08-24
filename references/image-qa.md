@@ -12,4 +12,6 @@ Run `scripts/validate-image.js` on the exact saved raster, then inspect that sam
 
 Add exact dimensions, labels, and benefit copy after image generation through a bounded SVG overlay. Every item must contain nonempty approved text, remain fully inside the canvas, and resolve any `factRef` from the current fact ledger. The composer embeds the resolved font, draws dimension lines and arrowheads explicitly, and records exact text, unit, fact value, bounds, font path/source/hash/fallback, input/output hashes, and composite dimensions.
 
+Text bound to a `factRef` must contain that fact's recorded value and unit; contradictory copy fails as `FACT_MISMATCH`. Selected font bytes are rendered as glyph paths so the recorded font changes the actual output pixels rather than only the manifest.
+
 Write `<output>.overlay.json` only after the final raster decodes at the expected size. This manifest makes typography and factual copy reviewable without asking the image model to render precise text.

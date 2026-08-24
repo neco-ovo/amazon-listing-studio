@@ -18,6 +18,26 @@ function finiteNonnegative(value, label) {
   if (!Number.isFinite(value) || value < 0) throw invalid(`${label} must be a nonnegative number.`);
 }
 
+function escapeRegex(value) {
+  return String(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function assertFactText(item, fact) {
+  if (!item.factRef) return;
+  const text = item.text.toLowerCase();
+  const value = fact?.display ?? fact?.value;
+  const valueMatches = value !== undefined && value !== null && text.includes(String(value).toLowerCase());
+  const unitMatches = !fact?.unit || new RegExp(`(?:^|\\s)${escapeRegex(fact.unit)}(?:\\s|$)`, 'i').test(item.text);
+  if (!valueMatches || !unitMatches) {
+    throw new DomainError('FACT_MISMATCH', 'Overlay text contradicts or omits its referenced fact value or unit.', {
+      id: item.id,
+      factRef: item.factRef,
+      text: item.text,
+      fact
+    });
+  }
+}
+
 export function layoutOverlay(plan) {
   finitePositive(plan?.canvas?.width, 'Canvas width');
   finitePositive(plan?.canvas?.height, 'Canvas height');
@@ -36,6 +56,7 @@ export function layoutOverlay(plan) {
     if (item.factRef) {
       fact = plan.facts?.[item.factRef];
       if (fact === undefined) throw new DomainError('FACT_UNKNOWN', 'Overlay references an unknown fact.', {id: item.id, factRef: item.factRef});
+      assertFactText(item, fact);
     }
     return {
       ...item,

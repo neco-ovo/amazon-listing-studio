@@ -1,5 +1,6 @@
 {
   "schema_version": 1,
+  "project_id": "bundle-fixture",
   "product_master": {"version": 2, "asset_id": "main-v2"},
   "images": [
     {
@@ -11,6 +12,8 @@
       "product_master_version": 2,
       "status": "approved",
       "approval_id": "approval-1",
+      "approval_explicit": true,
+      "approved_at": "2026-08-24T00:00:00.000Z",
       "selected": true,
       "sha256": "24545da1db054e14bfadf473682894a5299c530b697f824211922e5292dd6bbb",
       "change_summary": "Approved Product Master main image"
@@ -24,6 +27,8 @@
       "product_master_version": 2,
       "status": "approved",
       "approval_id": "approval-1",
+      "approval_explicit": true,
+      "approved_at": "2026-08-24T00:00:00.000Z",
       "selected": true,
       "sha256": "24545da1db054e14bfadf473682894a5299c530b697f824211922e5292dd6bbb",
       "change_summary": "Approved size secondary image"
@@ -43,12 +48,18 @@
     }
   ],
   "listing": {
+    "id": "listing-v1",
     "version": 1,
     "product_master_version": 2,
     "status": "approved",
     "approval_id": "approval-1",
+    "project_id": "bundle-fixture",
+    "marketplace": "amazon.com",
+    "product_type": "METAL_SIGN",
+    "schema_status": "verified",
+    "upload_ready": true,
     "json_path": "listing.json",
-    "json_sha256": "ee27a6f7a04ad36e24d7125d1a11f96c486a2e16d4ab73db6dda9bc7ab9fdc48",
+    "json_sha256": "e598d7625f55f45e1bbfb7f0092b9ea22e585828fffa46c5a8722ede32d2f95e",
     "markdown_path": "listing.md",
     "markdown_sha256": "329c16cb5f52d676e47e609f127824ad563c346f7c7826e2c70f69f546c374b2"
   }

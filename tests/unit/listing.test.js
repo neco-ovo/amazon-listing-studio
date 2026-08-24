@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import {readFile} from 'node:fs/promises';
 import test from 'node:test';
 
-import {normalizeListing, utf8Bytes, validateListing} from '../../scripts/lib/listing.js';
+import {createSchemaAuthorization, normalizeListing, utf8Bytes, validateListing} from '../../scripts/lib/listing.js';
 
 const limits = {
   title_chars: 75,
@@ -19,6 +19,7 @@ const context = {
   schemaVerified: true,
   currentProductMasterVersion: 2,
   competitorBrands: ['Acme Rival'],
+  projectId: 'listing-fixture',
 };
 
 async function fixture() {
@@ -97,6 +98,21 @@ test('requires complete approved fact references', async () => {
   assert.ok(validateListing(unknown, context).errors.some(error => error.code === 'UNAPPROVED_FACT'));
 });
 
+test('requires every conversion-oriented Listing output field to be nonempty', async t => {
+  for (const [field, empty] of [
+    ['title', ''], ['item_highlights', ''], ['description', ''], ['backend_search_terms', ''],
+    ['special_features', []], ['attributes', {}],
+  ]) {
+    await t.test(field, async () => {
+      const listing = await fixture();
+      listing[field] = empty;
+      const result = validateListing(listing, context);
+      assert.ok(result.errors.some(error => error.field === field && error.code === 'REQUIRED'));
+      assert.equal(result.listing.upload_ready, false);
+    });
+  }
+});
+
 test('rejects competitor brands, promotions, and contact details', async t => {
   for (const [name, field, value] of [
     ['competitor', 'description', 'Better than Acme Rival for every buyer.'],
@@ -126,15 +142,29 @@ test('rejects stale Product Master and reports limit failure after one condense'
 
 test('unavailable category schema preserves supported copy but warns only affected fields', async () => {
   const listing = await fixture();
+  const scope = {project_id: 'listing-fixture', marketplace: listing.marketplace, product_type: listing.product_type, product_master_version: listing.product_master_version, listing_version: listing.version};
+  const schemaAuthorization = createSchemaAuthorization(scope, {authorized_at: '2026-08-24T00:00:00.000Z'});
   const result = validateListing(listing, {
     ...context,
     schemaVerified: false,
     unverifiedFields: ['attributes', 'special_features'],
-    schemaAuthorization: {scope: 'METAL_SIGN:pm2:listing1', approved: true},
+    schemaAuthorization,
   });
   assert.equal(result.ok, true);
   assert.equal(result.listing.title, listing.title);
   assert.deepEqual(result.listing.rules_unverified, ['attributes', 'special_features']);
   assert.equal(result.listing.upload_ready, false);
   assert.equal(result.status, 'PASS_WITH_WARNINGS');
+});
+
+test('schema-unverified copy requires current project-and-version authorization for delivery status', async () => {
+  const listing = await fixture();
+  const missing = validateListing(listing, {...context, schemaVerified: false, unverifiedFields: ['attributes'], schemaAuthorization: null});
+  assert.equal(missing.ok, true);
+  assert.equal(missing.status, 'AUTHORIZATION_REQUIRED');
+
+  const stale = createSchemaAuthorization({project_id: 'listing-fixture', marketplace: listing.marketplace, product_type: listing.product_type, product_master_version: 2, listing_version: 99});
+  const staleResult = validateListing(listing, {...context, schemaVerified: false, unverifiedFields: ['attributes'], schemaAuthorization: stale});
+  assert.equal(staleResult.ok, false);
+  assert.ok(staleResult.errors.some(error => error.code === 'SCHEMA_AUTHORIZATION_SCOPE_MISMATCH'));
 });

@@ -17,4 +17,4 @@ Deterministic validation checks Unicode character counts, backend UTF-8 byte cou
 
 Run `scripts/validate-listing.js` before review and again after every revision.
 
-For a user-approved warning path, create a scope with `createSchemaAuthorization` and verify it with `isSchemaAuthorizationCurrent` from `scripts/lib/listing.js`. Authorization is invalid after any marketplace, product type, Product Master version, or Listing version change.
+For a user-approved warning path, create a scope with `createSchemaAuthorization` and verify it with `isSchemaAuthorizationCurrent` from `scripts/lib/listing.js`. The scope contains project/product ID, marketplace, product type, Product Master version, and Listing version. Authorization is invalid after any scoped value changes, and delivery is blocked when it is missing or stale.

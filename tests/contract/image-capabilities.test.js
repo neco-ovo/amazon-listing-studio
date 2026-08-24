@@ -1,14 +1,13 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import sharp from 'sharp';
 
 import {
   acceptGeneratedRaster,
   assertCapabilities,
 } from '../../scripts/lib/capabilities.js';
 
-const PNG_BYTES = Buffer.from([
-  0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00,
-]);
+const PNG_BYTES = await sharp({create: {width: 2, height: 2, channels: 3, background: '#ffffff'}}).png().toBuffer();
 
 function fakeIo(overrides = {}) {
   return {
@@ -82,6 +81,17 @@ test('rejects zero-byte and corrupt raster files', async t => {
       error => error.code === 'CAPABILITY_FAILURE' && /signature/i.test(error.message),
     );
   });
+
+  await t.test('valid signature but undecodable bytes', async () => {
+    const truncated = Buffer.concat([PNG_BYTES.subarray(0, 8), Buffer.from('not-a-real-png')]);
+    await assert.rejects(
+      acceptGeneratedRaster(
+        {path: 'truncated.png', mediaType: 'image/png'},
+        fakeIo({readFile: async () => truncated}),
+      ),
+      error => error.code === 'CAPABILITY_FAILURE' && /decode/i.test(error.message),
+    );
+  });
 });
 
 test('rejects missing, failed, or negative saved-file inspection', async t => {
@@ -134,6 +144,8 @@ test('accepts a saved PNG only after inspecting the same path', async () => {
     path: 'assets/main/v1.png',
     mediaType: 'image/png',
     bytes: PNG_BYTES.length,
+    width: 2,
+    height: 2,
     inspection,
   });
 });

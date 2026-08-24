@@ -84,6 +84,18 @@ test('validateApprovalScope rejects stale, unapproved, mismatched, and ambiguous
       error => error.code === 'BUNDLE_INVALID' && error.details.reason === 'AMBIGUOUS_APPROVAL',
     );
   });
+  await t.test('marketplace, product type, and Schema status scope', () => {
+    for (const changed of [
+      {...approval, marketplace: 'amazon.ca'},
+      {...approval, product_type: 'OTHER_TYPE'},
+      {...approval, schema_status: 'unverified'},
+    ]) {
+      assert.throws(
+        () => validateApprovalScope(state, changed),
+        error => error.code === 'BUNDLE_INVALID' && error.details.reason === 'APPROVAL_SCOPE_MISMATCH',
+      );
+    }
+  });
 });
 
 test('buildDelivery rejects missing, corrupt, changed, and schema-unready files', async t => {
@@ -140,6 +152,31 @@ test('buildDelivery rejects missing, corrupt, changed, and schema-unready files'
       await assert.rejects(
         buildDelivery({projectDir, outputDir: path.join(root, 'delivery'), approval: await readApproval(projectDir)}),
         error => error.code === 'BUNDLE_INVALID' && error.details.reason === 'SCHEMA_NOT_READY',
+      );
+    });
+  });
+
+  await t.test('schema-unverified bundle requires current version-bound authorization', async () => {
+    await withTempWorkspace(async root => {
+      const projectDir = await mutableProject(root);
+      const listingPath = path.join(projectDir, 'listing.json');
+      const listing = JSON.parse(await readFile(listingPath, 'utf8'));
+      listing.rules_unverified = ['attributes'];
+      listing.upload_ready = false;
+      listing.schema_authorization = null;
+      const bytes = Buffer.from(`${JSON.stringify(listing, null, 2)}\n`);
+      await writeFile(listingPath, bytes);
+      const state = await readState(projectDir);
+      state.listing.json_sha256 = hash(bytes);
+      state.listing.rules_unverified = ['attributes'];
+      state.listing.upload_ready = false;
+      state.listing.schema_status = 'unverified';
+      state.listing.schema_authorization = null;
+      await writeState(projectDir, state);
+      const approval = {...await readApproval(projectDir), upload_ready: false, schema_status: 'unverified'};
+      await assert.rejects(
+        buildDelivery({projectDir, outputDir: path.join(root, 'delivery'), approval}),
+        error => error.code === 'BUNDLE_INVALID' && error.details.reason === 'SCHEMA_AUTHORIZATION_REQUIRED',
       );
     });
   });

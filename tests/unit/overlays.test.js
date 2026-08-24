@@ -43,6 +43,10 @@ test('layoutOverlay rejects empty, out-of-bounds, and unknown-fact copy', () => 
     () => layoutOverlay({...basePlan, items: [{...basePlan.items[0], factRef: 'dimensions.unknown'}]}),
     error => error.code === 'FACT_UNKNOWN',
   );
+  assert.throws(
+    () => layoutOverlay({...basePlan, items: [{...basePlan.items[0], text: '15 ft'}]}),
+    error => error.code === 'FACT_MISMATCH',
+  );
 });
 
 test('layoutOverlay allows an item to start at the canvas origin', () => {

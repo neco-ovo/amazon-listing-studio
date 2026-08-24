@@ -22,7 +22,7 @@ export function utf8Bytes(value) {
   return Buffer.byteLength(String(value ?? ''), 'utf8');
 }
 
-const SCHEMA_SCOPE_FIELDS = ['marketplace', 'product_type', 'product_master_version', 'listing_version'];
+const SCHEMA_SCOPE_FIELDS = ['project_id', 'marketplace', 'product_type', 'product_master_version', 'listing_version'];
 
 export function createSchemaAuthorization(scope, { authorized_at = new Date().toISOString() } = {}) {
   const missing = SCHEMA_SCOPE_FIELDS.filter(field => scope?.[field] === undefined || scope[field] === null || scope[field] === '');
@@ -134,9 +134,11 @@ export function validateListing(input, context = {}) {
     search_terms_bytes: utf8Bytes(listing.backend_search_terms),
   };
 
-  for (const field of ['version', 'marketplace', 'language', 'product_type', 'product_master_version']) {
+  for (const field of ['project_id', 'version', 'marketplace', 'language', 'product_type', 'product_master_version', 'title', 'item_highlights', 'description', 'backend_search_terms']) {
     if (listing[field] === null || listing[field] === undefined || listing[field] === '') errors.push({field, code: 'REQUIRED'});
   }
+  if (listing.special_features.length === 0) errors.push({field: 'special_features', code: 'REQUIRED'});
+  if (Object.keys(listing.attributes).length === 0) errors.push({field: 'attributes', code: 'REQUIRED'});
   addLimitError(errors, 'title', counts.title_chars, limits.title_chars);
   addLimitError(errors, 'item_highlights', counts.item_highlights_chars, limits.item_highlights_chars);
   if (listing.bullets.length !== 5) errors.push({field: 'bullets', code: 'BULLET_COUNT', actual: listing.bullets.length, expected: 5});
@@ -163,10 +165,21 @@ export function validateListing(input, context = {}) {
   const schemaVerified = context.schemaVerified !== false;
   listing.rules_unverified = schemaVerified ? [] : [...new Set(context.unverifiedFields ?? [])];
   listing.schema_authorization = schemaVerified ? null : (context.schemaAuthorization ?? listing.schema_authorization);
+  const authorizationScope = {
+    project_id: context.projectId ?? listing.project_id,
+    marketplace: listing.marketplace,
+    product_type: listing.product_type,
+    product_master_version: listing.product_master_version,
+    listing_version: listing.version,
+  };
+  const authorizationCurrent = schemaVerified || isSchemaAuthorizationCurrent(listing.schema_authorization, authorizationScope);
+  if (!schemaVerified && listing.schema_authorization && !authorizationCurrent) {
+    errors.push({field: 'schema_authorization', code: 'SCHEMA_AUTHORIZATION_SCOPE_MISMATCH', expected: authorizationScope});
+  }
   listing.upload_ready = errors.length === 0 && schemaVerified;
   const status = errors.length > 0
     ? ((listing.validation.condense_attempts ?? 0) >= 1 && errors.some(error => error.code === 'LIMIT_AFTER_CONDENSE') ? 'BLOCKED' : 'REVIEW_REQUIRED')
-    : (schemaVerified ? 'PASS' : 'PASS_WITH_WARNINGS');
+    : (schemaVerified ? 'PASS' : (authorizationCurrent ? 'PASS_WITH_WARNINGS' : 'AUTHORIZATION_REQUIRED'));
   listing.validation = {...listing.validation, status, counts, errors};
   return {ok: errors.length === 0, status, listing, counts, errors};
 }

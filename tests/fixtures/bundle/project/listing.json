@@ -1,8 +1,10 @@
 {
+  "project_id": "bundle-fixture",
   "version": 1,
   "product_master_version": 2,
   "marketplace": "amazon.com",
   "language": "en-US",
+  "product_type": "METAL_SIGN",
   "title": "12 x 8 Inch Aluminum Notice Sign",
   "rules_unverified": [],
   "upload_ready": true

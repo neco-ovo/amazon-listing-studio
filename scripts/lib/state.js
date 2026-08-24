@@ -1,6 +1,7 @@
 import { access, mkdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { DomainError, fail } from './errors.js';
+import { isSchemaAuthorizationCurrent } from './listing.js';
 
 export const FACT_AUTHORITY = Object.freeze({
   unknown: 0,
@@ -81,7 +82,7 @@ export function createInitialState({
 }
 
 export function resolveFact(existing, incoming, { now = new Date().toISOString() } = {}) {
-  if (!existing) return structuredClone(incoming);
+  if (!existing) return {conflicts: [], sources: [], publishable: false, dependents: [], ...structuredClone(incoming)};
   if (!incoming) return structuredClone(existing);
   if (existing.id !== incoming.id || existing.field !== incoming.field) {
     fail('BLOCKING_INPUT', 'Only matching fact IDs and fields can be resolved', {
@@ -139,6 +140,11 @@ export function lockProductMaster(assets, input) {
   if (!approvedMain || approvedMain.status !== 'approved' || !approvedMain.path ||
       !sha256Pattern.test(approvedMain.sha256 || '') || approvedMain.inspection_status !== 'pass') {
     fail('BLOCKING_INPUT', 'A real approved main raster with a passing saved-file inspection is required', {
+      main_asset_id: approvedMain?.id || null
+    });
+  }
+  if (!approvedMain.approval_id || approvedMain.approval_explicit !== true || !approvedMain.approved_at) {
+    fail('BLOCKING_INPUT', 'Explicit approval evidence is required for the exact saved main image', {
       main_asset_id: approvedMain?.id || null
     });
   }
@@ -222,6 +228,9 @@ export function approveSecondaryImage(assets, input) {
   if (!image?.id || image.kind === 'main' || !image.path || !sha256Pattern.test(image.sha256 || '') || image.inspection_status !== 'pass') {
     fail('BLOCKING_INPUT', 'A saved, hashed, inspected secondary image is required');
   }
+  if (!input.approval_id || input.approval_explicit !== true || !input.approved_at) {
+    fail('BLOCKING_INPUT', 'Explicit approval evidence is required for the exact saved secondary image', {image_id: image.id});
+  }
   const unresolved = next.images.find(candidate => candidate.kind !== 'main'
     && !['approved', 'rejected', 'stale'].includes(candidate.status));
   if (unresolved) fail('BLOCKING_INPUT', 'Approve or reject the current secondary before starting another', { image_id: unresolved.id });
@@ -230,7 +239,8 @@ export function approveSecondaryImage(assets, input) {
     ...structuredClone(image),
     status: 'approved',
     approval_id: input.approval_id,
-    approved_at: input.now || new Date().toISOString(),
+    approval_explicit: true,
+    approved_at: input.approved_at,
     product_master_version: currentVersion,
     selected: false
   });
@@ -246,8 +256,22 @@ export function recordListingApproval(assets, listing) {
   if (!listing?.id || !(Number(listing.version) > 0) || listing.status !== 'approved'
       || !['PASS', 'PASS_WITH_WARNINGS'].includes(listing.validation_status)
       || !listing.json_path || !sha256Pattern.test(listing.json_sha256 || '')
-      || !listing.markdown_path || !sha256Pattern.test(listing.markdown_sha256 || '')) {
+      || !listing.markdown_path || !sha256Pattern.test(listing.markdown_sha256 || '')
+      || listing.project_id !== next.project_id || !listing.marketplace || !listing.product_type || !listing.schema_status
+      || typeof listing.upload_ready !== 'boolean') {
     fail('BLOCKING_INPUT', 'A validated, versioned Listing with saved file hashes is required');
+  }
+  if (listing.schema_status === 'unverified') {
+    const scope = {
+      project_id: listing.project_id,
+      marketplace: listing.marketplace,
+      product_type: listing.product_type,
+      product_master_version: listing.product_master_version,
+      listing_version: listing.version
+    };
+    if (!isSchemaAuthorizationCurrent(listing.schema_authorization, scope)) {
+      fail('BLOCKING_INPUT', 'Schema-unverified Listing requires current version-bound authorization', { scope });
+    }
   }
   next.listing = structuredClone(listing);
   next.updated_at = listing.approved_at || new Date().toISOString();
@@ -260,8 +284,12 @@ export function recordFinalApproval(assets, input) {
       || input.listing_version !== next.listing?.version || next.listing?.status !== 'approved') {
     fail('BLOCKING_INPUT', 'Final approval must match the current Product Master and Listing');
   }
-  if (!input.marketplace || !input.product_type || !input.schema_status) {
+  if (input.project_id !== next.project_id || !input.marketplace || !input.product_type || !input.schema_status) {
     fail('BLOCKING_INPUT', 'Marketplace, product type, and Schema status are required in final approval');
+  }
+  if (input.marketplace !== next.listing.marketplace || input.product_type !== next.listing.product_type
+      || input.schema_status !== next.listing.schema_status || input.upload_ready !== next.listing.upload_ready) {
+    fail('BLOCKING_INPUT', 'Final approval scope must match the current Listing');
   }
   if (input.upload_ready === true && input.schema_status !== 'verified') {
     fail('BLOCKING_INPUT', 'Schema-unverified approval cannot be upload-ready');
@@ -367,5 +395,41 @@ export async function validateState(projectDir) {
   if (facts && (!Array.isArray(facts.facts) || !facts.project_id || facts.schema_version !== 1)) errors.push('facts.json structure is invalid');
   if (assets && (!Array.isArray(assets.images) || !assets.product_master || assets.schema_version !== 1)) errors.push('assets.json structure is invalid');
   if (facts && assets && facts.project_id !== assets.project_id) errors.push('facts.json and assets.json project IDs differ');
+  if (facts?.facts) {
+    const ids = new Set();
+    for (const [index, fact] of facts.facts.entries()) {
+      if (!fact?.id || ids.has(fact.id) || !fact.field || !Object.hasOwn(FACT_AUTHORITY, fact.status)
+          || !Array.isArray(fact.sources) || !Array.isArray(fact.conflicts)
+          || typeof fact.publishable !== 'boolean' || !Array.isArray(fact.dependents ?? [])) {
+        errors.push(`fact record ${index} is invalid`);
+      }
+      if (fact?.id) ids.add(fact.id);
+    }
+  }
+  if (assets?.images) {
+    const ids = new Set();
+    for (const [index, image] of assets.images.entries()) {
+      const basicInvalid = !image?.id || ids.has(image.id) || !image.status || !(Number(image.version) > 0);
+      const approvedInvalid = image?.status === 'approved' && (!image.path || !sha256Pattern.test(image.sha256 || '')
+        || !(Number(image.product_master_version) > 0) || !image.approval_id || image.approval_explicit !== true || !image.approved_at);
+      if (basicInvalid || approvedInvalid) errors.push(`image record ${index} is invalid`);
+      if (image?.id) ids.add(image.id);
+    }
+  }
+  if (assets?.product_master?.status === 'locked') {
+    const master = assets.product_master;
+    if (!(Number(master.version) > 0) || !master.approved_main_id || !master.approved_main_path || !sha256Pattern.test(master.approved_main_sha256 || '')) {
+      errors.push('locked Product Master record is invalid');
+    }
+  }
+  if (assets?.listing?.status === 'approved') {
+    const listing = assets.listing;
+    if (!listing.id || !(Number(listing.version) > 0) || !(Number(listing.product_master_version) > 0)
+        || !listing.approval_id || !listing.project_id || !listing.marketplace || !listing.product_type || !listing.schema_status
+        || typeof listing.upload_ready !== 'boolean' || !listing.json_path || !sha256Pattern.test(listing.json_sha256 || '')
+        || !listing.markdown_path || !sha256Pattern.test(listing.markdown_sha256 || '')) {
+      errors.push('approved Listing record is invalid');
+    }
+  }
   return { valid: errors.length === 0, errors, project, facts, assets };
 }

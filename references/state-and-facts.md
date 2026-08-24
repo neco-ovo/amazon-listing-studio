@@ -22,6 +22,8 @@ Ask one concise question when a missing or conflicting fact blocks the current p
 
 Facts alone do not create a Product Master. Lock only after the main raster has been generated, saved, decoded, hashed, inspected at its saved path, presented, and explicitly approved.
 
+Every main and secondary approval records an approval ID, explicit user action, and timestamp for the exact saved version. A status string without that evidence cannot lock or resume approval.
+
 Record product identity, confirmed physical dimensions and ratio, color, material when known, variant, count, confirmed visible components, canonical source hashes, approved-main hash/path, version, and dependencies.
 
 ## Scoped invalidation

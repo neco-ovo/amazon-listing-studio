@@ -11,7 +11,7 @@ import {diffUpstream, writeDiffReport} from '../../scripts/lib/templates.js';
 import {withTempWorkspace} from '../helpers/temp-workspace.js';
 
 const now = '2026-08-24T12:00:00.000Z';
-const approvedMain = {id: 'main-v1', version: 1, status: 'approved', path: 'assets/main.png', media_type: 'image/png', sha256: 'b'.repeat(64), inspection_status: 'pass'};
+const approvedMain = {id: 'main-v1', version: 1, status: 'approved', path: 'assets/main.png', media_type: 'image/png', sha256: 'b'.repeat(64), inspection_status: 'pass', approval_id: 'main-approval', approval_explicit: true, approved_at: now};
 const lockInput = {
   now, identity: {product_type: 'sign'}, dimensions: {width: 12, length: 8, unit: 'in'}, color: 'silver', material: 'aluminum', variant: 'default', count: 1,
   canonical_reference_hashes: ['a'.repeat(64)], approved_main: approvedMain,
@@ -59,7 +59,7 @@ test('required Seed behavior matrix', async t => {
 
   await t.test('unavailable category Schema authorization is version-bound', () => {
     assert.equal(typeof listingModule.createSchemaAuthorization, 'function');
-    const scope = {marketplace: 'amazon.com', product_type: 'METAL_SIGN', product_master_version: 1, listing_version: 2};
+    const scope = {project_id: 'p', marketplace: 'amazon.com', product_type: 'METAL_SIGN', product_master_version: 1, listing_version: 2};
     const authorization = listingModule.createSchemaAuthorization(scope, {authorized_at: now});
     assert.equal(listingModule.isSchemaAuthorizationCurrent(authorization, scope), true);
     assert.equal(listingModule.isSchemaAuthorizationCurrent(authorization, {...scope, listing_version: 3}), false);
@@ -70,11 +70,22 @@ test('required Seed behavior matrix', async t => {
     const initial = state.createInitialState({projectId: 'p', productName: 'Sign', now});
     let assets = state.lockProductMaster(initial.assets, lockInput);
     assets.images[0] = {...assets.images[0], product_master_version: 1};
-    assets.listing = {id: 'listing-v1', version: 1, product_master_version: 1, status: 'approved', validation_status: 'PASS'};
-    const final = state.recordFinalApproval(assets, {id: 'final-1', finalized: true, product_master_version: 1, listing_version: 1, artifact_ids: ['main-v1'], marketplace: 'amazon.com', product_type: 'METAL_SIGN', schema_status: 'verified', upload_ready: true, now});
+    assets.listing = {id: 'listing-v1', version: 1, product_master_version: 1, status: 'approved', validation_status: 'PASS', project_id: 'p', marketplace: 'amazon.com', product_type: 'METAL_SIGN', schema_status: 'verified', upload_ready: true};
+    const final = state.recordFinalApproval(assets, {id: 'final-1', finalized: true, project_id: 'p', product_master_version: 1, listing_version: 1, artifact_ids: ['main-v1'], marketplace: 'amazon.com', product_type: 'METAL_SIGN', schema_status: 'verified', upload_ready: true, now});
     const revised = state.invalidateDependents({facts: {facts: [{id: 'size', dependents: ['main-v1', 'listing-v1']}]}, assets: final.assets}, ['size'], {now});
     assert.equal(revised.assets.images[0].status, 'stale');
     assert.equal(revised.assets.listing.status, 'stale');
+  });
+
+  await t.test('final approval rejects a stale marketplace scope', () => {
+    const initial = state.createInitialState({projectId: 'p', productName: 'Sign', now});
+    let assets = state.lockProductMaster(initial.assets, lockInput);
+    assets.images[0] = {...assets.images[0], product_master_version: 1};
+    assets.listing = {id: 'listing-v1', version: 1, product_master_version: 1, status: 'approved', validation_status: 'PASS', project_id: 'p', marketplace: 'amazon.com', product_type: 'METAL_SIGN', schema_status: 'verified', upload_ready: true};
+    assert.throws(
+      () => state.recordFinalApproval(assets, {id: 'final-1', finalized: true, project_id: 'p', product_master_version: 1, listing_version: 1, artifact_ids: ['main-v1'], marketplace: 'amazon.ca', product_type: 'METAL_SIGN', schema_status: 'verified', upload_ready: true, now}),
+      error => error.code === 'BLOCKING_INPUT' && /scope/i.test(error.message)
+    );
   });
 
   await t.test('backend terms count UTF-8 bytes', () => {

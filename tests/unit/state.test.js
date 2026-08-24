@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import {
+  approveSecondaryImage,
   createInitialState,
   initializeProject,
   invalidateDependents,
@@ -84,7 +85,7 @@ test('locks a hashed Product Master and increments its stable version', () => {
     count: 1,
     confirmed_visible_components: ['sign'],
     canonical_reference_hashes: ['a'.repeat(64)],
-    approved_main: { id: 'main-v1', status: 'approved', path: 'images/main/main-v1.png', sha256: 'b'.repeat(64), inspection_status: 'pass' }
+    approved_main: { id: 'main-v1', status: 'approved', path: 'images/main/main-v1.png', sha256: 'b'.repeat(64), inspection_status: 'pass', approval_id: 'main-approval-1', approval_explicit: true, approved_at: now }
   });
 
   assert.equal(locked.product_master.status, 'locked');
@@ -92,6 +93,28 @@ test('locks a hashed Product Master and increments its stable version', () => {
   assert.equal(locked.product_master.physical_ratio, 1.5);
   assert.equal(locked.product_master.approved_main_sha256, 'b'.repeat(64));
   assert.equal(locked.images[0].master_version, 1);
+});
+
+test('Product Master and secondary approvals require explicit approval evidence', () => {
+  const { assets } = createInitialState({ projectId: 'sign-001', productName: 'Aluminum Sign', now });
+  const input = {
+    now, identity: { product_type: 'aluminum sign' }, dimensions: { width: 12, length: 8, unit: 'in' },
+    color: 'silver', variant: 'default', count: 1, canonical_reference_hashes: ['a'.repeat(64)],
+    approved_main: { id: 'main-v1', status: 'approved', path: 'main.png', sha256: 'b'.repeat(64), inspection_status: 'pass' }
+  };
+  assert.throws(() => lockProductMaster(assets, input), error => error.code === 'BLOCKING_INPUT' && /explicit/i.test(error.message));
+
+  const locked = lockProductMaster(assets, {
+    ...input,
+    approved_main: {...input.approved_main, approval_id: 'main-approval', approval_explicit: true, approved_at: now}
+  });
+  assert.throws(
+    () => approveSecondaryImage(locked, {
+      product_master_version: 1,
+      image: {id: 'secondary-v1', version: 1, kind: 'size-spec', path: 'secondary.png', sha256: 'c'.repeat(64), inspection_status: 'pass'}
+    }),
+    error => error.code === 'BLOCKING_INPUT' && /explicit/i.test(error.message)
+  );
 });
 
 test('invalidates only explicit fact dependents', () => {
@@ -143,5 +166,23 @@ test('creates a missing project collection root before the project directory', a
     });
     assert.equal(result.projectDir, path.join(missingRoot, 'sign-002'));
     assert.equal((await validateState(result.projectDir)).valid, true);
+  });
+});
+
+test('validateState rejects malformed fact and approved-image records on resume', async () => {
+  await withTempWorkspace(async root => {
+    const result = await initializeProject(root, { projectId: 'broken', productName: 'Broken', now });
+    const factsPath = path.join(result.projectDir, 'facts.json');
+    const assetsPath = path.join(result.projectDir, 'assets.json');
+    const facts = JSON.parse(await readFile(factsPath, 'utf8'));
+    facts.facts.push({field: 'size', value: '12x8'});
+    await (await import('node:fs/promises')).writeFile(factsPath, JSON.stringify(facts));
+    const assets = JSON.parse(await readFile(assetsPath, 'utf8'));
+    assets.images.push({id: 'approved-but-empty', status: 'approved'});
+    await (await import('node:fs/promises')).writeFile(assetsPath, JSON.stringify(assets));
+    const validation = await validateState(result.projectDir);
+    assert.equal(validation.valid, false);
+    assert.ok(validation.errors.some(error => /fact/i.test(error)));
+    assert.ok(validation.errors.some(error => /image/i.test(error)));
   });
 });

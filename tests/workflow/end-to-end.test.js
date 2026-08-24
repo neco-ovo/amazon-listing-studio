@@ -53,18 +53,19 @@ test('runs the complete file-first launch workflow without a server', async () =
       color: 'brushed silver', material: 'aluminum', variant: 'default', count: 1,
       confirmed_visible_components: ['sign face'],
       canonical_reference_hashes: [hash(mainBytes)], dependency_ids: ['size', 'material', 'color', 'count'],
-      approved_main: {id: 'main-v1', version: 1, status: 'approved', path: 'assets/main-valid.png', media_type: 'image/png', sha256: hash(mainBytes), inspection_status: 'pass'},
+      approved_main: {id: 'main-v1', version: 1, status: 'approved', path: 'assets/main-valid.png', media_type: 'image/png', sha256: hash(mainBytes), inspection_status: 'pass', approval_id: 'main-approval-1', approval_explicit: true, approved_at: now},
     });
 
     const secondaryBytes = await readFile(fixtures.undersized);
     assets = state.approveSecondaryImage(assets, {
-      now, approval_id: 'secondary-approval-1',
+      now, approval_id: 'secondary-approval-1', approval_explicit: true, approved_at: now,
       image: {id: 'secondary-size-v1', version: 1, kind: 'size-spec', path: 'assets/main-undersized.png', media_type: 'image/png', sha256: hash(secondaryBytes), inspection_status: 'pass'},
       product_master_version: 1,
     });
 
     const listingInput = JSON.parse(await readFile('tests/fixtures/listing/valid.json', 'utf8'));
     listingInput.version = 1;
+    listingInput.project_id = 'fixture-sign';
     listingInput.product_master_version = 1;
     delete listingInput.validation_context;
     const listingResult = validateListing(listingInput, {
@@ -77,13 +78,13 @@ test('runs the complete file-first launch workflow without a server', async () =
     await writeFile(path.join(projectDir, 'listing.json'), listingJson);
     await writeFile(path.join(projectDir, 'listing.md'), listingMarkdown);
     assets = state.recordListingApproval(assets, {
-      id: 'listing-v1', version: 1, product_master_version: 1, status: 'approved',
+      id: 'listing-v1', version: 1, product_master_version: 1, status: 'approved', project_id: 'fixture-sign', marketplace: 'amazon.com', product_type: 'METAL_SIGN', schema_status: 'verified', upload_ready: true,
       json_path: 'listing.json', json_sha256: hash(listingJson),
       markdown_path: 'listing.md', markdown_sha256: hash(listingMarkdown),
       validation_status: listingResult.status,
     });
     const final = state.recordFinalApproval(assets, {
-      id: 'final-approval-1', finalized: true, product_master_version: 1, listing_version: 1,
+      id: 'final-approval-1', finalized: true, project_id: 'fixture-sign', product_master_version: 1, listing_version: 1,
       artifact_ids: ['main-v1', 'secondary-size-v1'], marketplace: 'amazon.com', product_type: 'METAL_SIGN',
       schema_status: 'verified', upload_ready: true, change_summary: 'Fixture final selection', now,
     });

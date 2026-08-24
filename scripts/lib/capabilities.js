@@ -1,4 +1,5 @@
 import {DomainError} from './errors.js';
+import sharp from 'sharp';
 
 const RASTER_SIGNATURES = new Map([
   ['image/png', bytes => bytes.length >= 8
@@ -68,6 +69,17 @@ export async function acceptGeneratedRaster(result, io = {}) {
     });
   }
 
+  let metadata;
+  try {
+    metadata = await sharp(bytes).metadata();
+    if (!metadata.width || !metadata.height) throw new Error('missing raster dimensions');
+  } catch (cause) {
+    throw capabilityFailure('Saved image bytes cannot be decoded.', {
+      path: result.path,
+      mediaType: result.mediaType,
+    }, cause);
+  }
+
   if (typeof io.inspectImage !== 'function') {
     throw capabilityFailure('Saved-file image inspection capability is unavailable.', {
       path: result.path,
@@ -98,6 +110,8 @@ export async function acceptGeneratedRaster(result, io = {}) {
     path: result.path,
     mediaType: result.mediaType,
     bytes: bytes.length,
+    width: metadata.width,
+    height: metadata.height,
     inspection,
   };
 }

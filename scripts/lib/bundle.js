@@ -6,6 +6,7 @@ import {unzipSync, zipSync} from 'fflate';
 import sharp from 'sharp';
 
 import {DomainError} from './errors.js';
+import {isSchemaAuthorizationCurrent} from './listing.js';
 
 function invalid(reason, message, details = {}) {
   return new DomainError('BUNDLE_INVALID', message, {reason, ...details});
@@ -32,6 +33,18 @@ export function validateApprovalScope(state, approval) {
   if (approval.listing_version !== state.listing?.version) {
     throw invalid('LISTING_VERSION_MISMATCH', 'Approval does not match the selected Listing version.');
   }
+  const expectedScope = {
+    project_id: state.project_id,
+    marketplace: state.listing?.marketplace,
+    product_type: state.listing?.product_type,
+    schema_status: state.listing?.schema_status,
+  };
+  if (Object.entries(expectedScope).some(([field, value]) => !value || approval[field] !== value)
+      || approval.upload_ready !== state.listing?.upload_ready) {
+    throw invalid('APPROVAL_SCOPE_MISMATCH', 'Approval marketplace, product type, Schema status, project, or readiness does not match the current Listing.', {
+      expected: expectedScope,
+    });
+  }
   if (state.listing?.product_master_version !== state.product_master.version
     || state.listing?.status !== 'approved'
     || state.listing?.approval_id !== approval.id) {
@@ -45,7 +58,8 @@ export function validateApprovalScope(state, approval) {
   const selected = ids.map(id => state.images.find(image => image.id === id));
   if (selected.some(image => !image)) throw invalid('UNAPPROVED_ARTIFACT', 'Approval names an unknown image artifact.');
   for (const image of selected) {
-    if (image.status !== 'approved' || image.approval_id !== approval.id || image.selected !== true) {
+    if (image.status !== 'approved' || image.approval_id !== approval.id || image.selected !== true
+        || image.approval_explicit !== true || !image.approved_at) {
       throw invalid('UNAPPROVED_ARTIFACT', 'Selected image is not approved in this approval scope.', {id: image.id});
     }
     if (image.product_master_version !== state.product_master.version) {
@@ -165,8 +179,26 @@ export async function buildDelivery({projectDir, outputDir, approval}) {
   if (parsedListing.version !== approval.listing_version || parsedListing.product_master_version !== approval.product_master_version) {
     throw invalid('LISTING_VERSION_MISMATCH', 'Listing file content does not match approved versions.');
   }
+  if (parsedListing.project_id !== approval.project_id || parsedListing.marketplace !== approval.marketplace
+      || parsedListing.product_type !== approval.product_type) {
+    throw invalid('APPROVAL_SCOPE_MISMATCH', 'Listing file content does not match the approved project, marketplace, or product type.');
+  }
   if ((parsedListing.rules_unverified?.length ?? 0) > 0 || parsedListing.upload_ready !== true) {
     if (approval.upload_ready === true) throw invalid('SCHEMA_NOT_READY', 'Schema-unverified Listing cannot be labeled upload-ready.');
+    const scope = {
+      project_id: parsedListing.project_id,
+      marketplace: parsedListing.marketplace,
+      product_type: parsedListing.product_type,
+      product_master_version: parsedListing.product_master_version,
+      listing_version: parsedListing.version,
+    };
+    if (approval.schema_status !== 'unverified' || !isSchemaAuthorizationCurrent(parsedListing.schema_authorization, scope)) {
+      throw invalid('SCHEMA_AUTHORIZATION_REQUIRED', 'Schema-unverified delivery requires current version-bound authorization.', {scope});
+    }
+  } else if (approval.schema_status !== 'verified') {
+    throw invalid('APPROVAL_SCOPE_MISMATCH', 'Schema-verified Listing requires a verified approval scope.');
+  } else if (approval.upload_ready !== parsedListing.upload_ready) {
+    throw invalid('APPROVAL_SCOPE_MISMATCH', 'Listing readiness does not match the approval scope.');
   }
   artifacts.push(listingJson, listingMarkdown);
   const manifest = buildManifest({approval, artifacts});

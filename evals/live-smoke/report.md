@@ -82,7 +82,7 @@ The complete grounded Listing is saved as `listing.json` and `listing.md` in the
 - Backend Search Terms: 72 UTF-8 bytes
 - Validation: `PASS_WITH_WARNINGS`
 - Unverified fields: `special_features`, `attributes`
-- Schema authorization scope: Amazon.com / METAL_SIGN / Product Master v1 / Listing v1
+- Schema authorization scope: fixture-aluminum-sign / Amazon.com / METAL_SIGN / Product Master v1 / Listing v1
 - `upload_ready`: `false`
 
 No unsupported back, installation, hardware, durability, compatibility, certification, or performance claim appears.
@@ -92,10 +92,10 @@ No unsupported back, installation, hardware, durability, compatibility, certific
 `scripts/build-delivery.js` built and re-opened the ZIP, verified each artifact hash, and included only the two selected images and two Listing files.
 
 - Manifest: `evals/live-smoke/artifacts/delivery-v1/delivery-manifest.json`
-- Manifest SHA-256: `76b14e861e46b5be9c86ffaf2bf4a2ecf458dac477ad10c0726d43ae86427eca`
+- Manifest SHA-256: `83cb08c9014bce0bbf8f368b5dbe59d277ed222d7796780181f71718092c772c`
 - ZIP: `evals/live-smoke/artifacts/delivery-v1/delivery.zip`
-- ZIP byte size: 3,256,657
-- ZIP SHA-256: `67b9813e050098eedb489185f062fcf026d241d497f4f26b6477c5d127fc964c`
+- ZIP byte size: 3,256,686
+- ZIP SHA-256: `174f535fd9613cfb5300bda8102651b2573d69d9d69cacdc1125dd0a081c2b33`
 - Approval ID: `fixture-final-approval-1`
 - Bundle label state: Schema unverified; not directly uploadable
 

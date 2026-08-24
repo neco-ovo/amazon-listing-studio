@@ -39,4 +39,6 @@ Success requires all of the following:
 
 Before an asset enters project state, `acceptGeneratedRaster` reads the exact local path, rejects zero-byte files, verifies that the bytes begin with the declared PNG, JPEG, or WebP signature, and calls `inspect_image` on that same path. Provider status and filename extensions are never sufficient evidence. An inspection exception, `ok: false`, or an inspection result tied to a different path is a hard `CAPABILITY_FAILURE` for the affected image phase.
 
+Signature bytes are only a preliminary check. The adapter must decode the saved bytes and record raster width and height before inspection or approval.
+
 At phase start, `assertCapabilities` verifies that every required capability is callable. A named capability that is absent or non-callable is unavailable even if the harness advertises a similarly named feature.
