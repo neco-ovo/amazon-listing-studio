@@ -48,3 +48,21 @@ test('unknown commands return a stable error instead of mutating files', async (
   assert.equal(result.ok, false);
   assert.equal(result.code, 'UNKNOWN_COMMAND');
 });
+
+test('finalize routes v2 delivery through the unified CLI', async () => {
+  await withTempWorkspace(async root => {
+    const approvalPath = path.join(root, 'final-approval.json');
+    await writeFile(approvalPath, JSON.stringify({id: 'final-1', finalized: true}));
+    let received;
+    const result = await runCli([
+      'finalize', '--project-dir', root, '--output', path.join(root, 'delivery'), '--approval', approvalPath
+    ], {
+      buildV2: async input => { received = input; return {zipPath: 'delivery.zip'}; }
+    });
+
+    assert.equal(result.ok, true);
+    assert.equal(result.mode, 'full');
+    assert.equal(received.projectDir, root);
+    assert.equal(received.finalApproval.id, 'final-1');
+  });
+});

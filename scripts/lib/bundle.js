@@ -7,6 +7,7 @@ import sharp from 'sharp';
 
 import {DomainError} from './errors.js';
 import {isSchemaAuthorizationCurrent} from './listing.js';
+import {renderListing} from './listing-drafts.js';
 
 function invalid(reason, message, details = {}) {
   return new DomainError('BUNDLE_INVALID', message, {reason, ...details});
@@ -161,6 +162,41 @@ async function outputExists(outputDir) {
   }
 }
 
+async function writeDeliveryOutput({outputDir, manifest, artifacts}) {
+  const manifestBytes = Buffer.from(`${JSON.stringify(manifest, null, 2)}\n`);
+  const archiveEntries = Object.fromEntries(artifacts.map(artifact => [artifact.relative_path, artifact.bytes]));
+  archiveEntries['delivery-manifest.json'] = manifestBytes;
+  const archiveBytes = Buffer.from(zipSync(archiveEntries, {level: 6}));
+
+  const absoluteOutput = path.resolve(outputDir);
+  const outputParent = path.dirname(absoluteOutput);
+  await mkdir(outputParent, {recursive: true});
+  if (await outputExists(absoluteOutput)) throw invalid('OUTPUT_EXISTS', 'Delivery output path already exists.', {outputDir: absoluteOutput});
+  const stage = await mkdtemp(path.join(outputParent, `.${path.basename(absoluteOutput)}-staging-`));
+  try {
+    const manifestPath = path.join(stage, 'delivery-manifest.json');
+    const zipPath = path.join(stage, 'delivery.zip');
+    await writeFile(manifestPath, manifestBytes);
+    await writeFile(zipPath, archiveBytes);
+    const verified = unzipSync(await readFile(zipPath));
+    for (const artifact of manifest.artifacts) {
+      const bytes = verified[artifact.relative_path];
+      if (!bytes || hash(bytes) !== artifact.sha256) throw invalid('ZIP_VERIFICATION_FAILED', 'ZIP artifact verification failed.', {path: artifact.relative_path});
+    }
+    if (hash(verified['delivery-manifest.json']) !== hash(manifestBytes)) throw invalid('ZIP_VERIFICATION_FAILED', 'ZIP manifest verification failed.');
+    await rename(stage, absoluteOutput);
+    return {
+      outputDir: absoluteOutput,
+      manifest,
+      manifestPath: path.join(absoluteOutput, 'delivery-manifest.json'),
+      zipPath: path.join(absoluteOutput, 'delivery.zip'),
+    };
+  } catch (error) {
+    await rm(stage, {recursive: true, force: true});
+    throw error;
+  }
+}
+
 export async function buildDelivery({projectDir, outputDir, approval}) {
   const state = JSON.parse(await readFile(path.join(projectDir, 'assets.json'), 'utf8'));
   const selection = validateApprovalScope(state, approval);
@@ -202,36 +238,119 @@ export async function buildDelivery({projectDir, outputDir, approval}) {
   }
   artifacts.push(listingJson, listingMarkdown);
   const manifest = buildManifest({approval, artifacts});
-  const manifestBytes = Buffer.from(`${JSON.stringify(manifest, null, 2)}\n`);
-  const archiveEntries = Object.fromEntries(artifacts.map(artifact => [artifact.relative_path, artifact.bytes]));
-  archiveEntries['delivery-manifest.json'] = manifestBytes;
-  const archiveBytes = Buffer.from(zipSync(archiveEntries, {level: 6}));
+  return writeDeliveryOutput({outputDir, manifest, artifacts});
+}
 
-  const absoluteOutput = path.resolve(outputDir);
-  const outputParent = path.dirname(absoluteOutput);
-  await mkdir(outputParent, {recursive: true});
-  if (await outputExists(absoluteOutput)) throw invalid('OUTPUT_EXISTS', 'Delivery output path already exists.', {outputDir: absoluteOutput});
-  const stage = await mkdtemp(path.join(outputParent, `.${path.basename(absoluteOutput)}-staging-`));
-  try {
-    const manifestPath = path.join(stage, 'delivery-manifest.json');
-    const zipPath = path.join(stage, 'delivery.zip');
-    await writeFile(manifestPath, manifestBytes);
-    await writeFile(zipPath, archiveBytes);
-    const verified = unzipSync(await readFile(zipPath));
-    for (const artifact of manifest.artifacts) {
-      const bytes = verified[artifact.relative_path];
-      if (!bytes || hash(bytes) !== artifact.sha256) throw invalid('ZIP_VERIFICATION_FAILED', 'ZIP artifact verification failed.', {path: artifact.relative_path});
-    }
-    if (hash(verified['delivery-manifest.json']) !== hash(manifestBytes)) throw invalid('ZIP_VERIFICATION_FAILED', 'ZIP manifest verification failed.');
-    await rename(stage, absoluteOutput);
-    return {
-      outputDir: absoluteOutput,
-      manifest,
-      manifestPath: path.join(absoluteOutput, 'delivery-manifest.json'),
-      zipPath: path.join(absoluteOutput, 'delivery.zip'),
-    };
-  } catch (error) {
-    await rm(stage, {recursive: true, force: true});
-    throw error;
+function validateV2Scope(state, approval) {
+  if (state?.schema_version !== 2 || !approval?.id || approval.finalized !== true) {
+    throw invalid('AMBIGUOUS_APPROVAL', 'A v2 project and explicit final approval are required.');
   }
+  const listing = state.listing?.approved?.at(-1);
+  if (!listing || listing.status !== 'approved' || listing.version !== approval.listing_version) {
+    throw invalid('LISTING_VERSION_MISMATCH', 'Final approval does not match the approved Listing snapshot.');
+  }
+  if (state.product_master?.status !== 'locked' || state.product_master.version !== approval.product_master_version) {
+    throw invalid('STALE_PRODUCT_MASTER', 'Final approval does not match the locked Product Master.');
+  }
+  if (approval.project_id !== state.project.product_id || approval.marketplace !== state.project.marketplace
+      || approval.product_type !== state.project.product_type) {
+    throw invalid('APPROVAL_SCOPE_MISMATCH', 'Final approval does not match project, marketplace, or product type.');
+  }
+  const ids = approval.artifact_ids ?? [];
+  if (!Array.isArray(ids) || ids.length === 0 || new Set(ids).size !== ids.length
+      || ids.length !== state.gallery.selected.length || ids.some(id => !state.gallery.selected.includes(id))) {
+    throw invalid('AMBIGUOUS_APPROVAL', 'Final approval must name the exact selected image set.');
+  }
+  const images = ids.map(id => state.gallery.assets[id]);
+  for (const image of images) {
+    if (!image || image.status !== 'approved' || !image.sha256 || !image.approval_id) {
+      throw invalid('UNAPPROVED_ARTIFACT', 'Selected image is not approved.', {id: image?.id ?? null});
+    }
+    const artifactApproval = state.approvals.find(item => item.id === image.approval_id && item.artifact_id === image.id);
+    if (!artifactApproval || artifactApproval.sha256 !== image.sha256 || artifactApproval.user_action !== 'approved') {
+      throw invalid('UNAPPROVED_ARTIFACT', 'Selected image approval binding is invalid.', {id: image.id});
+    }
+    const isMain = image.id === state.product_master.approved_main_id;
+    if (!isMain && image.product_master_version !== state.product_master.version) {
+      throw invalid('STALE_PRODUCT_MASTER', 'Selected secondary belongs to a stale Product Master.', {id: image.id});
+    }
+  }
+  return {images, listing};
+}
+
+async function readAllV2Images(projectDir, images, hashFile) {
+  const loaded = [];
+  let firstError = null;
+  for (const image of images) {
+    try {
+      const filePath = resolveProjectFile(projectDir, image.path);
+      const bytes = await readFile(filePath);
+      const actualHash = await hashFile(filePath);
+      let metadata;
+      try {
+        metadata = await sharp(bytes).metadata();
+        if (!metadata.width || !metadata.height) throw new Error('missing raster dimensions');
+      } catch (cause) {
+        const error = invalid('CORRUPT_IMAGE', 'Approved image cannot be decoded.', {id: image.id, path: image.path});
+        error.cause = cause;
+        throw error;
+      }
+      loaded.push({image, bytes, actualHash, metadata});
+    } catch (cause) {
+      if (!firstError) {
+        firstError = cause instanceof DomainError
+          ? cause
+          : invalid('MISSING_FILE', 'Approved artifact file is missing.', {id: image.id, path: image.path});
+      }
+    }
+  }
+  if (firstError) throw firstError;
+  const mismatch = loaded.find(item => item.actualHash !== item.image.sha256);
+  if (mismatch) {
+    throw invalid('HASH_MISMATCH', 'Approved artifact bytes changed after approval.', {
+      id: mismatch.image.id,
+      relativePath: mismatch.image.path,
+      expectedHash: mismatch.image.sha256,
+      actualHash: mismatch.actualHash
+    });
+  }
+  return loaded;
+}
+
+export async function buildV2Delivery({projectDir, outputDir, finalApproval, hashFile = sha256File}) {
+  const state = JSON.parse(await readFile(path.join(projectDir, 'state.json'), 'utf8'));
+  const selection = validateV2Scope(state, finalApproval);
+  const loadedImages = await readAllV2Images(projectDir, selection.images, hashFile);
+  const artifacts = loadedImages.map(({image, bytes, actualHash}) => ({
+    relative_path: `images/${path.basename(image.path)}`,
+    media_type: image.media_type ?? 'image/png',
+    byte_size: bytes.length,
+    sha256: actualHash,
+    version: image.version ?? 1,
+    change_summary: image.change_summary ?? `Approved ${image.kind} image`,
+    bytes
+  }));
+
+  const content = structuredClone(selection.listing.content);
+  const jsonBytes = Buffer.from(`${JSON.stringify(content, null, 2)}\n`);
+  const markdownBytes = Buffer.from(renderListing(content));
+  if (hash(jsonBytes) !== selection.listing.json_sha256 || hash(markdownBytes) !== selection.listing.markdown_sha256) {
+    throw invalid('HASH_MISMATCH', 'Approved Listing content changed after approval.', {listing_version: selection.listing.version});
+  }
+  if (content.version !== finalApproval.listing_version || content.product_master_version !== finalApproval.product_master_version
+      || content.project_id !== finalApproval.project_id || content.marketplace !== finalApproval.marketplace
+      || content.product_type !== finalApproval.product_type) {
+    throw invalid('APPROVAL_SCOPE_MISMATCH', 'Approved Listing content does not match final scope.');
+  }
+  const unverified = (content.rules_unverified?.length ?? 0) > 0 || content.upload_ready !== true;
+  if (finalApproval.upload_ready !== content.upload_ready
+      || finalApproval.schema_status !== (unverified ? 'unverified' : 'verified')) {
+    throw invalid('APPROVAL_SCOPE_MISMATCH', 'Listing rule status does not match final approval.');
+  }
+  artifacts.push(
+    {relative_path: 'listing/listing.json', media_type: 'application/json', byte_size: jsonBytes.length, sha256: hash(jsonBytes), version: selection.listing.version, change_summary: `Approved Listing JSON version ${selection.listing.version}`, bytes: jsonBytes},
+    {relative_path: 'listing/listing.md', media_type: 'text/markdown', byte_size: markdownBytes.length, sha256: hash(markdownBytes), version: selection.listing.version, change_summary: `Approved Listing Markdown version ${selection.listing.version}`, bytes: markdownBytes}
+  );
+  const manifest = buildManifest({approval: finalApproval, artifacts});
+  return writeDeliveryOutput({outputDir, manifest, artifacts});
 }

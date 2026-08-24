@@ -1,9 +1,20 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { createHash } from 'node:crypto';
+import { mkdir, readFile, readdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { migrateLegacyProject } from '../../scripts/lib/migration.js';
 import { withTempWorkspace } from '../helpers/temp-workspace.js';
+
+async function hashTree(root, directory = root) {
+  const output = {};
+  for (const entry of await readdir(directory, {withFileTypes: true})) {
+    const absolute = path.join(directory, entry.name);
+    if (entry.isDirectory()) Object.assign(output, await hashTree(root, absolute));
+    else output[path.relative(root, absolute)] = createHash('sha256').update(await readFile(absolute)).digest('hex');
+  }
+  return output;
+}
 
 async function writeLegacyProject(sourceDir) {
   await mkdir(path.join(sourceDir, 'images'), {recursive: true});
@@ -46,7 +57,7 @@ test('migration preserves master, selected assets, listing approval, and deliver
     const sourceDir = path.join(root, 'legacy');
     const destinationDir = path.join(root, 'migrated');
     await writeLegacyProject(sourceDir);
-    const sourceFactsBefore = await readFile(path.join(sourceDir, 'facts.json'));
+    const sourceBefore = await hashTree(sourceDir);
 
     const state = await migrateLegacyProject({sourceDir, destinationDir});
 
@@ -54,7 +65,7 @@ test('migration preserves master, selected assets, listing approval, and deliver
     assert.equal(state.gallery.selected.length, 7);
     assert.equal(state.listing.approved.at(-1).version, 3);
     assert.equal(state.delivery.status, 'built');
-    assert.deepEqual(await readFile(path.join(sourceDir, 'facts.json')), sourceFactsBefore);
+    assert.deepEqual(await hashTree(sourceDir), sourceBefore);
     assert.ok((await readFile(path.join(destinationDir, 'project.md'), 'utf8')).includes('Legacy Safety Sign'));
     assert.equal(JSON.parse(await readFile(path.join(destinationDir, 'state.json'), 'utf8')).schema_version, 2);
   });

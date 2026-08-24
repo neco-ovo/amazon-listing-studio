@@ -9,6 +9,7 @@ import { approveArtifact, approveListingDraft, updateProject } from './lib/trans
 import { migrateLegacyProject } from './lib/migration.js';
 import { validateMainImage } from './lib/images.js';
 import { renderListing, reviseDraft } from './lib/listing-drafts.js';
+import { buildV2Delivery } from './lib/bundle.js';
 
 function parseArgs(argv) {
   const [command, ...rest] = argv;
@@ -238,7 +239,7 @@ function operationFor(command) {
   return classifyOperation({kind: kinds[command] ?? command});
 }
 
-export async function runCli(argv, {clock = Date.now, candidateDependencies, listingDependencies, hashFile} = {}) {
+export async function runCli(argv, {clock = Date.now, candidateDependencies, listingDependencies, hashFile, buildV2 = buildV2Delivery} = {}) {
   const started = clock();
   let parsed;
   try {
@@ -274,6 +275,11 @@ export async function runCli(argv, {clock = Date.now, candidateDependencies, lis
         sourceDir: requireOption(options, 'source-dir'),
         destinationDir: requireOption(options, 'destination-dir')
       });
+    } else if (command === 'finalize') {
+      const projectDir = path.resolve(requireOption(options, 'project-dir'));
+      const outputDir = path.resolve(requireOption(options, 'output'));
+      const finalApproval = JSON.parse(await readFile(path.resolve(requireOption(options, 'approval')), 'utf8'));
+      result = await buildV2({projectDir, outputDir, finalApproval});
     } else {
       return {ok: false, code: 'UNKNOWN_COMMAND', message: `Unknown command: ${command ?? ''}`};
     }
