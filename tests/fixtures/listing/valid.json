@@ -1,0 +1,37 @@
+{
+  "version": 1,
+  "marketplace": "amazon.com",
+  "language": "en-US",
+  "product_type": "METAL_SIGN",
+  "product_master_version": 2,
+  "title": "12 x 8 Inch Aluminum Notice Sign, Rounded Corners, Indoor or Outdoor",
+  "item_highlights": "Lightweight aluminum sign with a clear notice layout for home, office, or commercial display.",
+  "bullets": [
+    "[CLEAR NOTICE] Straightforward sign format supports quick recognition at a glance.",
+    "[ALUMINUM BUILD] Confirmed aluminum construction keeps the sign lightweight.",
+    "[12 X 8 INCH] Confirmed dimensions provide a compact, easy-to-place format.",
+    "[ROUNDED CORNERS] Smooth corner geometry supports a clean finished appearance.",
+    "[VERSATILE DISPLAY] Suitable for confirmed indoor or outdoor display contexts."
+  ],
+  "description": "A compact aluminum notice sign designed for clear everyday display. Its confirmed 12 x 8 inch size, lightweight material, and rounded corners support straightforward placement in approved indoor or outdoor contexts.",
+  "backend_search_terms": "aluminum notice sign 12 x 8 metal wall plaque rounded corner display",
+  "special_features": ["Lightweight", "Rounded corners"],
+  "attributes": {"material": "Aluminum", "width": "12 in", "height": "8 in"},
+  "claim_refs": {
+    "title": ["type", "size", "material"],
+    "item_highlights": ["material", "use_context"],
+    "bullets": [["type"], ["material"], ["size"], ["shape"], ["use_context"]],
+    "description": ["type", "size", "material", "shape", "use_context"],
+    "special_features": [["material"], ["shape"]],
+    "attributes": {"material": ["material"], "width": ["size"], "height": ["size"]}
+  },
+  "rules_unverified": [],
+  "schema_authorization": null,
+  "upload_ready": true,
+  "validation": {"condense_attempts": 0},
+  "validation_context": {
+    "publishable_fact_ids": ["type", "size", "material", "shape", "use_context"],
+    "current_product_master_version": 2,
+    "schema_verified": true
+  }
+}

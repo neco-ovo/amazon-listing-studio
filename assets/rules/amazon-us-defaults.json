@@ -1,0 +1,35 @@
+{
+  "schema_version": 1,
+  "marketplace": "amazon.com",
+  "language": "en-US",
+  "verified_on": "2026-08-24",
+  "effective_date": "2026-07-27",
+  "limits": {
+    "title_chars": 75,
+    "item_highlights_chars": 125,
+    "bullet_chars": 200,
+    "bullets_combined_chars": 1000,
+    "description_chars": 2000,
+    "search_terms_bytes": 250
+  },
+  "authority": {
+    "title_chars": "Amazon announcement: all non-media category titles are 75 characters or fewer including spaces from 2026-07-27.",
+    "item_highlights_chars": "Amazon announcement: Item Highlights provides an additional 125 characters.",
+    "bullet_chars": "Conservative internal target; replace with the current product-type Schema when available.",
+    "bullets_combined_chars": "Conservative internal target; replace with the current product-type Schema when available.",
+    "description_chars": "Conservative internal target; replace with the current product-type Schema when available.",
+    "search_terms_bytes": "Conservative internal target; replace with the current marketplace/product-type Schema when available."
+  },
+  "sources": [
+    {
+      "title": "Updates to improve your product titles begin on July 27",
+      "url": "https://sellercentral.amazon.com/seller-forums/discussions?categories%5B%5D=amzn1.spce.category.8b1ad9d2",
+      "publisher": "News_Amazon"
+    },
+    {
+      "title": "Answers to your product title update questions",
+      "url": "https://sellercentral.amazon.com/seller-forums/discussions/t/302aaac6-6f2b-4d86-bcd2-36fe24f0e6cd",
+      "publisher": "News_Amazon"
+    }
+  ]
+}
