@@ -105,6 +105,26 @@ test('image route is compact and defaults to complete one-pass generation', asyn
   assert.match(imageWorkflow, /at most one unpresented automatic correction/i);
 });
 
+test('secondary-image guidance prevents scene props from implying included accessories', async () => {
+  const imageWorkflow = await readFile(path.join(root, 'references', 'image-workflow.md'), 'utf8');
+  const skill = await readFile(path.join(root, 'SKILL.md'), 'utf8');
+
+  assert.match(imageWorkflow, /props.+included-package claims/i);
+  assert.match(imageWorkflow, /(?:screws|fasteners).+(?:unless confirmed|unconfirmed)/i);
+  assert.match(skill, /(?:scene props|fasteners).+imply included package contents/i);
+});
+
+test('infographic repair anchors dimensions and checks regional balance', async () => {
+  const imageWorkflow = await readFile(path.join(root, 'references', 'image-workflow.md'), 'utf8');
+  const skill = await readFile(path.join(root, 'SKILL.md'), 'utf8');
+
+  assert.match(imageWorkflow, /dimension line.+measured product bounds/i);
+  assert.match(imageWorkflow, /2%.+6%/i);
+  assert.match(imageWorkflow, /regional visual balance/i);
+  assert.match(skill, /dimension lines.+measured product bounds/i);
+  assert.match(skill, /regional visual balance/i);
+});
+
 test('legacy CLIs are compatibility wrappers instead of duplicate orchestrators', async () => {
   for (const name of ['init-project.js', 'validate-state.js', 'validate-listing.js', 'build-delivery.js']) {
     const source = await readFile(path.join(root, 'scripts', name), 'utf8');

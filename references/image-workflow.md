@@ -46,6 +46,8 @@ Audit props and visible fasteners as possible included-package claims. Omit scre
 
 Use deterministic repair for a localized geometry or typography defect before spending another generation call.
 
+For dimension infographics, anchor every repaired dimension line to the measured product bounds rather than an isolated canvas coordinate. Unless the user or a reviewed template specifies a supported alternative, keep the line gap within 2%–6% of the canvas short side. Check regional visual balance as well as in-canvas bounds so a sparse corridor cannot pass merely because its label is technically visible.
+
 Choose the cheapest valid action from diagnosed defects:
 
 1. **Deterministic edit** for centering, placement, safe crop, type size, spacing, visual balance, or dimension-line geometry.

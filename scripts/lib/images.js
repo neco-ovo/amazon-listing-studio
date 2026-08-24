@@ -33,6 +33,71 @@ export function measureNonWhiteBounds(raw, options = {}) {
   return {x: left, y: top, width: right - left + 1, height: bottom - top + 1, right, bottom};
 }
 
+export function measureVisualBalance(raw, options = {}) {
+  const {data, width, height, channels} = raw;
+  const requested = options.region ?? {x: 0, y: 0, width, height};
+  const region = {
+    x: Math.max(0, Math.floor(requested.x)),
+    y: Math.max(0, Math.floor(requested.y)),
+    width: Math.min(width - Math.max(0, Math.floor(requested.x)), Math.floor(requested.width)),
+    height: Math.min(height - Math.max(0, Math.floor(requested.y)), Math.floor(requested.height)),
+  };
+  if (region.width <= 0 || region.height <= 0) throw new Error('Visual-balance region must have positive in-canvas dimensions.');
+
+  const minContrast = options.minContrast ?? 30;
+  const regionCenter = region.x + (region.width - 1) / 2;
+  let totalWeight = 0;
+  let weightedX = 0;
+  let leftWeight = 0;
+  let rightWeight = 0;
+  for (let y = region.y; y < region.y + region.height; y += 1) {
+    for (let x = region.x; x < region.x + region.width; x += 1) {
+      const offset = (y * width + x) * channels;
+      const alpha = channels >= 4 ? data[offset + 3] : 255;
+      if (alpha === 0) continue;
+      const red = data[offset];
+      const green = data[offset + Math.min(1, channels - 1)];
+      const blue = data[offset + Math.min(2, channels - 1)];
+      const contrast = 255 - (red + green + blue) / 3;
+      if (contrast < minContrast) continue;
+      const weight = contrast * (alpha / 255);
+      totalWeight += weight;
+      weightedX += x * weight;
+      if (x < regionCenter) leftWeight += weight;
+      else rightWeight += weight;
+    }
+  }
+
+  if (totalWeight === 0) {
+    return {
+      ok: false,
+      region,
+      centroid_x: null,
+      centroid_offset_ratio: null,
+      left_weight: 0,
+      right_weight: 0,
+      left_right_weight_ratio: null,
+      reason: 'MISSING_FOREGROUND',
+    };
+  }
+  const centroidX = weightedX / totalWeight;
+  const centroidOffsetRatio = Math.abs(centroidX - regionCenter) / region.width;
+  const smallerSide = Math.min(leftWeight, rightWeight);
+  const weightRatio = smallerSide === 0 ? Infinity : Math.max(leftWeight, rightWeight) / smallerSide;
+  const maxCentroidOffsetRatio = options.maxCentroidOffsetRatio ?? 0.08;
+  const maxWeightRatio = options.maxWeightRatio ?? 2;
+  return {
+    ok: centroidOffsetRatio <= maxCentroidOffsetRatio && weightRatio <= maxWeightRatio,
+    region,
+    centroid_x: centroidX,
+    centroid_offset_ratio: centroidOffsetRatio,
+    left_weight: leftWeight,
+    right_weight: rightWeight,
+    left_right_weight_ratio: weightRatio,
+    thresholds: {max_centroid_offset_ratio: maxCentroidOffsetRatio, max_weight_ratio: maxWeightRatio},
+  };
+}
+
 function inspectBackground(raw, options = {}) {
   const thresholds = {whiteThreshold: options.whiteThreshold ?? 245, maxColorDelta: options.maxColorDelta ?? 10};
   const {data, width, height, channels} = raw;
