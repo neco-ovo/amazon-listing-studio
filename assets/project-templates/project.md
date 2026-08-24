@@ -1,16 +1,5 @@
-# {{product_name}}
+# Generated from state.json
 
-- Project ID: {{project_id}}
-- Marketplace: amazon.com
-- Language: en-US
-- Stage: intake
-- Current Product Master: unlocked
-- Current bundle: none
-
-## Open questions
-
-None recorded.
-
-## Approvals and changes
-
-None recorded.
+This file is a human-readable current-state summary. Run `studio validate` or
+another state-changing `studio` command to regenerate it. Do not maintain a
+separate change history here.
