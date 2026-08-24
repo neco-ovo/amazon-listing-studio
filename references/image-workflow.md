@@ -47,4 +47,3 @@ Choose the cheapest valid action from diagnosed defects:
 Allow at most one unpresented automatic correction. If it fails, show the diagnosed problem and proposed next action before consuming another generation call. Unknown defects stop for user review rather than defaulting to regeneration.
 
 Inspect the final saved raster after every repair. SHA-256 is required on approval, Product Master lock, and final delivery—not for an ordinary rejected candidate.
-
