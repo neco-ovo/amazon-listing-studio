@@ -51,7 +51,7 @@ test('stale snapshot warns for draft but refreshes for upload-ready output', asy
 
 - [ ] **Step 2: Verify RED**
 
-Run: `node --test tests/unit/rule-cache.test.js`  
+Run: `node --test tests/unit/rule-cache.test.js`
 Expected: FAIL because the resolver is missing.
 
 - [ ] **Step 3: Implement scoped lookup and date arithmetic**
@@ -60,7 +60,7 @@ Match marketplace and product type before age. Marketplace/product-type changes,
 
 - [ ] **Step 4: Verify GREEN**
 
-Run: `node --test tests/unit/rule-cache.test.js`  
+Run: `node --test tests/unit/rule-cache.test.js`
 Expected: PASS.
 
 - [ ] **Step 5: Commit**
@@ -100,7 +100,7 @@ test('formal version increments only on approval', () => {
 
 - [ ] **Step 2: Verify RED**
 
-Run: `node --test tests/unit/listing-drafts.test.js`  
+Run: `node --test tests/unit/listing-drafts.test.js`
 Expected: FAIL for missing lifecycle functions.
 
 - [ ] **Step 3: Implement immutable path patching and deterministic Markdown render**
@@ -109,7 +109,7 @@ Reject unknown paths and stale `expectedDraftRevision`. Freeze JSON and Markdown
 
 - [ ] **Step 4: Verify GREEN**
 
-Run: `node --test tests/unit/listing-drafts.test.js tests/unit/transactions.test.js`  
+Run: `node --test tests/unit/listing-drafts.test.js tests/unit/transactions.test.js`
 Expected: PASS.
 
 - [ ] **Step 5: Commit**
@@ -148,7 +148,7 @@ test('detects fully covered backend tokens and empty benefit phrasing', () => {
 
 - [ ] **Step 2: Verify RED**
 
-Run: `node --test tests/unit/listing-briefs.test.js tests/unit/listing.test.js`  
+Run: `node --test tests/unit/listing-briefs.test.js tests/unit/listing.test.js`
 Expected: FAIL for missing brief and semantic helpers.
 
 - [ ] **Step 3: Implement the positive field recipe and narrow semantic checks**
@@ -157,7 +157,7 @@ Normalize tokens for duplicate analysis but do not reject necessary product iden
 
 - [ ] **Step 4: Verify GREEN**
 
-Run: `node --test tests/unit/listing-briefs.test.js tests/unit/listing.test.js`  
+Run: `node --test tests/unit/listing-briefs.test.js tests/unit/listing.test.js`
 Expected: PASS.
 
 - [ ] **Step 5: Commit**
@@ -194,7 +194,7 @@ test('single-field revision calls only patch, changed validation, and render', a
 
 - [ ] **Step 2: Verify RED**
 
-Run: `node --test tests/workflow/listing-fast-path.test.js`  
+Run: `node --test tests/workflow/listing-fast-path.test.js`
 Expected: FAIL because the fast runner is missing.
 
 - [ ] **Step 3: Implement the exact fast orchestration path**
@@ -203,7 +203,7 @@ Use `classifyOperation`, `reviseDraft`, changed-scope Listing validation, Markdo
 
 - [ ] **Step 4: Verify GREEN**
 
-Run: `node --test tests/workflow/listing-fast-path.test.js tests/unit/listing-drafts.test.js tests/unit/operations.test.js`  
+Run: `node --test tests/workflow/listing-fast-path.test.js tests/unit/listing-drafts.test.js tests/unit/operations.test.js`
 Expected: PASS.
 
 - [ ] **Step 5: Commit**
@@ -243,7 +243,7 @@ test('entrypoint describes two modes and four focused references', () => {
 
 - [ ] **Step 2: Verify RED**
 
-Run: `node --test tests/skill-structure.test.js tests/workflow/studio-cli.test.js`  
+Run: `node --test tests/skill-structure.test.js tests/workflow/studio-cli.test.js`
 Expected: FAIL because old routing remains.
 
 - [ ] **Step 3: Write the concise router, references, and wrappers**
@@ -252,7 +252,7 @@ Retain only real quality boundaries in `SKILL.md`. Move conditional detail to th
 
 - [ ] **Step 4: Verify GREEN**
 
-Run: `node --test tests/skill-structure.test.js tests/workflow/studio-cli.test.js`  
+Run: `node --test tests/skill-structure.test.js tests/workflow/studio-cli.test.js`
 Expected: PASS.
 
 - [ ] **Step 5: Commit**
@@ -292,7 +292,7 @@ test('completed legacy fixture migrates without changing its source tree', async
 
 - [ ] **Step 2: Verify RED**
 
-Run: `node --test tests/workflow/two-speed-end-to-end.test.js`  
+Run: `node --test tests/workflow/two-speed-end-to-end.test.js`
 Expected: FAIL until finalization uses v2 state and forced rehashing.
 
 - [ ] **Step 3: Implement minimal v2 bundle integration**
@@ -301,14 +301,14 @@ Read only approved selected paths from v2 state, decode each raster, recalculate
 
 - [ ] **Step 4: Run focused then full verification**
 
-Run: `node --test tests/workflow/two-speed-end-to-end.test.js tests/workflow/migration.test.js tests/unit/bundle.test.js`  
-Expected: PASS.  
-Run: `npm test`  
+Run: `node --test tests/workflow/two-speed-end-to-end.test.js tests/workflow/migration.test.js tests/unit/bundle.test.js`
+Expected: PASS.
+Run: `npm test`
 Expected: all tests PASS with no unexpected warnings.
 
 - [ ] **Step 5: Run Skill validation and record evidence**
 
-Run: `python D:/Codex/CodexHome/skills/.system/skill-creator/scripts/quick_validate.py D:/Amazon/Amazon-listing-gen`  
+Run: `python D:/Codex/CodexHome/skills/.system/skill-creator/scripts/quick_validate.py D:/Amazon/Amazon-listing-gen`
 Expected: valid Skill. Update `evals/final-verification.md` with commands, counts, migration-fixture result, and confirmation that no live image generation was used.
 
 - [ ] **Step 6: Commit final integration**

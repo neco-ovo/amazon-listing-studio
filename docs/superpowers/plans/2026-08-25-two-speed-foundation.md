@@ -48,7 +48,7 @@ test('creates one v2 state source and renders only current status', () => {
 
 - [ ] **Step 2: Verify RED**
 
-Run: `node --test tests/unit/project-state.test.js`  
+Run: `node --test tests/unit/project-state.test.js`
 Expected: FAIL because `project-state.js` does not exist.
 
 - [ ] **Step 3: Implement the minimal schema, validator, and pure renderer**
@@ -57,7 +57,7 @@ Define top-level keys exactly as `schema_version`, `project`, `facts`, `product_
 
 - [ ] **Step 4: Verify GREEN**
 
-Run: `node --test tests/unit/project-state.test.js`  
+Run: `node --test tests/unit/project-state.test.js`
 Expected: PASS.
 
 - [ ] **Step 5: Commit only Task 1 files**
@@ -94,7 +94,7 @@ test('category claims remain observations while family facts are publishable', a
 
 - [ ] **Step 2: Verify RED**
 
-Run: `node --test tests/unit/knowledge.test.js`  
+Run: `node --test tests/unit/knowledge.test.js`
 Expected: FAIL because the knowledge API is missing.
 
 - [ ] **Step 3: Implement strict three-layer merging**
@@ -103,7 +103,7 @@ Use authority order `project > seller_family > category`. Force category entries
 
 - [ ] **Step 4: Verify GREEN and malformed-scope rejection**
 
-Run: `node --test tests/unit/knowledge.test.js`  
+Run: `node --test tests/unit/knowledge.test.js`
 Expected: PASS, including a test that an unscoped family fact is rejected.
 
 - [ ] **Step 5: Commit**
@@ -137,7 +137,7 @@ test('micro copy validation excludes network, image, and repository checks', () 
 
 - [ ] **Step 2: Verify RED**
 
-Run: `node --test tests/unit/operations.test.js`  
+Run: `node --test tests/unit/operations.test.js`
 Expected: FAIL for missing functions.
 
 - [ ] **Step 3: Implement a table-driven router and explicit check plans**
@@ -146,7 +146,7 @@ Unknown operations fail closed with `full` and reason `UNKNOWN_OPERATION`; do no
 
 - [ ] **Step 4: Verify GREEN**
 
-Run: `node --test tests/unit/operations.test.js`  
+Run: `node --test tests/unit/operations.test.js`
 Expected: PASS.
 
 - [ ] **Step 5: Commit**
@@ -186,7 +186,7 @@ test('validation failure preserves prior state bytes', async () => {
 
 - [ ] **Step 2: Verify RED**
 
-Run: `node --test tests/unit/transactions.test.js`  
+Run: `node --test tests/unit/transactions.test.js`
 Expected: FAIL because transaction APIs are missing.
 
 - [ ] **Step 3: Implement temp-write, validation, atomic rename, and summary render**
@@ -195,7 +195,7 @@ Write `<state>.tmp-<pid>`, validate it, rename to `state.json`, then render `pro
 
 - [ ] **Step 4: Verify GREEN**
 
-Run: `node --test tests/unit/transactions.test.js tests/unit/project-state.test.js`  
+Run: `node --test tests/unit/transactions.test.js tests/unit/project-state.test.js`
 Expected: PASS.
 
 - [ ] **Step 5: Commit**
@@ -235,7 +235,7 @@ test('migrate refuses identical source and destination', async () => {
 
 - [ ] **Step 2: Verify RED**
 
-Run: `node --test tests/workflow/migration.test.js tests/workflow/studio-cli.test.js`  
+Run: `node --test tests/workflow/migration.test.js tests/workflow/studio-cli.test.js`
 Expected: FAIL for missing migration and CLI.
 
 - [ ] **Step 3: Implement migration and JSON CLI responses**
@@ -244,7 +244,7 @@ Copy fixtures into test temp directories. Map legacy facts/assets into v2 withou
 
 - [ ] **Step 4: Verify GREEN and foundation regression**
 
-Run: `node --test tests/unit/project-state.test.js tests/unit/knowledge.test.js tests/unit/operations.test.js tests/unit/transactions.test.js tests/workflow/migration.test.js tests/workflow/studio-cli.test.js`  
+Run: `node --test tests/unit/project-state.test.js tests/unit/knowledge.test.js tests/unit/operations.test.js tests/unit/transactions.test.js tests/workflow/migration.test.js tests/workflow/studio-cli.test.js`
 Expected: PASS.
 
 - [ ] **Step 5: Commit**

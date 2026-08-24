@@ -1,7 +1,7 @@
 # Amazon Listing Studio Two-Speed Simplification Design
 
-**Date:** 2026-08-25  
-**Status:** User-approved design  
+**Date:** 2026-08-25
+**Status:** User-approved design
 **Supersedes:** The runtime, image, Listing, approval, and verification sections of `2026-08-24-amazon-listing-studio-design.md` where they conflict with this document.
 
 ## 1. Objective
@@ -10,7 +10,7 @@ Reduce time, token use, repeated research, and unnecessary image-generation call
 
 The Skill remains named `amazon-listing-studio` and remains Codex-primary. It does not add a WebUI, HTTP server, worker system, or complex harness adapter.
 
-## 2. Problems demonstrated by the real-product test
+## 2. Problems demonstrated by the real-product tes
 
 The completed safety-sign project reached state version 35 and accumulated a 48 KB `assets.json`. One size card reached ten versions even though several corrections were local alignment changes. A single Listing sentence revision was processed like a full rewrite. The failures are architectural:
 
@@ -62,7 +62,7 @@ The router returns both `mode` and machine-readable `reasons` so tests and users
 
 New projects use one machine source and one generated human view:
 
-```text
+```tex
 product-project/
 ├─ project.md
 ├─ state.json
@@ -84,7 +84,7 @@ Writes are transactional: validate the next state, write a sibling temporary fil
 
 Learned data lives outside the installed Skill and outside individual product projects:
 
-```text
+```tex
 amazon-listing-library/
 ├─ categories/<marketplace>/<category-id>.json
 ├─ seller-families/<family-id>.json
@@ -143,7 +143,7 @@ Before presentation, decode the file, run only relevant geometry/file checks, an
 
 ## 8. Listing workflow
 
-### Complete draft
+### Complete draf
 
 The first draft merges project facts, applicable seller-family facts, and category market language. It generates Title, Item Highlights, five Bullets, Description, Backend Search Terms, Special Features, supported attributes, and claim references in one pass.
 
@@ -186,7 +186,7 @@ Repository-wide tests run only when Skill code, rule logic, or schema changes. P
 
 ## 10. Skill structure
 
-```text
+```tex
 amazon-listing-studio/
 ├─ SKILL.md
 ├─ references/

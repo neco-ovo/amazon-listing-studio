@@ -51,7 +51,7 @@ test('explicit redesign authority marks locked master replacement', () => {
 
 - [ ] **Step 2: Verify RED**
 
-Run: `node --test tests/unit/image-briefs.test.js`  
+Run: `node --test tests/unit/image-briefs.test.js`
 Expected: FAIL because the compiler is missing.
 
 - [ ] **Step 3: Implement a data-only compiler**
@@ -60,7 +60,7 @@ Select differences from orientation-aware hierarchy, emphasis typography, line s
 
 - [ ] **Step 4: Verify GREEN**
 
-Run: `node --test tests/unit/image-briefs.test.js`  
+Run: `node --test tests/unit/image-briefs.test.js`
 Expected: PASS.
 
 - [ ] **Step 5: Commit**
@@ -94,7 +94,7 @@ test('a second hidden correction stops for user review', () => {
 
 - [ ] **Step 2: Verify RED**
 
-Run: `node --test tests/unit/image-repairs.test.js`  
+Run: `node --test tests/unit/image-repairs.test.js`
 Expected: FAIL for missing policy.
 
 - [ ] **Step 3: Implement a stable defect-to-action table**
@@ -103,7 +103,7 @@ Map placement, centering, text size, dimension anchors, and safe crop to determi
 
 - [ ] **Step 4: Verify GREEN**
 
-Run: `node --test tests/unit/image-repairs.test.js`  
+Run: `node --test tests/unit/image-repairs.test.js`
 Expected: PASS.
 
 - [ ] **Step 5: Commit**
@@ -142,7 +142,7 @@ test('approval hashes once and advances the gallery plan', async () => {
 
 - [ ] **Step 2: Verify RED**
 
-Run: `node --test tests/workflow/image-fast-path.test.js`  
+Run: `node --test tests/workflow/image-fast-path.test.js`
 Expected: FAIL because candidate and approval commands do not implement the contract.
 
 - [ ] **Step 3: Implement scoped candidate and approval commands**
@@ -151,7 +151,7 @@ Use dependency injection for decoder, checker, inspector, and hasher so tests as
 
 - [ ] **Step 4: Verify GREEN**
 
-Run: `node --test tests/workflow/image-fast-path.test.js tests/unit/transactions.test.js tests/unit/images.test.js`  
+Run: `node --test tests/workflow/image-fast-path.test.js tests/unit/transactions.test.js tests/unit/images.test.js`
 Expected: PASS.
 
 - [ ] **Step 5: Commit**
@@ -186,7 +186,7 @@ test('image route is compact and defaults to complete one-pass generation', () =
 
 - [ ] **Step 2: Verify RED**
 
-Run: `node --test tests/skill-structure.test.js`  
+Run: `node --test tests/skill-structure.test.js`
 Expected: FAIL because the new route and reference do not exist.
 
 - [ ] **Step 3: Write the minimal Skill route and image reference**
@@ -195,7 +195,7 @@ Keep hard identity, saved-file inspection, misleading-component, and Product Mas
 
 - [ ] **Step 4: Verify GREEN and image regression**
 
-Run: `node --test tests/skill-structure.test.js tests/unit/image-briefs.test.js tests/unit/image-repairs.test.js tests/workflow/image-fast-path.test.js tests/contract/image-capabilities.test.js`  
+Run: `node --test tests/skill-structure.test.js tests/unit/image-briefs.test.js tests/unit/image-repairs.test.js tests/workflow/image-fast-path.test.js tests/contract/image-capabilities.test.js`
 Expected: PASS.
 
 - [ ] **Step 5: Commit**

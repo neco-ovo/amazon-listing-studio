@@ -90,4 +90,3 @@ export function renderProjectSummary(state) {
     (state.stale_dependencies.length ? state.stale_dependencies.map(item => `- ${item}`).join('\n') : 'None recorded.') +
     `\n`;
 }
-

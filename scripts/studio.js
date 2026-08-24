@@ -152,4 +152,3 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
   process.stdout.write(`${JSON.stringify(output, null, 2)}\n`);
   if (!output.ok) process.exitCode = 1;
 }
-

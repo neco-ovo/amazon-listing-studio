@@ -96,4 +96,3 @@ export async function migrateLegacyProject({sourceDir, destinationDir, now = new
   }
   return state;
 }
-

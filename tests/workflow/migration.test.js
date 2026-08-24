@@ -70,4 +70,3 @@ test('migrate refuses identical source and destination', async () => {
     );
   });
 });
-
