@@ -47,7 +47,7 @@ export async function validateMainImage(filePath, options = {}) {
   const bounds = measureNonWhiteBounds(raw, options);
   const background = inspectBackground(raw, options);
   const failures = [];
-  const minOccupancy = options.minOccupancy ?? 0.95;
+  const minOccupancy = options.minOccupancy ?? 0.85;
   if (!bounds) failures.push({code: 'MISSING_PRODUCT', message: 'No nonwhite product pixels were detected.'});
   const occupancy = bounds ? (bounds.width >= bounds.height ? bounds.width / info.width : bounds.height / info.height) : 0;
   if (occupancy < minOccupancy) failures.push({code: 'LOW_OCCUPANCY', message: 'Product occupancy is below the configured minimum.', actual: occupancy, minimum: minOccupancy});

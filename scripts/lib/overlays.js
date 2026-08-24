@@ -1,6 +1,7 @@
 import {createHash} from 'node:crypto';
 import {readFile, writeFile} from 'node:fs/promises';
 
+import {create as createFont} from 'fontkit';
 import sharp from 'sharp';
 
 import {DomainError} from './errors.js';
@@ -56,12 +57,27 @@ function escapeXml(value) {
     .replaceAll("'", '&apos;');
 }
 
-function itemSvg(item) {
-  const color = escapeXml(item.color ?? '#111111');
-  const fontSize = Math.max(12, Math.min(item.fontSize ?? item.height * 0.55, item.height * 0.8));
+function textPathSvg(item, font, color, fontSize) {
+  const run = font.layout(item.text);
+  const scale = fontSize / font.unitsPerEm;
   const centerX = item.x + item.width / 2;
   const centerY = item.y + item.height / 2;
-  const text = `<text x="${centerX}" y="${centerY}" text-anchor="middle" dominant-baseline="middle" font-family="OverlayFont" font-size="${fontSize}" fill="${color}">${escapeXml(item.text)}</text>`;
+  const startX = centerX - (run.advanceWidth * scale) / 2;
+  const baseline = centerY + ((font.ascent + font.descent) * scale) / 2;
+  let penX = 0;
+  const paths = run.glyphs.map((glyph, index) => {
+    const position = run.positions[index];
+    const transform = `translate(${penX + position.xOffset} ${position.yOffset})`;
+    penX += position.xAdvance;
+    return `<path d="${glyph.path.toSVG()}" transform="${transform}"/>`;
+  }).join('');
+  return `<g fill="${color}" transform="translate(${startX} ${baseline}) scale(${scale} ${-scale})">${paths}</g>`;
+}
+
+function itemSvg(item, font) {
+  const color = escapeXml(item.color ?? '#111111');
+  const fontSize = Math.max(12, Math.min(item.fontSize ?? item.height * 0.55, item.height * 0.8));
+  const text = textPathSvg(item, font, color, fontSize);
   if (item.type !== 'dimension') return text;
   const lineY = item.y + item.height - 4;
   const arrow = Math.min(12, item.height / 4);
@@ -87,6 +103,14 @@ export async function composeOverlay({inputPath, outputPath, plan, resolvedFont}
     error.cause = cause;
     throw error;
   }
+  let font;
+  try {
+    font = createFont(fontBytes);
+  } catch (cause) {
+    const error = new DomainError('FONT_UNAVAILABLE', 'Resolved overlay font file cannot be decoded.', {path: resolvedFont?.path});
+    error.cause = cause;
+    throw error;
+  }
   const inputBytes = await readFile(inputPath);
   const inputMetadata = await sharp(inputBytes).metadata();
   if (inputMetadata.width !== layout.canvas.width || inputMetadata.height !== layout.canvas.height) {
@@ -95,11 +119,9 @@ export async function composeOverlay({inputPath, outputPath, plan, resolvedFont}
       actual: {width: inputMetadata.width, height: inputMetadata.height},
     });
   }
-  const embeddedFont = fontBytes.toString('base64');
   const svg = Buffer.from(
     `<svg xmlns="http://www.w3.org/2000/svg" width="${layout.canvas.width}" height="${layout.canvas.height}">`
-    + `<style>@font-face{font-family:OverlayFont;src:url(data:font/ttf;base64,${embeddedFont}) format('truetype');}</style>`
-    + layout.items.map(itemSvg).join('')
+    + layout.items.map(item => itemSvg(item, font)).join('')
     + '</svg>',
   );
   await sharp(inputBytes).composite([{input: svg, left: 0, top: 0}]).toFile(outputPath);

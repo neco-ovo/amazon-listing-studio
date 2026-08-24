@@ -16,11 +16,11 @@ function parsePhysical(value) {
 
 const args = process.argv.slice(2);
 const file = args[0];
-if (!file) throw new Error('Usage: node scripts/validate-image.js <path> --kind main [--physical 12x8] [--min-occupancy 0.95]');
+if (!file) throw new Error('Usage: node scripts/validate-image.js <path> --kind main [--physical 12x8] [--min-occupancy 0.85]');
 if ((valueAfter(args, '--kind') ?? 'main') !== 'main') throw new Error('Only --kind main is currently supported.');
 const result = await validateMainImage(resolve(file), {
   ...parsePhysical(valueAfter(args, '--physical')),
-  minOccupancy: Number(valueAfter(args, '--min-occupancy') ?? 0.95),
+  minOccupancy: Number(valueAfter(args, '--min-occupancy') ?? 0.85),
 });
 process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
 if (!result.ok) process.exitCode = 1;

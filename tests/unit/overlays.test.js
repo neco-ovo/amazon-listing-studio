@@ -97,3 +97,23 @@ test('composeOverlay rejects a missing font and discloses a selected fallback', 
     assert.equal(manifest.font.fallbackFrom, 'Requested Display');
   });
 });
+
+test('composeOverlay renders the selected font bytes into different glyph pixels', async () => {
+  await withTempWorkspace(async root => {
+    const inputPath = path.join(root, 'input.png');
+    await makeInput(inputPath);
+    const arial = await composeOverlay({
+      inputPath,
+      outputPath: path.join(root, 'arial.png'),
+      plan: basePlan,
+      resolvedFont: {path: 'C:/Windows/Fonts/arial.ttf', family: 'Arial', source: 'system'},
+    });
+    const times = await composeOverlay({
+      inputPath,
+      outputPath: path.join(root, 'times.png'),
+      plan: basePlan,
+      resolvedFont: {path: 'C:/Windows/Fonts/times.ttf', family: 'Times New Roman', source: 'system'},
+    });
+    assert.notEqual(arial.output_sha256, times.output_sha256);
+  });
+});

@@ -12,6 +12,14 @@
     "description_chars": 2000,
     "search_terms_bytes": 250
   },
+  "image_requirements": {
+    "main_min_occupancy": 0.85,
+    "main_background_rgb": [255, 255, 255],
+    "longest_side_min_pixels": 500,
+    "zoom_preferred_longest_side_min_pixels": 1000,
+    "longest_side_max_pixels": 10000,
+    "accepted_formats": ["image/jpeg", "image/tiff", "image/png", "image/gif"]
+  },
   "authority": {
     "title_chars": "Amazon announcement: all non-media category titles are 75 characters or fewer including spaces from 2026-07-27.",
     "item_highlights_chars": "Amazon announcement: Item Highlights provides an additional 125 characters.",
@@ -19,6 +27,7 @@
     "bullets_combined_chars": "Conservative internal target; replace with the current product-type Schema when available.",
     "description_chars": "Conservative internal target; replace with the current product-type Schema when available.",
     "search_terms_bytes": "Conservative internal target; replace with the current marketplace/product-type Schema when available."
+    ,"main_min_occupancy": "Amazon.com base image requirement; a verified category rule or stricter explicit user/project target may raise it for that scope."
   },
   "sources": [
     {
@@ -30,6 +39,11 @@
       "title": "Answers to your product title update questions",
       "url": "https://sellercentral.amazon.com/seller-forums/discussions/t/302aaac6-6f2b-4d86-bcd2-36fe24f0e6cd",
       "publisher": "News_Amazon"
+    },
+    {
+      "title": "Product Image Requirements and Best Practices",
+      "url": "https://sellercentral.amazon.com/seller-forums/discussions/t/13af96ea-6b07-4bf9-8dbe-a13292c2e3b1",
+      "publisher": "Amazon Seller Forums"
     }
   ]
 }

@@ -48,6 +48,23 @@ test('validates a white, fully visible, 3:2 product at 96% dominant occupancy', 
   assert.deepEqual(result.failures, []);
 });
 
+test('uses Amazon base 85% occupancy unless a category or user sets a stricter target', async () => {
+  const amazonBase = await validateMainImage(fixtures.undersized, {
+    physicalWidth: 12,
+    physicalHeight: 8,
+  });
+  assert.equal(amazonBase.occupancy, 0.9);
+  assert.equal(amazonBase.ok, true);
+
+  const strictSignProject = await validateMainImage(fixtures.undersized, {
+    physicalWidth: 12,
+    physicalHeight: 8,
+    minOccupancy: 0.95,
+  });
+  assert.equal(strictSignProject.ok, false);
+  assert.ok(strictSignProject.failures.some(failure => failure.code === 'LOW_OCCUPANCY' && failure.minimum === 0.95));
+});
+
 test('reports stretch, clipping, nonwhite background, and low occupancy without cropping', async t => {
   await t.test('stretched product', async () => {
     const result = await validateMainImage(fixtures.stretched, {

@@ -199,9 +199,9 @@ The Skill applies current marketplace/category rules plus these stricter project
 - no price, promotion, badge, decorative border, watermark, or unrelated copy;
 - full visibility without clipping, distortion, or convenience crop;
 - physical product proportions independent of canvas proportions;
-- product bounding box occupies at least 95% along the dominant canvas direction when geometry permits.
+- product bounding box meets the current marketplace/category minimum along the dominant canvas direction; Amazon.com's dated base fallback is 85%, while a stricter user/project target such as 95% applies only to its recorded scope.
 
-The 95% value is a project target, not represented as a universal Amazon rule. Current verified hard rules override it. If full visibility, true proportion, and 95% cannot coexist, the Skill explains the geometry conflict and asks the user.
+A 95% value is a scoped project target, not a universal Amazon rule. Current verified marketplace/category rules establish the floor, and explicit user requirements may raise it. If full visibility, true proportion, and the resolved threshold cannot coexist, the Skill explains the geometry conflict and asks the user.
 
 For a 12W × 8L-inch product, the silhouette remains 3:2. An Amazon.com default canvas may remain 1:1; the product is maximized inside it without stretching. Explicit user or current category requirements can change output dimensions, resolution, orientation, aspect ratio, and format.
 

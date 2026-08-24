@@ -18,7 +18,7 @@
 - User-confirmed facts outrank all extracted sources; conflicting user confirmations require a question.
 - No secondary image generation before a current Product Master is locked.
 - Preserve physical product proportions independently from canvas dimensions; a 12W × 8L product remains a 3:2 silhouette.
-- Treat 95% dominant-direction occupancy as a project target subject to full visibility, no clipping, no distortion, and verified harder marketplace rules.
+- Treat Amazon.com's dated 85% dominant-direction occupancy as the base fallback; apply 95% only as a stricter recorded user/category target, subject to full visibility, no clipping, no distortion, and verified harder marketplace rules.
 - Add critical text, dimensions, units, and callouts deterministically after image generation, then reinspect the composite.
 - Default storyboard: three distinct application scenes, one size/spec image, one material/detail image, and one back/structure/installation image; replace unsupported cards.
 - Default marketplace/language: Amazon.com/en-US.
@@ -914,7 +914,7 @@ Use a fictional unbranded 12W × 8L aluminum sign with explicitly confirmed fron
 
 Invoke actual image generation. Save the raster, run `validate-image.js`, inspect the saved file visually, and record the output path, media type, byte size, SHA-256, 3:2 silhouette check, white-background result, occupancy, and visual QA.
 
-If 95% occupancy and full visibility conflict, record the geometry result and exercise the required clarification path rather than cropping.
+If the resolved occupancy threshold and full visibility conflict, record the geometry result and exercise the required clarification path rather than cropping the product.
 
 - [ ] **Step 3: Lock the test Product Master and generate one real secondary image**
 

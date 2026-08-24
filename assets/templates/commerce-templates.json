@@ -12,7 +12,7 @@
       "do_not_use_when": ["bundle-unconfirmed", "identity-conflict"],
       "required_facts": ["identity"],
       "product_view": "Single product, complete silhouette, front or most informative three-quarter view",
-      "composition": "Centered white-canvas catalog composition; dominant product direction targets at least 95% while remaining fully visible",
+      "composition": "Centered white-canvas catalog composition; meet the current marketplace/category occupancy minimum (Amazon.com base fallback 85%) while remaining fully visible; apply a stricter user/project target only when scoped",
       "scene": "Pure white seamless background with no props",
       "camera": "Neutral catalog camera with physical proportions preserved",
       "lighting": "Soft even studio light, controlled contact shadow only",
