@@ -38,9 +38,13 @@ Approve the exact inspected main raster before locking Product Master. Secondary
 
 Plan the gallery once after Product Master lock. The default roles remain three distinct application scenes, one size/spec card, one material/detail card, and one back/structure card; replace unsupported roles rather than fabricating evidence.
 
+Before writing a new layout, select at most one matching seller-owned merchant layout seed from `assets/merchant-layouts/rigid-aluminum-signs.json`. A merchant seed may keep its fixed layout, hierarchy, icon system, typography direction, and information positions across the seller's brands. Adapt only what the current Product Master, product ratio, approved copy, facts, and scene suitability require. Do not reopen or reanalyze the source product project. Third-party product designs still require coherent presentation differences.
+
 After the user approves a secondary, register it and follow the returned `generate_gallery_item` action in the same turn. Do not ask whether to register, continue, or regenerate the already-planned next card.
 
 Audit props and visible fasteners as possible included-package claims. Omit screws, hooks, brackets, tools, or accessories unless confirmed, even when a realistic scene would normally show them.
+
+Inspect the saved candidate once for applicable commerce quality: identity and required text, product prominence at thumbnail size, claim-to-visual correspondence, misleading components, and whether a scene is a real use environment rather than only a mounting surface. Run design-differentiation checks only for a source role that requires them. Small precision icons should use deterministic vector/icon composition when available rather than spending another full generation call.
 
 ## Repair ladder
 

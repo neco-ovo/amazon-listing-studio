@@ -4,6 +4,9 @@ import path from 'node:path';
 import test from 'node:test';
 
 import {acceptGeneratedRaster} from '../../scripts/lib/capabilities.js';
+import {auditListing, preflightListingScope} from '../../scripts/lib/listing-audit.js';
+import {loadMerchantLayouts, selectMerchantLayout} from '../../scripts/lib/merchant-layouts.js';
+import {createProjectState} from '../../scripts/lib/project-state.js';
 import {utf8Bytes, validateListing} from '../../scripts/lib/listing.js';
 import * as listingModule from '../../scripts/lib/listing.js';
 import * as state from '../../scripts/lib/state.js';
@@ -107,5 +110,25 @@ test('required Seed behavior matrix', async t => {
   await t.test('bundle integrity failures remain covered by the unit suite', async () => {
     const source = await readFile('tests/unit/bundle.test.js', 'utf8');
     for (const marker of ['MISSING_FILE', 'CORRUPT_IMAGE', 'HASH_MISMATCH', 'SCHEMA_NOT_READY']) assert.match(source, new RegExp(marker));
+  });
+
+  await t.test('merchant layout reuse selects only the matching family role', async () => {
+    const library = await loadMerchantLayouts('assets/merchant-layouts/rigid-aluminum-signs.json');
+    const selected = selectMerchantLayout(library, {
+      familyTraits: {material: 'aluminum', product_form: 'rigid_sign'},
+      assetType: 'application', facts: ['use_environments'], excludedConditions: []
+    });
+    assert.equal(selected.id, 'merchant-sign-application-scenarios');
+  });
+
+  await t.test('Listing audit is diagnostic and shared scope preflight is approval-safe', () => {
+    assert.equal(auditListing({title: 'Direct title', backend_search_terms: 'driveway'}, {buyerTerms: ['driveway']}).ok, true);
+    const project = createProjectState({projectId: 'p', productType: 'METAL_SIGN', now});
+    project.product_master = {version: 1, status: 'locked', approved_main_id: 'main-v1'};
+    const content = {
+      project_id: 'p', marketplace: 'amazon.com', language: 'en-US', product_type: 'METAL_SIGN',
+      product_master_version: 1, rules_unverified: ['attributes'], upload_ready: false
+    };
+    assert.equal(preflightListingScope(project, content).ok, true);
   });
 });

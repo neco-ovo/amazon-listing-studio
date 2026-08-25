@@ -133,6 +133,31 @@ test('infographic repair anchors dimensions and checks regional balance', async 
   assert.match(skill, /regional visual balance/i);
 });
 
+test('skill routes merchant layouts and one-pass commerce quality checks', async () => {
+  const skill = await readFile(path.join(root, 'SKILL.md'), 'utf8');
+  const imageWorkflow = await readFile(path.join(root, 'references', 'image-workflow.md'), 'utf8');
+  const listingWorkflow = await readFile(path.join(root, 'references', 'listing-workflow.md'), 'utf8');
+  const knowledge = await readFile(path.join(root, 'references', 'knowledge-and-facts.md'), 'utf8');
+
+  assert.match(skill, /light drafts.+immutable approvals.+strict delivery/i);
+  assert.match(imageWorkflow, /merchant.+layout seed/i);
+  assert.match(imageWorkflow, /fixed layout/i);
+  assert.match(imageWorkflow, /thumbnail/i);
+  assert.match(knowledge, /marketing expressions.+same consolidated question/i);
+  assert.match(listingWorkflow, /one.+bounded self-check/i);
+  assert.match(listingWorkflow, /do not recursively polish/i);
+});
+
+test('approval and delivery guidance expose shared preflight and direct ZIP verification', async () => {
+  const skill = await readFile(path.join(root, 'SKILL.md'), 'utf8');
+  const delivery = await readFile(path.join(root, 'references', 'delivery-and-compliance.md'), 'utf8');
+
+  assert.match(skill, /approval.+derive.+system scope/is);
+  assert.match(skill, /shared.+finalization preflight/i);
+  assert.match(delivery, /verify-delivery/);
+  assert.match(delivery, /without extraction/i);
+});
+
 test('legacy CLIs are compatibility wrappers instead of duplicate orchestrators', async () => {
   for (const name of ['init-project.js', 'validate-state.js', 'validate-listing.js', 'build-delivery.js']) {
     const source = await readFile(path.join(root, 'scripts', name), 'utf8');
