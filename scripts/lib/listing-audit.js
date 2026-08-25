@@ -93,6 +93,9 @@ export function preflightListingScope(state, content = {}) {
   const scope = deriveListingScope(state, content);
   for (const [field, expected] of Object.entries(scope)) {
     if (field === 'rules_unverified' || field === 'upload_ready') continue;
+    // Older v2 drafts predate the explicit rule_status field. Its value is
+    // still derived from authoritative state and frozen on the next approval.
+    if (field === 'rule_status' && content[field] === undefined) continue;
     if (content[field] !== expected) fail('BLOCKING_INPUT', 'Listing scope does not match current project state', {field, expected, actual: content[field] ?? null});
   }
   if (!Array.isArray(content.rules_unverified)) fail('BLOCKING_INPUT', 'Listing rules_unverified must be an array');
