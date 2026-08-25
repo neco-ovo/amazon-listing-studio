@@ -1,5 +1,6 @@
 import { fail } from './errors.js';
 import { findEmptyBenefitPhrases, findFrontBackDuplicates } from './listing.js';
+import { auditListing } from './listing-audit.js';
 
 const ROUTES = Object.freeze({
   listing_field_edit: {mode: 'fast', reason: 'LOCAL_LISTING_CHANGE'},
@@ -88,6 +89,9 @@ export function validateChangedListing(state, changedPaths = []) {
 
   const emptyPhrases = findEmptyBenefitPhrases(content).filter(field => paths.includes(field));
   if (emptyPhrases.length) fail('BLOCKING_INPUT', 'Changed Bullet uses empty benefit phrasing', {fields: emptyPhrases});
+  const audit = auditListing(content);
+  const affectedFindings = audit.findings.filter(item => paths.some(field => item.path === field || item.path.startsWith(`${field}.`)));
+  if (affectedFindings.length) fail('BLOCKING_INPUT', 'Changed Listing field fails retail-language self-check', {findings: affectedFindings});
   const backendChanged = paths.includes('backend_search_terms');
   return {
     ok: true,

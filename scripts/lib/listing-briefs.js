@@ -1,4 +1,4 @@
-export function compileListingBrief({facts = {}, marketLanguage = [], rules = {}} = {}) {
+export function compileListingBrief({facts = {}, marketLanguage = [], rules = {}, marketingExpressions = []} = {}) {
   const publishableFacts = Object.fromEntries(
     Object.entries(facts)
       .filter(([, fact]) => fact?.publishable === true)
@@ -8,6 +8,9 @@ export function compileListingBrief({facts = {}, marketLanguage = [], rules = {}
   return {
     publishable_facts: publishableFacts,
     market_language: [...new Set(marketLanguage.filter(Boolean))],
+    authorized_marketing_expressions: marketingExpressions
+      .filter(item => item?.publishable === true)
+      .map(item => structuredClone(item)),
     limits: structuredClone(rules?.limits ?? {}),
     fields: {
       title: {
@@ -41,6 +44,19 @@ export function compileListingBrief({facts = {}, marketLanguage = [], rules = {}
       'avoid_empty_conservative_phrasing',
       'keep_environment_performance_separate_from_mounting_surface',
       'do_not_add_compliance_claims_without_support'
-    ]
+    ],
+    self_audit: {
+      mode: 'one_bounded_pass',
+      checks: [
+        'natural_direct_us_retail_language',
+        'no_internal_qa_language',
+        'no_unsupported_absolutes_or_compliance_implications',
+        'buyer_search_language_matches_product_attributes',
+        'canonical_terms_are_consistent',
+        'marketing_strength_matches_field_type'
+      ],
+      repair: 'change_only_clearly_flagged_sentences_once',
+      stop: 'do_not_recursively_polish_or_rewrite_clean_fields'
+    }
   };
 }

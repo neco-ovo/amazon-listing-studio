@@ -67,6 +67,7 @@ test('single-field revision calls only patch, changed validation, render, and wr
 test('Listing approval freezes the current draft without image-path arguments', async () => {
   await withTempWorkspace(async projectDir => {
     const base = createProjectState({projectId: 'sign-1', productType: 'METAL_SIGN'});
+    base.product_master = {version: 1, status: 'locked', approved_main_id: 'main-v1'};
     const state = createDraft(base, {
       project_id: 'sign-1', product_master_version: 1, title: 'Approved title', bullets: [],
       item_highlights: '', description: '', backend_search_terms: '', special_features: [], attributes: {}

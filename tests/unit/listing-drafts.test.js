@@ -101,3 +101,30 @@ test('renders listing markdown deterministically', () => {
   assert.match(first, /# Hard Hat Required Sign/);
   assert.match(first, /\*\*VISIBLE WARNING\*\*/);
 });
+
+test('approval derives finalizer scope metadata from current project state', () => {
+  const state = stateWithDraft();
+  delete state.listing.draft.content.project_id;
+  delete state.listing.draft.content.rules_unverified;
+  delete state.listing.draft.content.upload_ready;
+  state.listing.rules_unverified = ['attributes', 'special_features'];
+
+  const approved = approveDraft(state, {userAction: 'approved', now});
+  const content = approved.listing.approved[0].content;
+  assert.equal(content.project_id, state.project.product_id);
+  assert.equal(content.marketplace, state.project.marketplace);
+  assert.equal(content.product_type, state.project.product_type);
+  assert.equal(content.product_master_version, state.product_master.version);
+  assert.deepEqual(content.rules_unverified, ['attributes', 'special_features']);
+  assert.equal(content.upload_ready, false);
+});
+
+test('Listing approval rejects a stale Product Master before creating a version', () => {
+  const state = stateWithDraft();
+  state.product_master.status = 'stale';
+  assert.throws(
+    () => approveDraft(state, {userAction: 'approved', now}),
+    error => error.code === 'STALE_DEPENDENCY'
+  );
+  assert.equal(state.listing.approved.length, 0);
+});

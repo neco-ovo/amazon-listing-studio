@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
 import { fail } from './errors.js';
+import { deriveListingScope, preflightListingScope } from './listing-audit.js';
 
 const FORBIDDEN_PATH_PARTS = new Set(['__proto__', 'prototype', 'constructor']);
 
@@ -113,7 +114,12 @@ export function approveDraft(state, approval) {
   if (!draft) fail('BLOCKING_INPUT', 'A working Listing draft is required');
   const now = approval.now ?? new Date().toISOString();
   const version = (state.listing.approved.at(-1)?.version ?? 0) + 1;
-  const content = {...structuredClone(draft.content), version};
+  const content = {
+    ...structuredClone(draft.content),
+    ...deriveListingScope(state, draft.content),
+    version
+  };
+  preflightListingScope(state, content);
   const jsonText = `${JSON.stringify(content, null, 2)}\n`;
   const markdownText = renderListing(content);
   const approvalId = `approval-listing-v${version}-${now.toLowerCase().replace(/[^a-z0-9]/g, '')}`;
