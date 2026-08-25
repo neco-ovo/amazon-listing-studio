@@ -14,4 +14,8 @@ Final approval must bind the current Product Master version, every selected appr
 
 Reject missing files, hash mismatches, stale Product Master bindings, invalid approvals, Listing mutations after approval, or bundle members that do not match the manifest. Build into a new output path; never overwrite the last valid delivery with a partial attempt.
 
-Use `scripts/build-delivery.js` only as a deprecated v1 compatibility entrypoint. Finalize v2 projects with `scripts/studio.js finalize --project-dir <dir> --output <new-dir> --approval <final-approval.json>`. The Skill packages files for manual Seller Central use; it does not publish automatically.
+Use `scripts/build-delivery.js` only as a deprecated v1 compatibility entrypoint. Finalize v2 projects with `scripts/studio.js finalize --project-dir <dir> --output <new-dir> --approval <final-approval.json>`. A relative output path resolves from the product directory and must remain inside it.
+
+Finalization verifies the ZIP member set, byte lengths, hashes, image decoding, Listing JSON, and approval scope before reporting success. Manifest artifact paths are archive-relative and explicitly declare `container: delivery.zip`. Repeat the same check without extraction with `scripts/studio.js verify-delivery --delivery-dir <delivery-dir>`; do not create a second manual verification directory.
+
+The Skill packages files for manual Seller Central use; it does not publish automatically.

@@ -126,6 +126,32 @@ test('finalize routes v2 delivery through the unified CLI', async () => {
   });
 });
 
+test('relative finalize output resolves from the product directory', async () => {
+  await withTempWorkspace(async root => {
+    const projectDir = path.join(root, 'product');
+    await mkdir(projectDir);
+    const approvalPath = path.join(projectDir, 'final-approval.json');
+    await writeFile(approvalPath, JSON.stringify({id: 'final-1', finalized: true}));
+    let received;
+    const result = await runCli([
+      'finalize', '--project-dir', projectDir, '--output', 'delivery/final-v1', '--approval', approvalPath
+    ], {buildV2: async input => { received = input; return {zipPath: 'delivery.zip'}; }});
+
+    assert.equal(result.ok, true);
+    assert.equal(received.outputDir, path.join(projectDir, 'delivery', 'final-v1'));
+  });
+});
+
+test('verify-delivery exposes direct archive verification', async () => {
+  let received;
+  const result = await runCli(['verify-delivery', '--delivery-dir', 'D:/fixture-delivery'], {
+    verifyV2: async input => { received = input; return {ok: true, verified_hashes: 7}; }
+  });
+  assert.equal(result.ok, true);
+  assert.equal(result.mode, 'full');
+  assert.equal(received.deliveryDir, path.resolve('D:/fixture-delivery'));
+});
+
 test('finalize rejects a delivery output outside the product root', async () => {
   await withTempWorkspace(async root => {
     const projectDir = path.join(root, 'product');

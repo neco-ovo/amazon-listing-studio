@@ -9,7 +9,7 @@ import { approveArtifact, approveListingDraft, updateProject } from './lib/trans
 import { migrateLegacyProject } from './lib/migration.js';
 import { validateMainImage } from './lib/images.js';
 import { renderListing, reviseDraft } from './lib/listing-drafts.js';
-import { buildV2Delivery } from './lib/bundle.js';
+import { buildV2Delivery, verifyDelivery } from './lib/bundle.js';
 
 function parseArgs(argv) {
   const [command, ...rest] = argv;
@@ -143,7 +143,9 @@ function candidatePath(projectDir, relativePath) {
 
 function projectOutputPath(projectDir, requestedPath, label) {
   const root = path.resolve(projectDir);
-  const resolved = path.resolve(requestedPath);
+  const resolved = path.isAbsolute(requestedPath)
+    ? path.resolve(requestedPath)
+    : path.resolve(root, requestedPath);
   if (!resolved.startsWith(`${root}${path.sep}`)) {
     throw blocking(`${label} must remain inside the product root`, {path: requestedPath, product_root: root});
   }
@@ -288,12 +290,13 @@ function operationFor(command) {
     'revise-listing': 'listing_field_edit',
     approve: 'approve_asset',
     validate: 'knowledge_lookup',
-    migrate: 'migrate'
+    migrate: 'migrate',
+    'verify-delivery': 'finalize'
   };
   return classifyOperation({kind: kinds[command] ?? command});
 }
 
-export async function runCli(argv, {clock = Date.now, candidateDependencies, listingDependencies, hashFile, buildV2 = buildV2Delivery} = {}) {
+export async function runCli(argv, {clock = Date.now, candidateDependencies, listingDependencies, hashFile, buildV2 = buildV2Delivery, verifyV2 = verifyDelivery} = {}) {
   const started = clock();
   let parsed;
   try {
@@ -334,6 +337,8 @@ export async function runCli(argv, {clock = Date.now, candidateDependencies, lis
       const outputDir = projectOutputPath(projectDir, requireOption(options, 'output'), 'Delivery output');
       const finalApproval = JSON.parse(await readFile(path.resolve(requireOption(options, 'approval')), 'utf8'));
       result = await buildV2({projectDir, outputDir, finalApproval});
+    } else if (command === 'verify-delivery') {
+      result = await verifyV2({deliveryDir: path.resolve(requireOption(options, 'delivery-dir'))});
     } else {
       return {ok: false, code: 'UNKNOWN_COMMAND', message: `Unknown command: ${command ?? ''}`};
     }

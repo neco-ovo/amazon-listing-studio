@@ -7,6 +7,7 @@ import sharp from 'sharp';
 
 import {DomainError} from './errors.js';
 import {isSchemaAuthorizationCurrent} from './listing.js';
+import {preflightListingScope} from './listing-audit.js';
 import {renderListing} from './listing-drafts.js';
 
 function invalid(reason, message, details = {}) {
@@ -80,9 +81,18 @@ export function buildManifest({approval, artifacts}) {
     product_master_version: approval.product_master_version,
     approval_id: approval.id,
     listing_version: approval.listing_version ?? null,
+    approval_scope: {
+      project_id: approval.project_id ?? null,
+      marketplace: approval.marketplace ?? null,
+      product_type: approval.product_type ?? null,
+      schema_status: approval.schema_status ?? null,
+      upload_ready: approval.upload_ready ?? null
+    },
     artifacts: artifacts.map(artifact => ({
       version: artifact.version,
       relative_path: artifact.relative_path,
+      container: 'delivery.zip',
+      archive_path: artifact.relative_path,
       media_type: artifact.media_type,
       byte_size: artifact.byte_size,
       sha256: artifact.sha256,
@@ -178,23 +188,98 @@ async function writeDeliveryOutput({outputDir, manifest, artifacts}) {
     const zipPath = path.join(stage, 'delivery.zip');
     await writeFile(manifestPath, manifestBytes);
     await writeFile(zipPath, archiveBytes);
-    const verified = unzipSync(await readFile(zipPath));
-    for (const artifact of manifest.artifacts) {
-      const bytes = verified[artifact.relative_path];
-      if (!bytes || hash(bytes) !== artifact.sha256) throw invalid('ZIP_VERIFICATION_FAILED', 'ZIP artifact verification failed.', {path: artifact.relative_path});
-    }
-    if (hash(verified['delivery-manifest.json']) !== hash(manifestBytes)) throw invalid('ZIP_VERIFICATION_FAILED', 'ZIP manifest verification failed.');
+    const verification = await verifyDelivery({deliveryDir: stage});
     await rename(stage, absoluteOutput);
     return {
       outputDir: absoluteOutput,
       manifest,
       manifestPath: path.join(absoluteOutput, 'delivery-manifest.json'),
       zipPath: path.join(absoluteOutput, 'delivery.zip'),
+      verification
     };
   } catch (error) {
     await rm(stage, {recursive: true, force: true});
     throw error;
   }
+}
+
+export async function verifyDelivery({deliveryDir, expectedScope = null}) {
+  const root = path.resolve(deliveryDir);
+  let manifestBytes;
+  let archive;
+  let manifest;
+  try {
+    manifestBytes = await readFile(path.join(root, 'delivery-manifest.json'));
+    manifest = JSON.parse(manifestBytes.toString('utf8'));
+    archive = unzipSync(await readFile(path.join(root, 'delivery.zip')));
+  } catch (cause) {
+    const error = invalid('DELIVERY_READ_FAILED', 'Delivery manifest or ZIP cannot be read.');
+    error.cause = cause;
+    throw error;
+  }
+  if (!Array.isArray(manifest.artifacts)) throw invalid('MANIFEST_INVALID', 'Delivery manifest artifacts are invalid.');
+  const expectedMembers = new Set(['delivery-manifest.json', ...manifest.artifacts.map(item => item.archive_path ?? item.relative_path)]);
+  const actualMembers = Object.keys(archive);
+  if (actualMembers.length !== expectedMembers.size || actualMembers.some(member => !expectedMembers.has(member))) {
+    throw invalid('ZIP_MEMBER_MISMATCH', 'ZIP members do not match the delivery manifest.', {expected: [...expectedMembers], actual: actualMembers});
+  }
+  if (!archive['delivery-manifest.json'] || hash(archive['delivery-manifest.json']) !== hash(manifestBytes)) {
+    throw invalid('ZIP_VERIFICATION_FAILED', 'ZIP manifest verification failed.');
+  }
+
+  let verifiedImages = 0;
+  let listing = null;
+  for (const artifact of manifest.artifacts) {
+    if (artifact.container !== 'delivery.zip') throw invalid('MANIFEST_INVALID', 'Artifact container is not explicit.', {path: artifact.relative_path});
+    const archivePath = artifact.archive_path ?? artifact.relative_path;
+    const bytes = archive[archivePath];
+    if (!bytes || bytes.length !== artifact.byte_size || hash(bytes) !== artifact.sha256) {
+      throw invalid('ZIP_VERIFICATION_FAILED', 'ZIP artifact length or hash verification failed.', {path: archivePath});
+    }
+    if (String(artifact.media_type).startsWith('image/')) {
+      try {
+        const metadata = await sharp(bytes).metadata();
+        if (!metadata.width || !metadata.height) throw new Error('missing raster dimensions');
+      } catch (cause) {
+        const error = invalid('CORRUPT_IMAGE', 'ZIP image cannot be decoded.', {path: archivePath});
+        error.cause = cause;
+        throw error;
+      }
+      verifiedImages += 1;
+    }
+    if (archivePath === 'listing/listing.json') {
+      try {
+        listing = JSON.parse(Buffer.from(bytes).toString('utf8'));
+      } catch (cause) {
+        const error = invalid('CORRUPT_LISTING', 'ZIP Listing JSON cannot be decoded.');
+        error.cause = cause;
+        throw error;
+      }
+    }
+  }
+
+  const scope = expectedScope ?? manifest.approval_scope;
+  if (scope && listing) {
+    for (const field of ['project_id', 'marketplace', 'product_type']) {
+      if (scope[field] && listing[field] !== scope[field]) {
+        throw invalid('APPROVAL_SCOPE_MISMATCH', 'ZIP Listing does not match manifest scope.', {field, expected: scope[field], actual: listing[field]});
+      }
+    }
+    if (manifest.listing_version !== null && listing.version !== manifest.listing_version) {
+      throw invalid('LISTING_VERSION_MISMATCH', 'ZIP Listing version does not match the manifest.');
+    }
+    if (scope.upload_ready !== null && scope.upload_ready !== undefined && listing.upload_ready !== scope.upload_ready) {
+      throw invalid('APPROVAL_SCOPE_MISMATCH', 'ZIP Listing readiness does not match manifest scope.');
+    }
+  }
+  return {
+    ok: true,
+    manifest,
+    verified_hashes: manifest.artifacts.length,
+    verified_images: verifiedImages,
+    verified_members: actualMembers.length,
+    scope_verified: Boolean(scope && listing)
+  };
 }
 
 export async function buildDelivery({projectDir, outputDir, approval}) {
@@ -255,6 +340,11 @@ function validateV2Scope(state, approval) {
   if (approval.project_id !== state.project.product_id || approval.marketplace !== state.project.marketplace
       || approval.product_type !== state.project.product_type) {
     throw invalid('APPROVAL_SCOPE_MISMATCH', 'Final approval does not match project, marketplace, or product type.');
+  }
+  try {
+    preflightListingScope(state, listing.content);
+  } catch (cause) {
+    throw invalid('APPROVAL_SCOPE_MISMATCH', 'Approved Listing does not satisfy the shared finalization preflight.', {cause: cause.message});
   }
   const ids = approval.artifact_ids ?? [];
   if (!Array.isArray(ids) || ids.length === 0 || new Set(ids).size !== ids.length

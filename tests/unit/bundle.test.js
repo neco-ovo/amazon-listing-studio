@@ -10,6 +10,7 @@ import {
   buildDelivery,
   buildManifest,
   sha256File,
+  verifyDelivery,
   validateApprovalScope,
 } from '../../scripts/lib/bundle.js';
 import {withTempWorkspace} from '../helpers/temp-workspace.js';
@@ -51,6 +52,11 @@ test('builds an integrity manifest and ZIP with approved artifacts only', async 
     assert.ok(archive['listing/listing.json']);
     assert.equal(archive['assets/rejected-history.png'], undefined);
     assert.equal(await sha256File(path.join(projectDir, 'assets/main-v2.png')), result.manifest.artifacts[0].sha256);
+    assert.equal(result.manifest.artifacts.every(artifact => artifact.container === 'delivery.zip'), true);
+    const verified = await verifyDelivery({deliveryDir: outputDir});
+    assert.equal(verified.ok, true);
+    assert.equal(verified.verified_images, 2);
+    assert.equal(verified.verified_hashes, result.manifest.artifacts.length);
   });
 });
 
@@ -190,4 +196,6 @@ test('buildManifest records versioned artifact scope', () => {
   assert.equal(manifest.artifacts[0].product_master_version, 2);
   assert.equal(manifest.artifacts[0].approval_id, 'approval-1');
   assert.equal(manifest.artifacts[0].change_summary, 'Final selection');
+  assert.equal(manifest.artifacts[0].container, 'delivery.zip');
+  assert.equal(manifest.artifacts[0].archive_path, 'images/main.png');
 });
