@@ -197,3 +197,22 @@ test('declined competitor expression remains observation-only and never becomes 
   assert.equal(result.projectExpressions.color_stays_bright.publishable, false);
   assert.equal(result.projectFacts.color_stays_bright, undefined);
 });
+
+test('seller-family rejection suppresses the same marketing-expression question later', () => {
+  const declined = applyFamilyClaimConfirmation({
+    family: broadAluminumFamily,
+    factIds: [],
+    expressionIds: ['color_stays_bright'],
+    confirmed: false,
+    scope: 'seller_family',
+    now: '2026-08-25T08:00:00.000Z'
+  });
+  const evaluated = evaluateFamilyClaims({
+    family: declined.family,
+    candidateFacts: {material: 'aluminum', product_form: 'rigid_sign'},
+    projectFacts: {}
+  });
+
+  assert.equal(evaluated.confirmation_required.some(item => item.expression_id === 'color_stays_bright'), false);
+  assert.equal(evaluated.marketing_expressions.color_stays_bright.status, 'market_observation');
+});

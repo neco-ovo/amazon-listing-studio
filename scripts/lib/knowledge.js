@@ -140,7 +140,7 @@ export function evaluateFamilyClaims({family, candidateFacts = {}, projectFacts 
       continue;
     }
     marketingExpressions[expressionId] = structuredClone(expression);
-    if (expression.status === 'family_confirmed') continue;
+    if (['family_confirmed', 'market_observation'].includes(expression.status)) continue;
     confirmationRequired.push({
       kind: 'expression',
       expression_id: expressionId,
