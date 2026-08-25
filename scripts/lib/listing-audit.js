@@ -1,5 +1,24 @@
 import { fail } from './errors.js';
 
+export const SYSTEM_LISTING_FIELDS = Object.freeze([
+  'project_id',
+  'marketplace',
+  'language',
+  'product_type',
+  'product_master_version',
+  'rules_unverified',
+  'upload_ready',
+  'schema_status',
+  'rule_status',
+  'schema_authorization'
+]);
+
+const SYSTEM_LISTING_FIELD_SET = new Set(SYSTEM_LISTING_FIELDS);
+
+export function isSystemListingPath(fieldPath) {
+  return SYSTEM_LISTING_FIELD_SET.has(String(fieldPath ?? '').split('.')[0]);
+}
+
 const PATTERNS = Object.freeze([
   {code: 'INTERNAL_QA_LANGUAGE', pattern: /\b(?:empty (?:corner )?mounting holes?|confirmed (?:outdoor[- ]resistant )?performance|no visible screws?)\b/i},
   {code: 'ABSTRACT_RETAIL_PHRASE', pattern: /\b(?:supports exposed settings|supports straightforward placement|provides versatile use|remain suited to exposed placement|performance makes it)\b/i},
@@ -54,11 +73,10 @@ export function deriveListingScope(state, content = {}) {
   if (master?.status !== 'locked' || !Number.isInteger(master.version) || master.version < 1) {
     fail('STALE_DEPENDENCY', 'Listing approval requires the current locked Product Master');
   }
-  const rulesUnverified = Array.isArray(content.rules_unverified)
-    ? [...new Set(content.rules_unverified)]
-    : Array.isArray(state.listing?.rules_unverified)
-      ? [...new Set(state.listing.rules_unverified)]
-      : [];
+  const rulesUnverified = Array.isArray(state.listing?.rules_unverified)
+    ? [...new Set(state.listing.rules_unverified)]
+    : [];
+  const uploadReady = state.listing?.upload_ready === true && rulesUnverified.length === 0;
   return {
     project_id: project.product_id,
     marketplace: project.marketplace,
@@ -66,7 +84,8 @@ export function deriveListingScope(state, content = {}) {
     product_type: project.product_type,
     product_master_version: master.version,
     rules_unverified: rulesUnverified,
-    upload_ready: content.upload_ready === true && rulesUnverified.length === 0
+    upload_ready: uploadReady,
+    rule_status: state.listing?.rule_status ?? (uploadReady ? 'verified' : 'rules_unverified')
   };
 }
 

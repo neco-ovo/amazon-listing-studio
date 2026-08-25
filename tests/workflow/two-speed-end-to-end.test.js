@@ -104,3 +104,17 @@ test('post-approval Listing mutation is rejected by its frozen hash', async () =
     );
   });
 });
+
+test('gallery selection change after Listing approval requires Listing reapproval', async () => {
+  await withTempWorkspace(async root => {
+    const project = await buildApprovedFixture(root);
+    project.state.gallery.selected = ['main-v1'];
+    project.finalApproval.artifact_ids = ['main-v1'];
+    await writeFile(path.join(project.projectDir, 'state.json'), `${JSON.stringify(project.state, null, 2)}\n`);
+
+    await assert.rejects(
+      buildV2Delivery({...project, outputDir: path.join(root, 'delivery')}),
+      error => error.code === 'BUNDLE_INVALID' && error.details?.reason === 'LISTING_SCOPE_STALE'
+    );
+  });
+});

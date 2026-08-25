@@ -4,7 +4,7 @@ import {cp, readFile, rm, writeFile} from 'node:fs/promises';
 import path from 'node:path';
 import test from 'node:test';
 
-import {unzipSync} from 'fflate';
+import {unzipSync, zipSync} from 'fflate';
 
 import {
   buildDelivery,
@@ -34,6 +34,18 @@ async function writeState(projectDir, state) {
 
 async function readApproval(projectDir) {
   return JSON.parse(await readFile(path.join(projectDir, 'approval.json'), 'utf8'));
+}
+
+async function rewriteDelivery(deliveryDir, mutate) {
+  const manifestPath = path.join(deliveryDir, 'delivery-manifest.json');
+  const zipPath = path.join(deliveryDir, 'delivery.zip');
+  const manifest = JSON.parse(await readFile(manifestPath, 'utf8'));
+  const archive = unzipSync(await readFile(zipPath));
+  mutate(manifest, archive);
+  const manifestBytes = Buffer.from(`${JSON.stringify(manifest, null, 2)}\n`);
+  archive['delivery-manifest.json'] = manifestBytes;
+  await writeFile(manifestPath, manifestBytes);
+  await writeFile(zipPath, Buffer.from(zipSync(archive)));
 }
 
 test('builds an integrity manifest and ZIP with approved artifacts only', async () => {
@@ -198,4 +210,56 @@ test('buildManifest records versioned artifact scope', () => {
   assert.equal(manifest.artifacts[0].change_summary, 'Final selection');
   assert.equal(manifest.artifacts[0].container, 'delivery.zip');
   assert.equal(manifest.artifacts[0].archive_path, 'images/main.png');
+});
+
+test('verifyDelivery rejects incomplete, ambiguous, unsafe, or unscoped archives', async t => {
+  await t.test('missing Listing JSON', async () => {
+    await withTempWorkspace(async root => {
+      const projectDir = await mutableProject(root);
+      const deliveryDir = path.join(root, 'delivery');
+      await buildDelivery({projectDir, outputDir: deliveryDir, approval: await readApproval(projectDir)});
+      await rewriteDelivery(deliveryDir, (manifest, archive) => {
+        manifest.artifacts = manifest.artifacts.filter(item => item.archive_path !== 'listing/listing.json');
+        delete archive['listing/listing.json'];
+      });
+      await assert.rejects(verifyDelivery({deliveryDir}), error => error.details?.reason === 'MANIFEST_INVALID');
+    });
+  });
+
+  await t.test('duplicate artifact path', async () => {
+    await withTempWorkspace(async root => {
+      const projectDir = await mutableProject(root);
+      const deliveryDir = path.join(root, 'delivery');
+      await buildDelivery({projectDir, outputDir: deliveryDir, approval: await readApproval(projectDir)});
+      await rewriteDelivery(deliveryDir, manifest => manifest.artifacts.push(structuredClone(manifest.artifacts[0])));
+      await assert.rejects(verifyDelivery({deliveryDir}), error => error.details?.reason === 'MANIFEST_INVALID');
+    });
+  });
+
+  await t.test('unsafe archive path', async () => {
+    await withTempWorkspace(async root => {
+      const projectDir = await mutableProject(root);
+      const deliveryDir = path.join(root, 'delivery');
+      await buildDelivery({projectDir, outputDir: deliveryDir, approval: await readApproval(projectDir)});
+      await rewriteDelivery(deliveryDir, (manifest, archive) => {
+        const artifact = manifest.artifacts[0];
+        const bytes = archive[artifact.archive_path];
+        delete archive[artifact.archive_path];
+        artifact.archive_path = '../outside.png';
+        artifact.relative_path = '../outside.png';
+        archive['../outside.png'] = bytes;
+      });
+      await assert.rejects(verifyDelivery({deliveryDir}), error => error.details?.reason === 'MANIFEST_INVALID');
+    });
+  });
+
+  await t.test('missing approval scope', async () => {
+    await withTempWorkspace(async root => {
+      const projectDir = await mutableProject(root);
+      const deliveryDir = path.join(root, 'delivery');
+      await buildDelivery({projectDir, outputDir: deliveryDir, approval: await readApproval(projectDir)});
+      await rewriteDelivery(deliveryDir, manifest => { delete manifest.approval_scope; });
+      await assert.rejects(verifyDelivery({deliveryDir}), error => error.details?.reason === 'MANIFEST_INVALID');
+    });
+  });
 });

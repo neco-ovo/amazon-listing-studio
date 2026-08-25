@@ -217,8 +217,28 @@ export async function verifyDelivery({deliveryDir, expectedScope = null}) {
     error.cause = cause;
     throw error;
   }
-  if (!Array.isArray(manifest.artifacts)) throw invalid('MANIFEST_INVALID', 'Delivery manifest artifacts are invalid.');
-  const expectedMembers = new Set(['delivery-manifest.json', ...manifest.artifacts.map(item => item.archive_path ?? item.relative_path)]);
+  if (!Array.isArray(manifest.artifacts) || manifest.artifacts.length === 0) {
+    throw invalid('MANIFEST_INVALID', 'Delivery manifest artifacts are invalid.');
+  }
+  const scope = expectedScope ?? manifest.approval_scope;
+  if (!scope || !scope.project_id || !scope.marketplace || !scope.product_type || manifest.listing_version === null) {
+    throw invalid('MANIFEST_INVALID', 'Delivery manifest approval scope is incomplete.');
+  }
+  const archivePaths = manifest.artifacts.map(item => item.archive_path ?? item.relative_path);
+  const safeArchivePath = value => {
+    if (typeof value !== 'string' || !value || value.includes('\\') || value.includes('\0')
+      || path.posix.isAbsolute(value) || /^[a-z]:/i.test(value)) return false;
+    const parts = value.split('/');
+    return parts.every(part => part && part !== '.' && part !== '..') && path.posix.normalize(value) === value;
+  };
+  if (archivePaths.some(item => !safeArchivePath(item)) || new Set(archivePaths).size !== archivePaths.length) {
+    throw invalid('MANIFEST_INVALID', 'Delivery manifest artifact paths must be unique safe archive-relative paths.');
+  }
+  if (archivePaths.filter(item => item === 'listing/listing.json').length !== 1
+    || archivePaths.filter(item => item === 'listing/listing.md').length !== 1) {
+    throw invalid('MANIFEST_INVALID', 'Delivery manifest requires exactly one Listing JSON and Markdown artifact.');
+  }
+  const expectedMembers = new Set(['delivery-manifest.json', ...archivePaths]);
   const actualMembers = Object.keys(archive);
   if (actualMembers.length !== expectedMembers.size || actualMembers.some(member => !expectedMembers.has(member))) {
     throw invalid('ZIP_MEMBER_MISMATCH', 'ZIP members do not match the delivery manifest.', {expected: [...expectedMembers], actual: actualMembers});
@@ -258,8 +278,7 @@ export async function verifyDelivery({deliveryDir, expectedScope = null}) {
     }
   }
 
-  const scope = expectedScope ?? manifest.approval_scope;
-  if (scope && listing) {
+  if (listing) {
     for (const field of ['project_id', 'marketplace', 'product_type']) {
       if (scope[field] && listing[field] !== scope[field]) {
         throw invalid('APPROVAL_SCOPE_MISMATCH', 'ZIP Listing does not match manifest scope.', {field, expected: scope[field], actual: listing[field]});
@@ -272,13 +291,14 @@ export async function verifyDelivery({deliveryDir, expectedScope = null}) {
       throw invalid('APPROVAL_SCOPE_MISMATCH', 'ZIP Listing readiness does not match manifest scope.');
     }
   }
+  if (!listing) throw invalid('MANIFEST_INVALID', 'Delivery ZIP is missing the required Listing JSON.');
   return {
     ok: true,
     manifest,
     verified_hashes: manifest.artifacts.length,
     verified_images: verifiedImages,
     verified_members: actualMembers.length,
-    scope_verified: Boolean(scope && listing)
+    scope_verified: true
   };
 }
 
@@ -340,6 +360,27 @@ function validateV2Scope(state, approval) {
   if (approval.project_id !== state.project.product_id || approval.marketplace !== state.project.marketplace
       || approval.product_type !== state.project.product_type) {
     throw invalid('APPROVAL_SCOPE_MISMATCH', 'Final approval does not match project, marketplace, or product type.');
+  }
+  const listingApproval = state.approvals.find(item => item.id === listing.approval_id && item.type === 'listing');
+  if (!listingApproval) throw invalid('UNAPPROVED_LISTING', 'Approved Listing approval record is missing.');
+  if (listingApproval.scope_version === 1) {
+    const sameSelection = Array.isArray(listingApproval.artifact_ids)
+      && listingApproval.artifact_ids.length === state.gallery.selected.length
+      && listingApproval.artifact_ids.every(id => state.gallery.selected.includes(id));
+    const content = listing.content;
+    const scopeMatches = sameSelection
+      && listingApproval.project_id === state.project.product_id
+      && listingApproval.marketplace === state.project.marketplace
+      && listingApproval.product_type === state.project.product_type
+      && listingApproval.product_master_version === state.product_master.version
+      && listingApproval.draft_revision === listing.draft_revision
+      && listingApproval.content_sha256 === listing.json_sha256
+      && listingApproval.rule_status === content.rule_status
+      && JSON.stringify(listingApproval.rules_unverified ?? []) === JSON.stringify(content.rules_unverified ?? [])
+      && listingApproval.upload_ready === content.upload_ready;
+    if (!scopeMatches) {
+      throw invalid('LISTING_SCOPE_STALE', 'Gallery, project, Product Master, content, or rule scope changed after Listing approval.');
+    }
   }
   try {
     preflightListingScope(state, listing.content);

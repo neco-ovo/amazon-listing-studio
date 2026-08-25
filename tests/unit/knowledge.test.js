@@ -216,3 +216,35 @@ test('seller-family rejection suppresses the same marketing-expression question 
   assert.equal(evaluated.confirmation_required.some(item => item.expression_id === 'color_stays_bright'), false);
   assert.equal(evaluated.marketing_expressions.color_stays_bright.status, 'market_observation');
 });
+
+test('declined project process claim is a non-publishable decision, not a false fact', () => {
+  const result = applyFamilyClaimConfirmation({
+    family: broadAluminumFamily,
+    factIds: ['fade_resistant'],
+    confirmed: false,
+    scope: 'project',
+    projectFacts: {},
+    projectClaimDecisions: {},
+    now: '2026-08-25T08:00:00.000Z'
+  });
+
+  assert.equal(result.projectFacts.fade_resistant, undefined);
+  assert.equal(result.projectClaimDecisions.fade_resistant.publishable, false);
+  assert.equal(result.projectClaimDecisions.fade_resistant.decision, 'declined');
+});
+
+test('uncertain project process claim remains observation-only', () => {
+  const result = applyFamilyClaimConfirmation({
+    family: broadAluminumFamily,
+    factIds: ['reflective'],
+    confirmed: undefined,
+    scope: 'project',
+    projectFacts: {},
+    projectClaimDecisions: {},
+    now: '2026-08-25T08:00:00.000Z'
+  });
+
+  assert.equal(result.projectFacts.reflective, undefined);
+  assert.equal(result.projectClaimDecisions.reflective.status, 'market_observation');
+  assert.equal(result.projectClaimDecisions.reflective.decision, 'uncertain');
+});

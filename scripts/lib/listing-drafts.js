@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import { fail } from './errors.js';
-import { deriveListingScope, preflightListingScope } from './listing-audit.js';
+import { deriveListingScope, isSystemListingPath, preflightListingScope } from './listing-audit.js';
 
 const FORBIDDEN_PATH_PARTS = new Set(['__proto__', 'prototype', 'constructor']);
 
@@ -21,6 +21,11 @@ export function createDraft(state, listing, {now = new Date().toISOString()} = {
     fail('BLOCKING_INPUT', 'Project listing state is invalid');
   }
   const next = structuredClone(state);
+  const rulesUnverified = Array.isArray(listing?.rules_unverified) ? [...new Set(listing.rules_unverified)] : [];
+  next.listing.rules_unverified = rulesUnverified;
+  next.listing.upload_ready = listing?.upload_ready === true && rulesUnverified.length === 0;
+  next.listing.rule_status = listing?.rule_status
+    ?? (next.listing.upload_ready ? 'verified' : (rulesUnverified.length ? 'rules_partially_verified' : 'rules_unverified'));
   next.listing.draft = {
     revision: 1,
     content: cleanDraftContent(listing),
@@ -77,6 +82,9 @@ export function reviseDraft(state, patch, {now = new Date().toISOString()} = {})
 
   const next = structuredClone(state);
   for (const [fieldPath, value] of Object.entries(fields)) {
+    if (isSystemListingPath(fieldPath)) {
+      fail('BLOCKING_INPUT', 'Revision cannot modify a system-owned Listing field', {field: fieldPath});
+    }
     setExistingPath(next.listing.draft.content, fieldPath, value);
   }
   next.listing.draft.revision += 1;
@@ -138,6 +146,21 @@ export function approveDraft(state, approval) {
     json_sha256: hashText(jsonText),
     markdown_sha256: hashText(markdownText)
   };
+  const frozenScope = {
+    scope_version: 1,
+    project_id: content.project_id,
+    marketplace: content.marketplace,
+    language: content.language,
+    product_type: content.product_type,
+    product_master_version: content.product_master_version,
+    artifact_ids: [...state.gallery.selected],
+    draft_revision: draft.revision,
+    content_sha256: snapshot.json_sha256,
+    rule_status: content.rule_status,
+    rules_unverified: structuredClone(content.rules_unverified),
+    upload_ready: content.upload_ready
+  };
+  snapshot.scope = structuredClone(frozenScope);
   const next = structuredClone(state);
   next.listing.approved.push(snapshot);
   next.listing.draft = null;
@@ -147,6 +170,7 @@ export function approveDraft(state, approval) {
     artifact_id: snapshot.id,
     listing_version: version,
     product_master_version: content.product_master_version ?? null,
+    ...frozenScope,
     json_sha256: snapshot.json_sha256,
     markdown_sha256: snapshot.markdown_sha256,
     approved_at: now,

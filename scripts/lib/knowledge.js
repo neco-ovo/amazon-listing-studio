@@ -117,7 +117,7 @@ export function matchSellerFamily(family, candidate = {}) {
   };
 }
 
-export function evaluateFamilyClaims({family, candidateFacts = {}, projectFacts = {}, projectExpressions = {}}) {
+export function evaluateFamilyClaims({family, candidateFacts = {}, projectFacts = {}, projectExpressions = {}, projectClaimDecisions = {}}) {
   const familyMatch = matchSellerFamily(family, candidateFacts);
   if (familyMatch.status !== 'matched') {
     return {family_match: familyMatch, inherited: {}, marketing_expressions: {}, confirmation_required: [], questions: []};
@@ -127,6 +127,7 @@ export function evaluateFamilyClaims({family, candidateFacts = {}, projectFacts 
   const confirmationRequired = [];
   for (const [factId, fact] of Object.entries(family.facts ?? {})) {
     if (projectFacts[factId]?.status === 'user_confirmed') continue;
+    if (projectClaimDecisions[factId]) continue;
     if (['structural', 'family_confirmed'].includes(fact.inheritance)) {
       inherited[factId] = structuredClone(fact);
     } else if (fact.inheritance === 'process') {
@@ -168,6 +169,7 @@ export function applyFamilyClaimConfirmation({
   confirmed,
   scope,
   projectFacts = {},
+  projectClaimDecisions = {},
   projectExpressions = {},
   now = new Date().toISOString()
 }) {
@@ -177,6 +179,7 @@ export function applyFamilyClaimConfirmation({
   }
   const nextFamily = structuredClone(family);
   const nextProjectFacts = structuredClone(projectFacts);
+  const nextProjectClaimDecisions = structuredClone(projectClaimDecisions);
   const nextProjectExpressions = structuredClone(projectExpressions);
   for (const factId of factIds) {
     const familyFact = nextFamily.facts?.[factId];
@@ -184,16 +187,28 @@ export function applyFamilyClaimConfirmation({
       fail('BLOCKING_INPUT', 'Confirmation targets an unknown process-dependent family fact', {fact_id: factId});
     }
     if (scope === 'project') {
-      nextProjectFacts[factId] = {
-        value: confirmed ? structuredClone(familyFact.value) : false,
-        status: 'user_confirmed',
-        authority: 'project',
-        publishable: true,
-        source_ids: [`user-family-applicability-${now}`],
-        confirmed_at: now
-      };
+      if (confirmed === true) {
+        nextProjectFacts[factId] = {
+          value: structuredClone(familyFact.value),
+          status: 'user_confirmed',
+          authority: 'project',
+          publishable: true,
+          source_ids: [`user-family-applicability-${now}`],
+          confirmed_at: now
+        };
+      } else {
+        nextProjectClaimDecisions[factId] = {
+          status: 'market_observation',
+          decision: confirmed === false ? 'declined' : 'uncertain',
+          authority: 'project',
+          publishable: false,
+          decided_at: now
+        };
+      }
     } else {
-      familyFact.inheritance = confirmed ? 'family_confirmed' : 'not_applicable';
+      if (confirmed === true) familyFact.inheritance = 'family_confirmed';
+      else if (confirmed === false) familyFact.inheritance = 'not_applicable';
+      else familyFact.applicability_status = 'uncertain';
       familyFact.applicability_confirmed_at = now;
       familyFact.applicability_confirmed_by = 'user';
     }
@@ -216,7 +231,12 @@ export function applyFamilyClaimConfirmation({
       expression.applicability_confirmed_by = 'user';
     }
   }
-  return {family: nextFamily, projectFacts: nextProjectFacts, projectExpressions: nextProjectExpressions};
+  return {
+    family: nextFamily,
+    projectFacts: nextProjectFacts,
+    projectClaimDecisions: nextProjectClaimDecisions,
+    projectExpressions: nextProjectExpressions
+  };
 }
 
 export function mergeKnowledge({category = null, family = null, projectFacts = {}}) {

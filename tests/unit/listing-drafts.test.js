@@ -128,3 +128,51 @@ test('Listing approval rejects a stale Product Master before creating a version'
   );
   assert.equal(state.listing.approved.length, 0);
 });
+
+test('micro revisions cannot patch system-owned Listing scope fields', () => {
+  for (const field of [
+    'project_id', 'marketplace', 'language', 'product_type', 'product_master_version',
+    'rules_unverified', 'upload_ready', 'schema_status', 'rule_status'
+  ]) {
+    const state = stateWithDraft();
+    if (!Object.hasOwn(state.listing.draft.content, field)) state.listing.draft.content[field] = null;
+    assert.throws(
+      () => reviseDraft(state, {fields: {[field]: 'tampered'}, expectedDraftRevision: 1}),
+      error => error.code === 'BLOCKING_INPUT' && /system-owned/i.test(error.message),
+      field
+    );
+  }
+});
+
+test('approval ignores conflicting draft rule metadata and uses authoritative state', () => {
+  const state = stateWithDraft();
+  state.listing.rules_unverified = ['attributes'];
+  state.listing.upload_ready = false;
+  state.listing.rule_status = 'rules_partially_verified';
+  state.listing.draft.content.rules_unverified = [];
+  state.listing.draft.content.upload_ready = true;
+
+  const approved = approveDraft(state, {userAction: 'approved', now});
+  assert.deepEqual(approved.listing.approved[0].content.rules_unverified, ['attributes']);
+  assert.equal(approved.listing.approved[0].content.upload_ready, false);
+  assert.equal(approved.listing.approved[0].content.rule_status, 'rules_partially_verified');
+});
+
+test('Listing approval freezes selected images, draft revision, hashes, and rule scope', () => {
+  const state = stateWithDraft();
+  state.gallery.selected = ['main-v1', 'scene-v1'];
+  state.listing.rules_unverified = ['attributes'];
+  state.listing.rule_status = 'rules_partially_verified';
+  const approved = approveDraft(state, {userAction: 'approved', now});
+  const record = approved.approvals.at(-1);
+
+  assert.deepEqual(record.artifact_ids, ['main-v1', 'scene-v1']);
+  assert.equal(record.draft_revision, 1);
+  assert.equal(record.project_id, 'sign-1');
+  assert.equal(record.marketplace, 'amazon.com');
+  assert.equal(record.product_type, 'METAL_SIGN');
+  assert.equal(record.rule_status, 'rules_partially_verified');
+  assert.deepEqual(record.rules_unverified, ['attributes']);
+  assert.equal(record.upload_ready, false);
+  assert.equal(record.content_sha256, record.json_sha256);
+});
