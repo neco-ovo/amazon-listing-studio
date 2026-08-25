@@ -117,44 +117,67 @@ export function matchSellerFamily(family, candidate = {}) {
   };
 }
 
-export function evaluateFamilyClaims({family, candidateFacts = {}, projectFacts = {}}) {
+export function evaluateFamilyClaims({family, candidateFacts = {}, projectFacts = {}, projectExpressions = {}}) {
   const familyMatch = matchSellerFamily(family, candidateFacts);
   if (familyMatch.status !== 'matched') {
-    return {family_match: familyMatch, inherited: {}, confirmation_required: [], questions: []};
+    return {family_match: familyMatch, inherited: {}, marketing_expressions: {}, confirmation_required: [], questions: []};
   }
   const inherited = {};
+  const marketingExpressions = {};
   const confirmationRequired = [];
   for (const [factId, fact] of Object.entries(family.facts ?? {})) {
     if (projectFacts[factId]?.status === 'user_confirmed') continue;
     if (['structural', 'family_confirmed'].includes(fact.inheritance)) {
       inherited[factId] = structuredClone(fact);
     } else if (fact.inheritance === 'process') {
-      confirmationRequired.push({fact_id: factId, value: structuredClone(fact.value)});
+      confirmationRequired.push({kind: 'fact', fact_id: factId, value: structuredClone(fact.value)});
     }
   }
-  const labels = confirmationRequired.map(item => item.fact_id.replaceAll('_', '-'));
+  for (const [expressionId, expression] of Object.entries(family.marketing_expressions ?? {})) {
+    const projectExpression = projectExpressions[expressionId];
+    if (projectExpression) {
+      marketingExpressions[expressionId] = structuredClone(projectExpression);
+      continue;
+    }
+    marketingExpressions[expressionId] = structuredClone(expression);
+    if (expression.status === 'family_confirmed') continue;
+    confirmationRequired.push({
+      kind: 'expression',
+      expression_id: expressionId,
+      text: expression.text,
+      allowed_scopes: structuredClone(expression.allowed_scopes ?? []),
+      non_derivable_facts: structuredClone(expression.non_derivable_facts ?? [])
+    });
+  }
+  const labels = confirmationRequired.map(item => (item.fact_id ?? item.expression_id).replaceAll('_', '-'));
   return {
     family_match: familyMatch,
     inherited,
+    marketing_expressions: marketingExpressions,
     confirmation_required: confirmationRequired,
     questions: labels.length
-      ? [`Does this product use the ${family.family_id} family's confirmed ${labels.join(', ')} processes?`]
+      ? [`Does this product inherit the ${family.family_id} family's ${labels.join(', ')} claims and marketing expressions?`]
       : []
   };
 }
 
 export function applyFamilyClaimConfirmation({
   family,
-  factIds,
+  factIds = [],
+  expressionIds = [],
   confirmed,
   scope,
   projectFacts = {},
+  projectExpressions = {},
   now = new Date().toISOString()
 }) {
   if (!['project', 'seller_family'].includes(scope)) fail('BLOCKING_INPUT', 'Confirmation scope is invalid', {scope});
-  if (!Array.isArray(factIds) || factIds.length === 0) fail('BLOCKING_INPUT', 'Confirmed family fact IDs are required');
+  if (!Array.isArray(factIds) || !Array.isArray(expressionIds) || factIds.length + expressionIds.length === 0) {
+    fail('BLOCKING_INPUT', 'At least one family fact or marketing expression is required');
+  }
   const nextFamily = structuredClone(family);
   const nextProjectFacts = structuredClone(projectFacts);
+  const nextProjectExpressions = structuredClone(projectExpressions);
   for (const factId of factIds) {
     const familyFact = nextFamily.facts?.[factId];
     if (!familyFact || familyFact.inheritance !== 'process') {
@@ -175,7 +198,25 @@ export function applyFamilyClaimConfirmation({
       familyFact.applicability_confirmed_by = 'user';
     }
   }
-  return {family: nextFamily, projectFacts: nextProjectFacts};
+  for (const expressionId of expressionIds) {
+    const expression = nextFamily.marketing_expressions?.[expressionId];
+    if (!expression) fail('BLOCKING_INPUT', 'Confirmation targets an unknown marketing expression', {expression_id: expressionId});
+    if (scope === 'project') {
+      nextProjectExpressions[expressionId] = {
+        ...structuredClone(expression),
+        status: confirmed ? 'user_authorized_marketing_expression' : 'market_observation',
+        publishable: confirmed === true,
+        authority: 'project',
+        confirmed_at: now
+      };
+    } else {
+      expression.status = confirmed ? 'family_confirmed' : 'market_observation';
+      expression.publishable = confirmed === true;
+      expression.applicability_confirmed_at = now;
+      expression.applicability_confirmed_by = 'user';
+    }
+  }
+  return {family: nextFamily, projectFacts: nextProjectFacts, projectExpressions: nextProjectExpressions};
 }
 
 export function mergeKnowledge({category = null, family = null, projectFacts = {}}) {

@@ -23,5 +23,14 @@
       "inheritance": "structural",
       "source_ids": ["user-family-confirmation-1"]
     }
+  },
+  "marketing_expressions": {
+    "non_rusting_aluminum": {
+      "text": "NON-RUSTING ALUMINUM",
+      "related_fact_ids": ["rust_resistant"],
+      "allowed_scopes": ["image", "bullet", "description"],
+      "non_derivable_facts": ["aluminum_grade", "service_life", "warranty"],
+      "status": "confirmation_required"
+    }
   }
 }

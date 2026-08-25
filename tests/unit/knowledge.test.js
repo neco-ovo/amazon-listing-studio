@@ -69,6 +69,15 @@ const broadAluminumFamily = {
     rust_resistant: {value: true, inheritance: 'structural'},
     fade_resistant: {value: true, inheritance: 'process'},
     reflective: {value: true, inheritance: 'process'}
+  },
+  marketing_expressions: {
+    color_stays_bright: {
+      text: 'COLOR STAYS BRIGHT',
+      related_fact_ids: ['fade_resistant'],
+      allowed_scopes: ['image', 'bullet', 'description'],
+      non_derivable_facts: ['ink_chemistry', 'service_life'],
+      status: 'confirmation_required'
+    }
   }
 };
 
@@ -112,7 +121,10 @@ test('inherits structural claims and asks one consolidated process question', ()
   });
 
   assert.deepEqual(Object.keys(result.inherited), ['rust_resistant']);
-  assert.deepEqual(result.confirmation_required.map(item => item.fact_id), ['fade_resistant', 'reflective']);
+  assert.deepEqual(
+    result.confirmation_required.filter(item => item.kind === 'fact').map(item => item.fact_id),
+    ['fade_resistant', 'reflective']
+  );
   assert.equal(result.questions.length, 1);
   assert.match(result.questions[0], /fade-resistant/i);
   assert.match(result.questions[0], /reflective/i);
@@ -154,4 +166,34 @@ test('records process confirmation at project or seller-family scope', () => {
   });
   assert.equal(family.family.facts.fade_resistant.inheritance, 'family_confirmed');
   assert.equal(family.family.facts.fade_resistant.applicability_confirmed_at, '2026-08-25T08:00:00.000Z');
+});
+
+test('asks once for process claims and related marketing expressions', () => {
+  const result = evaluateFamilyClaims({
+    family: broadAluminumFamily,
+    candidateFacts: {material: 'aluminum', product_form: 'rigid_sign'},
+    projectFacts: {},
+    projectExpressions: {}
+  });
+
+  assert.equal(result.questions.length, 1);
+  assert.deepEqual(result.confirmation_required.map(item => item.kind), ['fact', 'fact', 'expression']);
+  assert.equal(result.marketing_expressions.color_stays_bright.status, 'confirmation_required');
+});
+
+test('declined competitor expression remains observation-only and never becomes a fact', () => {
+  const result = applyFamilyClaimConfirmation({
+    family: broadAluminumFamily,
+    factIds: [],
+    expressionIds: ['color_stays_bright'],
+    confirmed: false,
+    scope: 'project',
+    projectFacts: {},
+    projectExpressions: {},
+    now: '2026-08-25T08:00:00.000Z'
+  });
+
+  assert.equal(result.projectExpressions.color_stays_bright.status, 'market_observation');
+  assert.equal(result.projectExpressions.color_stays_bright.publishable, false);
+  assert.equal(result.projectFacts.color_stays_bright, undefined);
 });

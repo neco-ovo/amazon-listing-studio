@@ -22,6 +22,8 @@ Use `scripts/studio.js learn-category` to merge market observations. Promote a c
 
 Separate family membership from claim applicability. Structural claims such as rust resistance may inherit with the confirmed aluminum construction. Process-dependent claims such as fade resistance, reflectivity, or waterproofing require matching finish/process evidence. When that evidence is absent, ask one consolidated question before formal image and Listing work. Record a confirmation for only the current project or, when the user says the manufacturing series shares the process, for the seller family so later matching projects do not ask again. A negative or uncertain answer omits only those claims and does not block the workflow.
 
+Include related marketing expressions in that same consolidated question. Keep them in a separate expression collection with allowed image/Listing scopes and facts they cannot imply. Confirmation permits the wording within its scope; it does not convert the wording into a Product Master fact, certification, material grade, lifetime, process specification, or guarantee. A declined or uncertain expression remains a market observation. Listing self-check decides whether an authorized expression is natural and suitable for a particular consumer field.
+
 ## Product identity and invalidation
 
 Product identity includes construction, dimensions and orientation, count, front/back appearance, printed copy, defining colors, mounting features, and included components. A user-authorized redesign may change specified identity fields. After Product Master lock, an identity change creates a new Product Master and stales dependent secondary images and Listing claims; a presentation-only change does not.
