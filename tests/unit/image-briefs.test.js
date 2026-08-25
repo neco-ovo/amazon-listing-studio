@@ -62,3 +62,26 @@ test('uses traceable typography only when explicitly requested', () => {
 
   assert.equal(brief.text_strategy, 'deterministic_traceable');
 });
+
+test('merchant seed reuse keeps its approved fixed layout without anti-copy changes', () => {
+  const brief = compileImageBrief({
+    ...fixtureInput,
+    layoutSeed: {
+      id: 'merchant-sign-front-back',
+      reference_role: 'MERCHANT_LAYOUT_SEED',
+      reuse_policy: 'FIXED_LAYOUT_ALLOWED'
+    }
+  });
+
+  assert.equal(brief.layout_seed.id, 'merchant-sign-front-back');
+  assert.deepEqual(brief.difference_requirements, []);
+});
+
+test('third-party product design reference keeps differentiation requirements', () => {
+  const brief = compileImageBrief({
+    ...fixtureInput,
+    references: {...fixtureInput.references, product_design: ['competitor-design.png']}
+  });
+
+  assert.ok(brief.difference_requirements.length >= 2);
+});

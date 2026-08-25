@@ -43,7 +43,8 @@ export function compileImageBrief({
   userRequest = {},
   references = {},
   claims = {},
-  galleryItem = {}
+  galleryItem = {},
+  layoutSeed = null
 }) {
   if (!kind || !master?.identity) fail('BLOCKING_INPUT', 'Image kind and authoritative product identity are required');
   const identityChanges = authorizedIdentityChanges(userRequest);
@@ -60,6 +61,9 @@ export function compileImageBrief({
     product_master_version: master.version ?? null
   };
   const traceableTypography = userRequest.font_traceability === true || userRequest.deterministic_typography === true;
+  const fixedMerchantLayout = layoutSeed?.reference_role === 'MERCHANT_LAYOUT_SEED'
+    && layoutSeed?.reuse_policy === 'FIXED_LAYOUT_ALLOWED';
+  const differenceRequirements = fixedMerchantLayout ? [] : differences(userRequest, master);
 
   return {
     identity,
@@ -72,7 +76,9 @@ export function compileImageBrief({
       layout_paths: structuredClone(references.layout ?? [])
     },
     permitted_claims: permittedClaims(claims),
-    difference_plan: differences(userRequest, master),
+    layout_seed: layoutSeed ? structuredClone(layoutSeed) : null,
+    difference_plan: differenceRequirements,
+    difference_requirements: differenceRequirements,
     text_strategy: traceableTypography ? 'deterministic_traceable' : 'one_pass_complete',
     exclusions: [
       'competitor imagery as product identity',
