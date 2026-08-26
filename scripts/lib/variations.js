@@ -1,5 +1,6 @@
 const VARIATION_SCHEMA_VERSION = 1;
 const SKU_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
+const CONFIRMED_FACT_STATUSES = new Set(['user_confirmed']);
 
 function normalizedText(value) {
   return typeof value === 'string' ? value.trim() : '';
@@ -28,7 +29,7 @@ function semanticFact(fact) {
   }
 
   const conflictFree = !Array.isArray(fact.conflicts) || fact.conflicts.length === 0;
-  const supported = fact.publishable === true && fact.status !== 'conflicted' && conflictFree
+  const supported = fact.publishable === true && CONFIRMED_FACT_STATUSES.has(fact.status) && conflictFree
     && Boolean(normalizedFactValue(fact.value));
   return {supported, value: fact.value, unresolved: !supported, record: fact};
 }
@@ -117,15 +118,24 @@ export function classifyChildDifferences({children, identityFields = [], overrid
     return {mode: override, reasons: [`override:${override}`]};
   }
 
-  const {common, child_only} = computeCommonFacts(children);
+  const {common, child_only, conflicts} = computeCommonFacts(children);
   const reasons = [];
   const identity = new Set((Array.isArray(identityFields) ? identityFields : []).map(normalizedDimension));
+  const highImpact = field => LARGE_DIFFERENCE_FIELDS.has(field)
+    || /warning|graphic|buyer|purpose|function|product_form|use_intent|use_object/.test(field);
+  for (const field of Object.keys(conflicts)) {
+    const normalizedField = normalizedDimension(field);
+    if (identity.has(normalizedField) || highImpact(normalizedField)) {
+      reasons.push(`conflict:${normalizedField}`);
+    }
+  }
+  if (reasons.length > 0) return {mode: 'large', reasons};
+
   for (const field of Object.keys(child_only)) {
     const normalizedField = normalizedDimension(field);
     if (identity.has(normalizedField)) {
       reasons.push(`identity:${normalizedField}`);
-    } else if (LARGE_DIFFERENCE_FIELDS.has(normalizedField)
-      || /warning|graphic|buyer|purpose|function|product_form|use_intent|use_object/.test(normalizedField)) {
+    } else if (highImpact(normalizedField)) {
       reasons.push(`large:${normalizedField}`);
     } else if (!STANDARD_VARIATION_FIELDS.has(normalizedField)) {
       reasons.push(`child:${normalizedField}`);

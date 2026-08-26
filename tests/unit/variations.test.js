@@ -112,6 +112,27 @@ test('excludes conflicted or unknown record facts from common facts and reports 
   assert.equal(result.conflicts.purpose[0].status, 'unknown');
 });
 
+test('excludes unknown records even when malformed input marks them publishable', () => {
+  const result = computeCommonFacts([
+    {facts: {material: {value: 'aluminum', status: 'unknown', publishable: true, conflicts: []}}},
+    {facts: {material: {value: 'aluminum', status: 'user_confirmed', publishable: true, conflicts: []}}}
+  ]);
+
+  assert.deepEqual(result.common, {});
+  assert.equal(result.conflicts.material[0].status, 'unknown');
+});
+
+test('classifies unresolved high-impact facts as large differences', () => {
+  const children = [
+    {facts: {warning_semantics: {value: 'horse crossing', status: 'conflicted', publishable: false, conflicts: [{value: 'kids at play'}]}}},
+    {facts: {warning_semantics: {value: 'horse crossing', status: 'user_confirmed', publishable: true, conflicts: []}}}
+  ];
+
+  const result = classifyChildDifferences({children, identityFields: []});
+  assert.equal(result.mode, 'large');
+  assert.deepEqual(result.reasons, ['conflict:warning_semantics']);
+});
+
 test('classifies size-only Children as light difference', () => {
   const result = classifyChildDifferences({children: [
     {facts: {material: 'aluminum', purpose: 'safety sign', size_name: '8 x 12 in'}},
