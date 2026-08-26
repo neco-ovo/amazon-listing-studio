@@ -1,4 +1,5 @@
 import { fail } from './errors.js';
+import { validateVariationExtension } from './variations.js';
 
 const SCHEMA_VERSION = 2;
 
@@ -57,6 +58,10 @@ export function validateProjectState(state) {
   if (!Array.isArray(state?.approvals)) errors.push('approvals must be an array');
   if (!Array.isArray(state?.stale_dependencies)) errors.push('stale_dependencies must be an array');
   if (!Array.isArray(state?.metrics)) errors.push('metrics must be an array');
+  if (Object.hasOwn(state ?? {}, 'variation')) {
+    const variation = validateVariationExtension(state.variation);
+    errors.push(...variation.errors.map(error => `variation: ${error}`));
+  }
   return { valid: errors.length === 0, errors };
 }
 
