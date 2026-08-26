@@ -82,6 +82,36 @@ test('computes common facts from active Children only', () => {
   assert.deepEqual(result.conflicts, {});
 });
 
+test('uses confirmed publishable record values without treating provenance as a difference', () => {
+  const children = [
+    {facts: {
+      material: {value: 'aluminum', status: 'user_confirmed', publishable: true, sources: ['supplier-a'], dependents: [], conflicts: []},
+      size_name: {value: '8 x 12 in', status: 'user_confirmed', publishable: true, sources: ['supplier-a'], dependents: [], conflicts: []}
+    }},
+    {facts: {
+      material: {value: 'aluminum', status: 'user_confirmed', publishable: true, sources: ['supplier-b'], dependents: ['listing-1'], conflicts: []},
+      size_name: {value: '12 x 16 in', status: 'user_confirmed', publishable: true, sources: ['supplier-b'], dependents: ['listing-2'], conflicts: []}
+    }}
+  ];
+
+  assert.deepEqual(computeCommonFacts(children).common, {material: 'aluminum'});
+  assert.equal(classifyChildDifferences({children, identityFields: ['material']}).mode, 'light');
+});
+
+test('excludes conflicted or unknown record facts from common facts and reports them', () => {
+  const result = computeCommonFacts([
+    {facts: {material: {value: 'aluminum', status: 'conflicted', publishable: false, sources: ['supplier-a'], conflicts: [{value: 'steel'}]}}},
+    {facts: {material: {value: 'aluminum', status: 'user_confirmed', publishable: true, sources: ['supplier-b'], conflicts: []}}},
+    {facts: {purpose: {value: 'safety sign', status: 'unknown', publishable: false, sources: [], conflicts: []}}}
+  ]);
+
+  assert.deepEqual(result.common, {});
+  assert.deepEqual(Object.keys(result.child_only), []);
+  assert.equal(result.conflicts.material.length, 1);
+  assert.equal(result.conflicts.material[0].status, 'conflicted');
+  assert.equal(result.conflicts.purpose[0].status, 'unknown');
+});
+
 test('classifies size-only Children as light difference', () => {
   const result = classifyChildDifferences({children: [
     {facts: {material: 'aluminum', purpose: 'safety sign', size_name: '8 x 12 in'}},

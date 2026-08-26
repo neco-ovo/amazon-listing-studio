@@ -20,6 +20,19 @@ function normalizedFactValue(value) {
   return JSON.stringify(value);
 }
 
+function semanticFact(fact) {
+  const isRecord = fact && typeof fact === 'object' && !Array.isArray(fact)
+    && Object.prototype.hasOwnProperty.call(fact, 'value');
+  if (!isRecord) {
+    return {supported: Boolean(normalizedFactValue(fact)), value: fact, unresolved: false};
+  }
+
+  const conflictFree = !Array.isArray(fact.conflicts) || fact.conflicts.length === 0;
+  const supported = fact.publishable === true && fact.status !== 'conflicted' && conflictFree
+    && Boolean(normalizedFactValue(fact.value));
+  return {supported, value: fact.value, unresolved: !supported, record: fact};
+}
+
 function blockingInput(message) {
   const error = new Error(message);
   error.code = 'BLOCKING_INPUT';
@@ -70,13 +83,18 @@ export function computeCommonFacts(children) {
   const conflicts = {};
 
   for (const field of [...fields].sort()) {
-    const values = factsByChild
-      .map(facts => facts[field])
-      .filter(value => normalizedFactValue(value));
+    const facts = factsByChild.map(facts => semanticFact(facts[field]));
+    const unresolved = facts.filter(fact => fact.unresolved);
+    if (unresolved.length > 0) {
+      conflicts[field] = unresolved.map(fact => structuredClone(fact.record));
+      continue;
+    }
+
+    const values = facts.filter(fact => fact.supported).map(fact => fact.value);
     const normalizedValues = values.map(normalizedFactValue);
     const uniqueValues = [...new Set(normalizedValues)];
 
-    if (values.length === factsByChild.length && uniqueValues.length === 1) {
+    if (values.length === facts.length && uniqueValues.length === 1) {
       common[field] = structuredClone(values[0]);
     } else if (uniqueValues.length > 0) {
       child_only[field] = uniqueValues.sort();
