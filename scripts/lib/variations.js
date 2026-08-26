@@ -125,7 +125,7 @@ export function classifyChildDifferences({children, identityFields = [], overrid
     || /warning|graphic|buyer|purpose|function|product_form|use_intent|use_object/.test(field);
   for (const field of Object.keys(conflicts)) {
     const normalizedField = normalizedDimension(field);
-    if (identity.has(normalizedField) || highImpact(normalizedField)) {
+    if (!STANDARD_VARIATION_FIELDS.has(normalizedField)) {
       reasons.push(`conflict:${normalizedField}`);
     }
   }

@@ -133,6 +133,17 @@ test('classifies unresolved high-impact facts as large differences', () => {
   assert.deepEqual(result.reasons, ['conflict:warning_semantics']);
 });
 
+test('classifies unresolved non-variation facts as large without identity fields', () => {
+  const children = [
+    {facts: {material: {value: 'aluminum', status: 'unknown', publishable: false, conflicts: []}}},
+    {facts: {material: {value: 'aluminum', status: 'user_confirmed', publishable: true, conflicts: []}}}
+  ];
+
+  const result = classifyChildDifferences({children, identityFields: []});
+  assert.equal(result.mode, 'large');
+  assert.deepEqual(result.reasons, ['conflict:material']);
+});
+
 test('classifies size-only Children as light difference', () => {
   const result = classifyChildDifferences({children: [
     {facts: {material: 'aluminum', purpose: 'safety sign', size_name: '8 x 12 in'}},
