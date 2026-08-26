@@ -1,6 +1,13 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {createVariationExtension, validateVariationExtension, variationTupleKey} from '../../scripts/lib/variations.js';
+import {
+  classifyChildDifferences,
+  computeCommonFacts,
+  createVariationExtension,
+  selectVariationTheme,
+  validateVariationExtension,
+  variationTupleKey
+} from '../../scripts/lib/variations.js';
 
 test('creates a sparse compound Variation without inventing combinations', () => {
   const variation = createVariationExtension({
@@ -51,4 +58,43 @@ test('rejects whitespace-padded child SKU keys', () => {
   variation.children[' SKU-A '].sku = ' SKU-A ';
 
   assert.equal(validateVariationExtension(variation).valid, false);
+});
+
+test('selects only an exact category-permitted compound theme', () => {
+  assert.deepEqual(selectVariationTheme({
+    allowedThemes: [['size_name'], ['color_name', 'size_name']],
+    requestedDimensions: ['color_name', 'size_name']
+  }).dimensions, ['color_name', 'size_name']);
+  assert.throws(() => selectVariationTheme({
+    allowedThemes: [['size_name']], requestedDimensions: ['color_name', 'size_name']
+  }), error => error.code === 'BLOCKING_INPUT');
+});
+
+test('computes common facts from active Children only', () => {
+  const result = computeCommonFacts([
+    {active: true, facts: {material: 'aluminum', purpose: 'safety sign', color_name: 'red'}},
+    {active: false, facts: {material: 'steel', purpose: 'safety sign'}},
+    {active: true, facts: {material: 'aluminum', purpose: 'safety sign', color_name: 'blue'}}
+  ]);
+
+  assert.deepEqual(result.common, {material: 'aluminum', purpose: 'safety sign'});
+  assert.deepEqual(result.child_only, {color_name: ['blue', 'red']});
+  assert.deepEqual(result.conflicts, {});
+});
+
+test('classifies size-only Children as light difference', () => {
+  const result = classifyChildDifferences({children: [
+    {facts: {material: 'aluminum', purpose: 'safety sign', size_name: '8 x 12 in'}},
+    {facts: {material: 'aluminum', purpose: 'safety sign', size_name: '12 x 16 in'}}
+  ], identityFields: ['material', 'purpose']});
+  assert.equal(result.mode, 'light');
+});
+
+test('classifies different warning meaning as large difference and honors override', () => {
+  const children = [
+    {facts: {material: 'aluminum', warning_semantics: 'horse crossing'}},
+    {facts: {material: 'aluminum', warning_semantics: 'kids at play'}}
+  ];
+  assert.equal(classifyChildDifferences({children, identityFields: ['material']}).mode, 'large');
+  assert.equal(classifyChildDifferences({children, identityFields: ['material'], override: 'light'}).mode, 'light');
 });

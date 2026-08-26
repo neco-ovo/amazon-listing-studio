@@ -9,6 +9,23 @@ function normalizedDimension(value) {
   return normalizedText(value).toLowerCase();
 }
 
+function activeChildren(children) {
+  const entries = Array.isArray(children) ? children : Object.values(children ?? {});
+  return entries.filter(child => child && typeof child === 'object' && child.active !== false);
+}
+
+function normalizedFactValue(value) {
+  if (typeof value === 'string') return normalizedText(value).toLowerCase();
+  if (value === null || value === undefined) return '';
+  return JSON.stringify(value);
+}
+
+function blockingInput(message) {
+  const error = new Error(message);
+  error.code = 'BLOCKING_INPUT';
+  return error;
+}
+
 function validSku(value) {
   return typeof value === 'string' && value === value.trim() && SKU_PATTERN.test(value);
 }
@@ -18,6 +35,87 @@ export function variationTupleKey(dimensions, values) {
     return '';
   }
   return dimensions.map(dimension => normalizedText(values[dimension]).toLowerCase()).join('\u001f');
+}
+
+export function selectVariationTheme({allowedThemes, requestedDimensions} = {}) {
+  if (!Array.isArray(requestedDimensions) || requestedDimensions.length === 0) {
+    throw blockingInput('requested variation dimensions are required');
+  }
+  const requested = requestedDimensions.map(normalizedDimension);
+  if (requested.some(dimension => !dimension) || new Set(requested).size !== requested.length) {
+    throw blockingInput('requested variation dimensions must be unique non-empty fields');
+  }
+
+  const theme = (Array.isArray(allowedThemes) ? allowedThemes : []).find(candidate => {
+    if (!Array.isArray(candidate) || candidate.length !== requested.length) return false;
+    return candidate.map(normalizedDimension).every((dimension, index) => dimension === requested[index]);
+  });
+  if (!theme) throw blockingInput('requested variation theme is not category-permitted');
+
+  return {
+    dimensions: theme.map(normalizedDimension),
+    source: 'category_permitted',
+    verification_status: 'verified'
+  };
+}
+
+export function computeCommonFacts(children) {
+  const active = activeChildren(children);
+  const factsByChild = active.map(child => child.facts && typeof child.facts === 'object' && !Array.isArray(child.facts)
+    ? child.facts
+    : {});
+  const fields = new Set(factsByChild.flatMap(facts => Object.keys(facts)));
+  const common = {};
+  const child_only = {};
+  const conflicts = {};
+
+  for (const field of [...fields].sort()) {
+    const values = factsByChild
+      .map(facts => facts[field])
+      .filter(value => normalizedFactValue(value));
+    const normalizedValues = values.map(normalizedFactValue);
+    const uniqueValues = [...new Set(normalizedValues)];
+
+    if (values.length === factsByChild.length && uniqueValues.length === 1) {
+      common[field] = structuredClone(values[0]);
+    } else if (uniqueValues.length > 0) {
+      child_only[field] = uniqueValues.sort();
+    }
+  }
+
+  return {common, child_only, conflicts};
+}
+
+const STANDARD_VARIATION_FIELDS = new Set([
+  'size', 'size_name', 'color', 'color_name', 'pattern', 'pattern_name',
+  'style', 'style_name', 'pack_count', 'item_package_quantity', 'number_of_items'
+]);
+const LARGE_DIFFERENCE_FIELDS = new Set([
+  'warning_semantics', 'core_purpose', 'purpose', 'buyer_object', 'product_form', 'core_function'
+]);
+
+export function classifyChildDifferences({children, identityFields = [], override} = {}) {
+  if (override === 'light' || override === 'large') {
+    return {mode: override, reasons: [`override:${override}`]};
+  }
+
+  const {common, child_only} = computeCommonFacts(children);
+  const reasons = [];
+  const identity = new Set((Array.isArray(identityFields) ? identityFields : []).map(normalizedDimension));
+  for (const field of Object.keys(child_only)) {
+    const normalizedField = normalizedDimension(field);
+    if (identity.has(normalizedField)) {
+      reasons.push(`identity:${normalizedField}`);
+    } else if (LARGE_DIFFERENCE_FIELDS.has(normalizedField)
+      || /warning|graphic|buyer|purpose|function|product_form|use_intent|use_object/.test(normalizedField)) {
+      reasons.push(`large:${normalizedField}`);
+    } else if (!STANDARD_VARIATION_FIELDS.has(normalizedField)) {
+      reasons.push(`child:${normalizedField}`);
+    }
+  }
+
+  if (reasons.length > 0) return {mode: 'large', reasons};
+  return {mode: 'light', reasons: Object.keys(common).length > 0 ? ['standard_variation_fields'] : []};
 }
 
 export function createVariationExtension({
