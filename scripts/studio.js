@@ -10,6 +10,7 @@ import { migrateLegacyProject } from './lib/migration.js';
 import { validateMainImage } from './lib/images.js';
 import { renderListing, reviseDraft } from './lib/listing-drafts.js';
 import { buildV2Delivery, verifyDelivery } from './lib/bundle.js';
+import { promoteToVariation } from './lib/variation-project.js';
 
 function parseArgs(argv) {
   const [command, ...rest] = argv;
@@ -291,6 +292,7 @@ function operationFor(command) {
     approve: 'approve_asset',
     validate: 'knowledge_lookup',
     migrate: 'migrate',
+    'promote-variation': 'product_identity_change',
     'verify-delivery': 'finalize'
   };
   return classifyOperation({kind: kinds[command] ?? command});
@@ -305,6 +307,20 @@ export async function runCli(argv, {clock = Date.now, candidateDependencies, lis
     let result;
     if (command === 'init') result = await initProject(options);
     else if (command === 'learn-category') result = await learnCategory(options);
+    else if (command === 'promote-variation') {
+      const theme = JSON.parse(await readFile(path.resolve(requireOption(options, 'theme')), 'utf8'));
+      if (theme.verification_status !== 'verified') {
+        throw blocking('Variation theme source must be verified');
+      }
+      result = await promoteToVariation({
+        projectDir: path.resolve(requireOption(options, 'project-dir')),
+        parentSku: requireOption(options, 'parent-sku'),
+        childSku: requireOption(options, 'child-sku'),
+        theme: {dimensions: theme.dimensions, values: theme.values},
+        themeSource: theme.source,
+        now: options.now
+      });
+    }
     else if (command === 'record-candidate') {
       const projectDir = path.resolve(requireOption(options, 'project-dir'));
       const candidate = JSON.parse(await readFile(path.resolve(requireOption(options, 'input')), 'utf8'));

@@ -108,6 +108,34 @@ test('unknown commands return a stable error instead of mutating files', async (
   assert.equal(result.code, 'UNKNOWN_COMMAND');
 });
 
+test('promote-variation returns stable full-mode CLI output', async () => {
+  await withTempWorkspace(async root => {
+    const projectDir = path.join(root, 'sign-1');
+    const themePath = path.join(root, 'theme.json');
+    const initialized = await runCli([
+      'init', '--project-dir', projectDir, '--project-id', 'sign-1', '--product-name', 'Safety Sign',
+      '--marketplace', 'amazon.com', '--language', 'en-US', '--product-type', 'METAL_SIGN'
+    ]);
+    assert.equal(initialized.ok, true);
+    await writeFile(themePath, JSON.stringify({
+      dimensions: ['size_name'],
+      values: {size_name: '12 x 16 in'},
+      source: {kind: 'category_schema', id: 'METAL_SIGN'},
+      verification_status: 'verified'
+    }));
+
+    const output = await runCli([
+      'promote-variation', '--project-dir', projectDir, '--parent-sku', 'PARENT-1',
+      '--child-sku', 'CHILD-1', '--theme', themePath
+    ]);
+
+    assert.equal(output.ok, true);
+    assert.equal(output.operation, 'promote-variation');
+    assert.equal(output.mode, 'full');
+    assert.equal(output.result.state.project.mode, 'variation_family');
+  });
+});
+
 test('finalize routes v2 delivery through the unified CLI', async () => {
   await withTempWorkspace(async root => {
     const approvalPath = path.join(root, 'final-approval.json');
