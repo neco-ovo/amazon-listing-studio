@@ -117,10 +117,20 @@ test('promote-variation returns stable full-mode CLI output', async () => {
       '--marketplace', 'amazon.com', '--language', 'en-US', '--product-type', 'METAL_SIGN'
     ]);
     assert.equal(initialized.ok, true);
+    const statePath = path.join(projectDir, 'state.json');
+    const state = JSON.parse(await readFile(statePath, 'utf8'));
+    state.product_master = {version: 1, status: 'locked', approved_main_id: 'main-v1'};
+    state.gallery.plan = [{id: 'main-v1', kind: 'main', status: 'approved'}];
+    state.gallery.assets['main-v1'] = {
+      id: 'main-v1', kind: 'main', status: 'approved', path: 'images/main/main-v1.png'
+    };
+    state.gallery.selected = ['main-v1'];
+    state.listing.approved = [{id: 'listing-v1', version: 1, status: 'approved'}];
+    await writeFile(statePath, `${JSON.stringify(state, null, 2)}\n`);
     await writeFile(themePath, JSON.stringify({
       dimensions: ['size_name'],
       values: {size_name: '12 x 16 in'},
-      source: {kind: 'category_schema', id: 'METAL_SIGN'},
+      source: {kind: 'category_schema', id: 'METAL_SIGN', allowed_themes: [['size_name']]},
       verification_status: 'verified'
     }));
 

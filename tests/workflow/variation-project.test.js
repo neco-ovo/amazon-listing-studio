@@ -35,7 +35,10 @@ async function createCompletedProject(projectDir) {
   };
   state.listing = {
     draft: null,
-    approved: [{id: 'listing-v1', version: 1, path: 'listing/approved/listing-v1.json', sha256: 'c'.repeat(64)}]
+    approved: [{
+      id: 'listing-v1', version: 1, status: 'approved', path: 'listing/approved/listing-v1.json',
+      sha256: 'c'.repeat(64)
+    }]
   };
   state.approvals = [{id: 'approval-main-v1', type: 'image', sha256: 'b'.repeat(64)}];
   state.delivery = {id: 'delivery-v1', status: 'built', path: 'delivery/v1', manifest_sha256: 'd'.repeat(64)};
@@ -56,7 +59,10 @@ function promotionInput(projectDir) {
     parentSku: 'PARENT-1',
     childSku: 'CHILD-1',
     theme: {dimensions: ['size_name'], values: {size_name: '12 x 16 in'}},
-    themeSource: {kind: 'category_schema', id: 'METAL_SIGN'},
+    themeSource: {
+      kind: 'category_schema', id: 'METAL_SIGN',
+      allowed_themes: [['size_name'], ['color_name', 'size_name']]
+    },
     now
   };
 }
@@ -80,7 +86,10 @@ test('promotes a completed project without moving approved legacy files', async 
     assert.deepEqual(result.state.variation.children['CHILD-1'].listing, original.listing);
     assert.deepEqual(result.state.variation.theme, {
       dimensions: ['size_name'],
-      source: {kind: 'category_schema', id: 'METAL_SIGN'},
+      source: {
+        kind: 'category_schema', id: 'METAL_SIGN',
+        allowed_themes: [['size_name'], ['color_name', 'size_name']]
+      },
       verification_status: 'verified'
     });
     assert.deepEqual(result.created, [
@@ -135,6 +144,67 @@ test('promotion requires a verified theme source before creating directories', a
     await assert.rejects(
       promoteToVariation({...input, themeSource: null}),
       error => error.code === 'BLOCKING_INPUT'
+    );
+    await assert.rejects(stat(path.join(projectDir, 'family')), error => error.code === 'ENOENT');
+  });
+});
+
+test('promotion rejects an intake project before creating directories', async () => {
+  await withTempWorkspace(async projectDir => {
+    const state = createProjectState({projectId: 'sign-1', productType: 'METAL_SIGN', now});
+    await writeFile(path.join(projectDir, 'state.json'), `${JSON.stringify(state, null, 2)}\n`);
+    await writeFile(path.join(projectDir, 'project.md'), renderProjectSummary(state));
+
+    await assert.rejects(
+      promoteToVariation(promotionInput(projectDir)),
+      error => error.code === 'BLOCKING_INPUT' && /approval-complete|product master/i.test(error.message)
+    );
+    await assert.rejects(stat(path.join(projectDir, 'family')), error => error.code === 'ENOENT');
+  });
+});
+
+test('promotion rejects a locked Product Master without an approved Listing', async () => {
+  await withTempWorkspace(async projectDir => {
+    const state = await createCompletedProject(projectDir);
+    state.listing.approved = [];
+    await writeFile(path.join(projectDir, 'state.json'), `${JSON.stringify(state, null, 2)}\n`);
+
+    await assert.rejects(
+      promoteToVariation(promotionInput(projectDir)),
+      error => error.code === 'BLOCKING_INPUT' && /approved listing/i.test(error.message)
+    );
+    await assert.rejects(stat(path.join(projectDir, 'family')), error => error.code === 'ENOENT');
+  });
+});
+
+test('promotion rejects an unsupported theme source kind before creating directories', async () => {
+  await withTempWorkspace(async projectDir => {
+    await createCompletedProject(projectDir);
+    const input = promotionInput(projectDir);
+
+    await assert.rejects(
+      promoteToVariation({...input, themeSource: {...input.themeSource, kind: 'seller_guess'}}),
+      error => error.code === 'BLOCKING_INPUT' && /source/i.test(error.message)
+    );
+    await assert.rejects(stat(path.join(projectDir, 'family')), error => error.code === 'ENOENT');
+  });
+});
+
+test('promotion rejects a requested compound theme absent from allowed themes', async () => {
+  await withTempWorkspace(async projectDir => {
+    await createCompletedProject(projectDir);
+    const input = promotionInput(projectDir);
+
+    await assert.rejects(
+      promoteToVariation({
+        ...input,
+        theme: {
+          dimensions: ['color_name', 'size_name'],
+          values: {color_name: 'Red', size_name: '12 x 16 in'}
+        },
+        themeSource: {...input.themeSource, allowed_themes: [['size_name'], ['color_name']]}
+      }),
+      error => error.code === 'BLOCKING_INPUT' && /category-permitted|theme/i.test(error.message)
     );
     await assert.rejects(stat(path.join(projectDir, 'family')), error => error.code === 'ENOENT');
   });

@@ -3,7 +3,7 @@ import path from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
 import { validateProjectState } from './project-state.js';
 import { updateProject } from './transactions.js';
-import { createVariationExtension, validateVariationExtension } from './variations.js';
+import { createVariationExtension, selectVariationTheme, validateVariationExtension } from './variations.js';
 
 const SUPPLEMENTAL_DIRECTORIES = childSku => [
   'family/shared-assets',
@@ -22,8 +22,9 @@ function record(value) {
 
 function verifiedThemeSource(source) {
   return record(source)
-    && typeof source.kind === 'string' && source.kind.trim() !== ''
-    && typeof source.id === 'string' && source.id.trim() !== '';
+    && ['category_schema', 'user_template'].includes(source.kind)
+    && typeof source.id === 'string' && source.id.trim() !== ''
+    && Array.isArray(source.allowed_themes) && source.allowed_themes.length > 0;
 }
 
 function desiredVariation({parentSku, childSku, theme, themeSource, now}) {
@@ -33,21 +34,37 @@ function desiredVariation({parentSku, childSku, theme, themeSource, now}) {
   if (!verifiedThemeSource(themeSource)) {
     fail('BLOCKING_INPUT', 'A verified Variation theme source is required');
   }
+  const selectedTheme = selectVariationTheme({
+    allowedThemes: themeSource.allowed_themes,
+    requestedDimensions: theme.dimensions
+  });
 
   const variation = createVariationExtension({
     parentSku,
-    dimensions: structuredClone(theme.dimensions),
+    dimensions: selectedTheme.dimensions,
     firstChildSku: childSku,
     firstChildFacts: theme.values,
     now
   });
   variation.theme.source = structuredClone(themeSource);
-  variation.theme.verification_status = 'verified';
+  variation.theme.verification_status = selectedTheme.verification_status;
   const validation = validateVariationExtension(variation);
   if (!validation.valid) {
     fail('BLOCKING_INPUT', 'Variation promotion input is invalid', {errors: validation.errors});
   }
   return variation;
+}
+
+function assertApprovalComplete(state) {
+  const master = state.product_master;
+  const mainId = master?.approved_main_id;
+  const main = mainId ? state.gallery?.assets?.[mainId] : null;
+  if (master?.status !== 'locked' || !mainId || main?.id !== mainId || main.status !== 'approved' || main.kind !== 'main') {
+    fail('BLOCKING_INPUT', 'Promotion requires an approval-complete locked Product Master with an approved main image');
+  }
+  if (state.listing?.approved?.at(-1)?.status !== 'approved') {
+    fail('BLOCKING_INPUT', 'Promotion requires an approved Listing snapshot');
+  }
 }
 
 function firstChildSku(variation) {
@@ -140,6 +157,7 @@ export async function promoteToVariation({
   }
 
   if (current.variation) assertMatchingPromotion(current.variation, desired);
+  else assertApprovalComplete(current);
   const created = await ensureDirectories(root, childSku);
 
   if (current.variation && current.project.mode === 'variation_family') {

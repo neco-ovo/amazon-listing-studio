@@ -309,9 +309,6 @@ export async function runCli(argv, {clock = Date.now, candidateDependencies, lis
     else if (command === 'learn-category') result = await learnCategory(options);
     else if (command === 'promote-variation') {
       const theme = JSON.parse(await readFile(path.resolve(requireOption(options, 'theme')), 'utf8'));
-      if (theme.verification_status !== 'verified') {
-        throw blocking('Variation theme source must be verified');
-      }
       result = await promoteToVariation({
         projectDir: path.resolve(requireOption(options, 'project-dir')),
         parentSku: requireOption(options, 'parent-sku'),
