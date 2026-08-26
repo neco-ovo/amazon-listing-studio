@@ -8,7 +8,7 @@
 
 Extend the existing Skill with optional Amazon Variation support without slowing or complicating ordinary single-product work. A Variation project represents one product family, one non-buyable Parent identity, and multiple purchasable Child SKUs. Parent copy describes the common product series; Child copy and images describe the exact purchasable SKU.
 
-The implementation must support new Variation projects and non-destructive promotion of completed single-product projects. It must also support compound Variation Themes such as `Color × Size` and must not assume that every possible attribute combination exists.
+The implementation must support new Variation projects and non-destructive promotion of completed single-product projects. It must support a compound Variation Theme such as `Color × Size` when the current product category actually permits that theme, but it must neither force a compound theme nor assume that every possible attribute combination exists.
 
 ## Chosen Approach
 
@@ -58,7 +58,7 @@ The state has these optional Variation objects:
 - `shared_assets`: common assets with applicability conditions and approval bindings.
 - `variation_versions`: immutable snapshots of approved family compositions.
 
-Every Child SKU is unique and every active Child has a complete unique tuple for the declared Variation Theme. A compound theme stores dimensions independently, for example:
+Every Child SKU is unique and every active Child has a complete unique tuple for the selected, category-permitted Variation Theme. Select a real theme from the current category schema or user-provided category template; do not synthesize a compound theme merely because the supplied products have multiple differing attributes. A permitted compound theme stores dimensions independently, for example:
 
 ```json
 {
@@ -178,7 +178,7 @@ Each Child has its own approved main image. In light-difference mode, reuse the 
 
 ### Secondary Images
 
-Reuse approved merchant layouts by default. Replace only necessary product imagery, copy, dimensions, colors, graphics, and scenario details. Material, construction, installation, and brand graphics may be shared when their factual dependencies match. Dimension images are Child-specific unless the relevant dimensions are identical. Scenario layouts may be shared, but their visible product and scenario meaning must match the Child.
+Reuse approved merchant layouts by default. For the rigid-aluminum-sign family, the initial reviewed layout seeds are the local snapshots derived from the approved smoke-test deliverables associated with Codex task `01a03541-aca1-7572-8ee5-1b6444353559`. The local reviewed seed metadata and preview files are the portable source of truth; runtime behavior must not depend on access to that task. Replace only necessary product imagery, copy, dimensions, colors, graphics, and scenario details. Material, construction, installation, and brand graphics may be shared when their factual dependencies match. Dimension images are Child-specific unless the relevant dimensions are identical. Scenario layouts may be shared, but their visible product and scenario meaning must match the Child.
 
 ### Image Consistency
 
@@ -243,7 +243,7 @@ All production behavior is developed test-first. Required coverage includes:
 - optional Variation activation without affecting single-product state;
 - idempotent, non-destructive promotion of a completed single-product project;
 - directory supplementation while preserving old paths, hashes, approvals, and deliveries;
-- one-dimensional and compound Variation Themes;
+- category-permitted one-dimensional and compound Variation Themes without inventing an unsupported compound theme;
 - sparse compound combinations and duplicate tuple rejection;
 - light- and large-difference classification plus user override;
 - Parent common-fact intersection and Child override materialization;
