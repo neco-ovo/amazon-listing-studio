@@ -30,3 +30,25 @@ test('rejects duplicate Child tuples', () => {
 
   assert.match(validateVariationExtension(variation).errors.join('\n'), /duplicate variation tuple/i);
 });
+
+test('rejects a variation family with no children', () => {
+  const variation = createVariationExtension({
+    parentSku: 'SIGN-PARENT', dimensions: ['size_name'], firstChildSku: 'SKU-A',
+    firstChildFacts: {size_name: '12 x 16 in'}
+  });
+  variation.children = {};
+
+  assert.equal(validateVariationExtension(variation).valid, false);
+});
+
+test('rejects whitespace-padded child SKU keys', () => {
+  const variation = createVariationExtension({
+    parentSku: 'SIGN-PARENT', dimensions: ['size_name'], firstChildSku: 'SKU-A',
+    firstChildFacts: {size_name: '12 x 16 in'}
+  });
+  variation.children[' SKU-A '] = variation.children['SKU-A'];
+  delete variation.children['SKU-A'];
+  variation.children[' SKU-A '].sku = ' SKU-A ';
+
+  assert.equal(validateVariationExtension(variation).valid, false);
+});

@@ -10,7 +10,7 @@ function normalizedDimension(value) {
 }
 
 function validSku(value) {
-  return SKU_PATTERN.test(normalizedText(value));
+  return typeof value === 'string' && value === value.trim() && SKU_PATTERN.test(value);
 }
 
 export function variationTupleKey(dimensions, values) {
@@ -84,6 +84,8 @@ export function validateVariationExtension(variation) {
   }
   if (!variation.children || Array.isArray(variation.children) || typeof variation.children !== 'object') {
     errors.push('variation.children must be an object');
+  } else if (Object.keys(variation.children).length === 0) {
+    errors.push('variation.children must contain at least one child');
   } else {
     const tupleKeys = new Set();
     for (const [childSku, child] of Object.entries(variation.children)) {
