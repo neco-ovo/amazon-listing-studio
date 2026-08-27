@@ -45,12 +45,61 @@ function activeChildren(variation) {
   return Object.values(variation.children ?? {}).filter(child => child?.active !== false);
 }
 
-function activeChildSkus(variation) {
-  return activeChildren(variation).map(child => child.sku);
+function factValue(value) {
+  return record(value) && Object.hasOwn(value, 'value') ? value.value : value;
+}
+
+function normalizedSemanticValue(value) {
+  const semantic = factValue(value);
+  if (typeof semantic === 'string') return semantic.normalize('NFKC').trim().toLocaleLowerCase('en-US').replace(/\s+/g, ' ');
+  if (semantic === null || semantic === undefined) return '';
+  return JSON.stringify(semantic);
+}
+
+function supportedFact(value) {
+  if (!record(value) || !Object.hasOwn(value, 'value')) {
+    return Boolean(normalizedSemanticValue(value));
+  }
+  return value.publishable === true
+    && value.status === 'user_confirmed'
+    && (!Array.isArray(value.conflicts) || value.conflicts.length === 0)
+    && Boolean(normalizedSemanticValue(value));
+}
+
+function lockedIdentityCommonFacts(variation) {
+  if (variation.family_identity?.status !== 'locked' || !record(variation.family_identity.facts)) return {};
+  return Object.fromEntries(Object.entries(variation.family_identity.facts)
+    .filter(([field, value]) => supportedFact(value) && activeChildren(variation).every(child => {
+      const childFact = child.facts?.[field];
+      return childFact === undefined
+        || (supportedFact(childFact)
+          && normalizedSemanticValue(childFact) === normalizedSemanticValue(value));
+    }))
+    .map(([field, value]) => [field, structuredClone(factValue(value))]));
 }
 
 function commonFacts(variation) {
-  return computeCommonFacts(activeChildren(variation)).common;
+  return {
+    ...lockedIdentityCommonFacts(variation),
+    ...computeCommonFacts(activeChildren(variation)).common
+  };
+}
+
+function inheritedChildFacts(variation) {
+  const inherited = {};
+  if (variation.family_identity?.status === 'locked' && record(variation.family_identity.facts)) {
+    for (const [field, value] of Object.entries(variation.family_identity.facts)) {
+      if (supportedFact(value)) inherited[field] = structuredClone(value);
+    }
+  }
+  for (const [field, commonValue] of Object.entries(computeCommonFacts(activeChildren(variation)).common)) {
+    const representative = activeChildren(variation)
+      .map(child => child.facts?.[field])
+      .find(value => supportedFact(value)
+        && normalizedSemanticValue(value) === normalizedSemanticValue(commonValue));
+    inherited[field] = structuredClone(representative ?? commonValue);
+  }
+  return inherited;
 }
 
 function markStale(value, {reason, affectedIds, now}) {
@@ -114,12 +163,37 @@ function validateChildSku(sku) {
   }
 }
 
-function assertCompleteTuple(variation, values) {
+function assertSavedThemeVerified(variation) {
+  if (variation.theme?.verification_status !== 'verified' || !verifiedThemeSource(variation.theme?.source)) {
+    fail('BLOCKING_INPUT', 'A currently verified saved Variation theme and source are required');
+  }
+  const selected = selectVariationTheme({
+    allowedThemes: variation.theme.source.allowed_themes,
+    requestedDimensions: variation.theme.dimensions
+  });
+  if (!isDeepStrictEqual(selected.dimensions, variation.theme.dimensions)) {
+    fail('BLOCKING_INPUT', 'Saved Variation theme dimensions do not exactly match verified category evidence');
+  }
+}
+
+function assertCompleteTuple(variation, values, facts) {
   if (!record(values)) fail('BLOCKING_INPUT', 'Child variation_values are required');
-  const missing = variation.theme.dimensions.filter(dimension => (
-    typeof values[dimension] !== 'string' || values[dimension].trim() === ''
+  const dimensions = variation.theme.dimensions;
+  if (!isDeepStrictEqual(Object.keys(values), dimensions)) {
+    fail('BLOCKING_INPUT', 'Child variation_values must use the exact ordered Variation theme fields', {
+      expected: dimensions,
+      actual: Object.keys(values)
+    });
+  }
+  const invalid = dimensions.filter(dimension => (
+    typeof values[dimension] !== 'string'
+    || values[dimension].trim() === ''
+    || !Object.hasOwn(facts ?? {}, dimension)
+    || normalizedSemanticValue(facts[dimension]) !== normalizedSemanticValue(values[dimension])
   ));
-  if (missing.length > 0) fail('BLOCKING_INPUT', 'Child variation tuple is incomplete', {fields: missing});
+  if (invalid.length > 0) {
+    fail('BLOCKING_INPUT', 'Child dimension facts must semantically match the complete variation tuple', {fields: invalid});
+  }
 }
 
 function assertUniqueChild(variation, sku, values) {
@@ -141,6 +215,20 @@ function assertUniqueChild(variation, sku, values) {
 function promotedListingFields(parent) {
   const fields = parent?.listing?.promoted_fields ?? parent?.promoted_listing_fields ?? [];
   return new Set(Array.isArray(fields) ? fields : []);
+}
+
+const SYSTEM_VARIATION_LISTING_FIELDS = new Set([
+  'variation_theme', 'variation_values', 'parent_sku', 'child_sku'
+]);
+
+function assertListingPatchAllowed(patch) {
+  const protectedFields = Object.keys(record(patch) ? patch : {})
+    .filter(field => SYSTEM_VARIATION_LISTING_FIELDS.has(field));
+  if (protectedFields.length > 0) {
+    fail('BLOCKING_INPUT', 'Child Listing patch cannot modify system-owned Variation fields', {
+      fields: protectedFields
+    });
+  }
 }
 
 function changedPatch(current, patch) {
@@ -184,10 +272,11 @@ function updateChildListing(listing, patch, sku, now) {
 
 export function addVariationChild(state, input = {}) {
   assertVariationState(state);
+  assertSavedThemeVerified(state.variation);
   validateChildSku(input.sku);
-  assertCompleteTuple(state.variation, input.variation_values);
-  assertUniqueChild(state.variation, input.sku, input.variation_values);
   if (!record(input.facts)) fail('BLOCKING_INPUT', 'Child facts are required');
+  assertCompleteTuple(state.variation, input.variation_values, input.facts);
+  assertUniqueChild(state.variation, input.sku, input.variation_values);
 
   const now = operationNow(input.now);
   const next = structuredClone(state);
@@ -196,7 +285,7 @@ export function addVariationChild(state, input = {}) {
     sku: input.sku,
     active: true,
     variation_values: structuredClone(input.variation_values),
-    facts: structuredClone(input.facts),
+    facts: {...inheritedChildFacts(variation), ...structuredClone(input.facts)},
     product_master: null,
     listing: {status: 'draft', draft: null, approved: []},
     legacy_refs: {},
@@ -216,7 +305,8 @@ export function addVariationChild(state, input = {}) {
   return next;
 }
 
-export function reviseVariationChild(state, {sku, factPatch, listingPatch, now: requestedNow} = {}) {
+export function reviseVariationChild(state, input = {}) {
+  const {sku, factPatch, listingPatch, now: requestedNow} = input;
   assertVariationState(state);
   validateChildSku(sku);
   const existing = state.variation.children[sku];
@@ -225,8 +315,15 @@ export function reviseVariationChild(state, {sku, factPatch, listingPatch, now: 
   }
   if (factPatch !== undefined && !record(factPatch)) fail('BLOCKING_INPUT', 'factPatch must be an object');
   if (listingPatch !== undefined && !record(listingPatch)) fail('BLOCKING_INPUT', 'listingPatch must be an object');
+  for (const field of ['variation_theme', 'variation_values', 'theme']) {
+    if (Object.hasOwn(input, field)) {
+      fail('BLOCKING_INPUT', 'revise-child cannot modify the Variation theme or tuple', {field});
+    }
+  }
 
   const rawListingPatch = record(listingPatch?.fields) ? listingPatch.fields : listingPatch;
+  assertListingPatchAllowed(listingPatch);
+  assertListingPatchAllowed(rawListingPatch);
   const changedFacts = changedPatch(existing.facts, factPatch);
   const listingChanges = updateChildListing(existing.listing, rawListingPatch, sku, requestedNow);
   if (Object.keys(changedFacts).length === 0 && listingChanges.changedFields.length === 0) {
@@ -275,6 +372,11 @@ export function reviseVariationChild(state, {sku, factPatch, listingPatch, now: 
       reasons.push('PROMOTED_CHILD_LISTING_FIELD_CHANGED');
       affectedIds.push(...parentAffected);
     }
+  }
+  if (Object.keys(changedFacts).length > 0) {
+    target.listing = markStale(target.listing, {
+      reason: 'CHILD_FACTS_CHANGED', affectedIds: [sku], now
+    });
   }
 
   target.history = [

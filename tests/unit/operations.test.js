@@ -30,6 +30,9 @@ test('routes local Child changes without widening the workflow', () => {
   for (const kind of ['add_child', 'child_listing_field_edit', 'remove_child']) {
     assert.equal(classifyOperation({kind}).mode, 'fast');
   }
+  assert.deepEqual(classifyOperation({kind: 'child_fact_change'}), {
+    mode: 'full', reasons: ['CHILD_FACT_DEPENDENCIES']
+  });
   assert.equal(classifyOperation({kind: 'variation_theme_change'}).mode, 'full');
 });
 

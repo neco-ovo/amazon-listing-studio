@@ -57,7 +57,11 @@ function variationState() {
       schema_version: 1,
       mode: 'variation_family',
       family_identity: {version: 1, status: 'locked', facts: {material: 'aluminum'}, non_merge_boundaries: []},
-      theme: {dimensions: ['size_name'], source: {kind: 'category_schema'}, verification_status: 'verified'},
+      theme: {
+        dimensions: ['size_name'],
+        source: {kind: 'category_schema', id: 'METAL_SIGN', allowed_themes: [['size_name']]},
+        verification_status: 'verified'
+      },
       parent: {
         sku: 'SIGN-PARENT', version: 1, status: 'approved', common_facts: {material: 'aluminum'},
         listing: {status: 'approved', draft: null, approved: [{id: 'parent-listing-v1'}], promoted_fields: ['description']}
@@ -102,6 +106,29 @@ test('adding a light-difference Child preserves unrelated approvals', () => {
   assert.deepEqual(next.variation.versions, state.variation.versions);
 });
 
+test('adding inherits supported common and locked Family facts before explicit Child overrides', () => {
+  const state = variationState();
+  state.variation.family_identity.facts.construction = fact('rigid aluminum');
+  const explicitSize = fact('8 x 12 in');
+
+  const next = addVariationChild(state, {
+    sku: 'SKU-8X12',
+    variation_values: {size_name: '8 x 12 in'},
+    facts: {size_name: explicitSize},
+    now: later
+  });
+
+  const added = next.variation.children['SKU-8X12'];
+  assert.deepEqual(added.facts.material, state.variation.children['SKU-12X16'].facts.material);
+  assert.notEqual(added.facts.material, state.variation.children['SKU-12X16'].facts.material);
+  assert.deepEqual(added.facts.construction, fact('rigid aluminum'));
+  assert.deepEqual(added.facts.size_name, explicitSize);
+  assert.deepEqual(next.variation.parent.common_facts, {
+    construction: 'rigid aluminum',
+    material: 'aluminum'
+  });
+});
+
 test('adding rejects a reused SKU or active variation tuple', () => {
   const state = variationState();
   for (const input of [
@@ -128,6 +155,66 @@ test('adding does not reuse a preserved inactive Child tuple', () => {
     }),
     error => error.code === 'BLOCKING_INPUT'
   );
+});
+
+test('adding requires a currently verified category-permitted saved theme', () => {
+  const base = variationState();
+  const invalidThemes = [
+    {...base.variation.theme, verification_status: 'unverified'},
+    {...base.variation.theme, source: null},
+    {...base.variation.theme, source: {kind: 'category_schema', id: 'METAL_SIGN'}},
+    {
+      ...base.variation.theme,
+      source: {kind: 'category_schema', id: 'METAL_SIGN', allowed_themes: [['color_name']]}
+    }
+  ];
+
+  for (const theme of invalidThemes) {
+    const state = variationState();
+    state.variation.theme = theme;
+    assert.throws(
+      () => addVariationChild(state, {
+        sku: 'SKU-8X12', variation_values: {size_name: '8 x 12 in'},
+        facts: {size_name: fact('8 x 12 in')}, now: later
+      }),
+      error => error.code === 'BLOCKING_INPUT'
+    );
+  }
+});
+
+test('adding requires exact ordered tuple fields and matching semantic dimension facts', () => {
+  const state = variationState();
+  state.variation.theme = {
+    dimensions: ['color_name', 'size_name'],
+    source: {
+      kind: 'category_schema', id: 'METAL_SIGN',
+      allowed_themes: [['size_name'], ['color_name', 'size_name']]
+    },
+    verification_status: 'verified'
+  };
+  const first = state.variation.children['SKU-12X16'];
+  first.variation_values = {color_name: 'Yellow', size_name: '12 x 16 in'};
+  first.facts.color_name = fact('Yellow');
+
+  for (const [variation_values, facts] of [
+    [
+      {color_name: 'Black', size_name: '8 x 12 in', pattern_name: 'Warning'},
+      {color_name: fact('Black'), size_name: fact('8 x 12 in')}
+    ],
+    [
+      {size_name: '8 x 12 in', color_name: 'Black'},
+      {color_name: fact('Black'), size_name: fact('8 x 12 in')}
+    ],
+    [
+      {color_name: 'Black', size_name: '8 x 12 in'},
+      {color_name: fact('Yellow'), size_name: fact('8 x 12 in')}
+    ]
+  ]) {
+    assert.throws(
+      () => addVariationChild(state, {sku: 'SKU-NEW', variation_values, facts, now: later}),
+      error => error.code === 'BLOCKING_INPUT'
+    );
+  }
 });
 
 test('revising one Child title does not stale another Child or the Parent', () => {
@@ -181,6 +268,42 @@ test('revising a Child fact invalidates direct dependents and Parent only when c
   assert.deepEqual(next.variation.parent.common_facts, {});
 });
 
+test('combined Child fact and Listing patches retain fact-dependency staleness', () => {
+  const state = variationState();
+  state.variation.children['SKU-8X12'] = child({
+    sku: 'SKU-8X12', size: '8 x 12 in', title: 'Safety Sign 8 x 12 in'
+  });
+
+  const next = reviseVariationChild(state, {
+    sku: 'SKU-8X12',
+    factPatch: {material: fact('steel')},
+    listingPatch: {title: 'Updated Steel Sign'},
+    now: later
+  });
+
+  const listing = next.variation.children['SKU-8X12'].listing;
+  assert.equal(listing.status, 'stale');
+  assert.equal(listing.stale_reason, 'CHILD_FACTS_CHANGED');
+  assert.deepEqual(listing.affected_ids, ['SKU-8X12']);
+  assert.equal(listing.draft.content.title, 'Updated Steel Sign');
+});
+
+test('Child Listing patches reject system-owned Variation scope fields', () => {
+  for (const field of ['variation_theme', 'variation_values', 'parent_sku', 'child_sku']) {
+    for (const listingPatch of [
+      {[field]: 'untrusted'},
+      {fields: {title: 'Allowed field'}, [field]: 'untrusted'}
+    ]) {
+      assert.throws(
+        () => reviseVariationChild(variationState(), {
+          sku: 'SKU-12X16', listingPatch, now: later
+        }),
+        error => error.code === 'BLOCKING_INPUT'
+      );
+    }
+  }
+});
+
 test('removing a Child retains its record and history while recalculating applicability', () => {
   const state = variationState();
   state.variation.children['SKU-8X12'] = child({
@@ -219,6 +342,8 @@ test('JSON-file Child CLI commands persist add, revise, and soft removal', async
 
     const addPath = path.join(projectDir, 'add.json');
     const revisePath = path.join(projectDir, 'revise.json');
+    const factPath = path.join(projectDir, 'fact.json');
+    const protectedPath = path.join(projectDir, 'protected.json');
     const removePath = path.join(projectDir, 'remove.json');
     await writeFile(addPath, JSON.stringify({
       sku: 'SKU-8X12', variation_values: {size_name: '8 x 12 in'},
@@ -227,16 +352,30 @@ test('JSON-file Child CLI commands persist add, revise, and soft removal', async
     await writeFile(revisePath, JSON.stringify({
       sku: 'SKU-8X12', listingPatch: {title: 'Updated Child Title'}, now: later
     }));
+    await writeFile(factPath, JSON.stringify({
+      sku: 'SKU-8X12', factPatch: {finish: fact('matte')}, now: later
+    }));
+    await writeFile(protectedPath, JSON.stringify({
+      sku: 'SKU-8X12', listingPatch: {variation_theme: ['color_name']}, now: later
+    }));
     await writeFile(removePath, JSON.stringify({sku: 'SKU-8X12', now: later}));
 
     const added = await runCli(['add-child', '--project-dir', projectDir, '--input', addPath]);
     const revised = await runCli(['revise-child', '--project-dir', projectDir, '--input', revisePath]);
+    const protectedRevision = await runCli([
+      'revise-child', '--project-dir', projectDir, '--input', protectedPath
+    ]);
+    const factRevised = await runCli(['revise-child', '--project-dir', projectDir, '--input', factPath]);
     const removed = await runCli(['remove-child', '--project-dir', projectDir, '--input', removePath]);
 
     assert.equal(added.ok, true);
     assert.equal(added.mode, 'fast');
     assert.equal(revised.ok, true);
     assert.equal(revised.mode, 'fast');
+    assert.equal(protectedRevision.ok, false);
+    assert.equal(protectedRevision.code, 'BLOCKING_INPUT');
+    assert.equal(factRevised.ok, true);
+    assert.equal(factRevised.mode, 'full');
     assert.equal(removed.ok, true);
     assert.equal(removed.mode, 'fast');
     const saved = JSON.parse(await readFile(path.join(projectDir, 'state.json'), 'utf8'));

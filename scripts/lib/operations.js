@@ -15,6 +15,7 @@ const ROUTES = Object.freeze({
   learn_category: {mode: 'full', reason: 'SHARED_KNOWLEDGE_CHANGE'},
   new_project: {mode: 'full', reason: 'NEW_PROJECT'},
   first_product_master: {mode: 'full', reason: 'PRODUCT_MASTER_LOCK'},
+  child_fact_change: {mode: 'full', reason: 'CHILD_FACT_DEPENDENCIES'},
   product_identity_change: {mode: 'full', reason: 'IDENTITY_DEPENDENCIES'},
   marketplace_change: {mode: 'full', reason: 'MARKETPLACE_RULE_SCOPE'},
   product_type_change: {mode: 'full', reason: 'PRODUCT_TYPE_RULE_SCOPE'},

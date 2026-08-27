@@ -288,7 +288,10 @@ export async function runListingRevision(input, dependencies = {}) {
   return {...transaction, mode: route.mode, changed_paths: changedPaths, validation};
 }
 
-function operationFor(command) {
+function operationFor(command, input = null) {
+  if (command === 'revise-child' && Object.keys(input?.factPatch ?? {}).length > 0) {
+    return classifyOperation({kind: 'child_fact_change'});
+  }
   const kinds = {
     init: 'new_project',
     'learn-category': 'learn_category',
@@ -313,6 +316,7 @@ export async function runCli(argv, {clock = Date.now, candidateDependencies, lis
     parsed = parseArgs(argv);
     const {command, options} = parsed;
     let result;
+    let routeInput = null;
     if (command === 'init') result = await initProject(options);
     else if (command === 'learn-category') result = await learnCategory(options);
     else if (command === 'promote-variation') {
@@ -330,6 +334,7 @@ export async function runCli(argv, {clock = Date.now, candidateDependencies, lis
       const projectDir = path.resolve(requireOption(options, 'project-dir'));
       const input = JSON.parse(await readFile(path.resolve(requireOption(options, 'input')), 'utf8'));
       const operationInput = {...input, ...(options.now ? {now: options.now} : {})};
+      routeInput = operationInput;
       const mutate = command === 'add-child'
         ? addVariationChild
         : command === 'revise-child'
@@ -374,7 +379,7 @@ export async function runCli(argv, {clock = Date.now, candidateDependencies, lis
     } else {
       return {ok: false, code: 'UNKNOWN_COMMAND', message: `Unknown command: ${command ?? ''}`};
     }
-    const route = operationFor(command);
+    const route = operationFor(command, routeInput);
     return {ok: true, operation: command, mode: route.mode, duration_ms: Math.max(0, clock() - started), result};
   } catch (error) {
     return {
