@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { auditListing } from '../../scripts/lib/listing-audit.js';
+import { auditListing, isSystemListingPath } from '../../scripts/lib/listing-audit.js';
 
 test('bounded audit flags retail-language defects without rewriting clean fields', () => {
   const listing = {
@@ -34,4 +34,10 @@ test('clean direct consumer copy passes without a polish loop', () => {
   };
   const result = auditListing(listing, {buyerTerms: ['driveway', 'yard', 'playground']});
   assert.deepEqual(result, {ok: true, findings: [], changed_paths: []});
+});
+
+test('Variation materialization fields are system-owned Listing paths', () => {
+  for (const path of ['parent_sku', 'child_sku', 'variation_theme.0', 'variation_values.size_name']) {
+    assert.equal(isSystemListingPath(path), true, path);
+  }
 });
