@@ -50,6 +50,55 @@ test('binds a Child main brief to exact visible attributes', () => {
   assert.equal(brief.text_strategy, 'one_pass_complete');
 });
 
+test('retains an immutable complete Child tuple and semantic fact snapshot', () => {
+  const child = {
+    sku: 'HORSE-12X16-M200',
+    variation_values: {size_name: '12 x 16 in', pattern_name: 'Horse Crossing', model_name: 'M-200'},
+    facts: {
+      material: {value: 'aluminum', status: 'user_confirmed', publishable: true, conflicts: []},
+      finish: 'matte'
+    }
+  };
+  const brief = compileVariationImageBrief({
+    scope: {type: 'child_specific', child_skus: ['HORSE-12X16-M200']},
+    child,
+    family,
+    master,
+    layoutSeed: null,
+    userRequest: {},
+    claims: {}
+  });
+
+  assert.deepEqual(brief.variation_binding.variation_values, child.variation_values);
+  assert.deepEqual(brief.variation_binding.child_facts, {material: 'aluminum', finish: 'matte'});
+  assert.equal(Object.isFrozen(brief.variation_binding.variation_values), true);
+  assert.equal(Object.isFrozen(brief.variation_binding.child_facts), true);
+});
+
+test('binds and validates the compiled target orientation over the master orientation', () => {
+  const brief = compileVariationImageBrief({
+    scope: {type: 'child_specific', child_skus: ['HORSE-12X16']},
+    child: horseChild,
+    family,
+    master,
+    layoutSeed: null,
+    userRequest: {target_orientation: 'portrait'},
+    claims: {}
+  });
+
+  assert.equal(brief.output.target_orientation, 'portrait');
+  assert.equal(brief.variation_binding.required_visible.orientation, 'portrait');
+  assert.equal(validateVariationImageObservation({
+    brief,
+    observation: {
+      visible_text: ['HORSE CROSSING'],
+      pattern_name: 'Horse Crossing',
+      size_name: '12 x 16 in',
+      orientation: 'portrait'
+    }
+  }).ok, true);
+});
+
 test('freezes Variation binding data after compiling the brief', () => {
   const brief = horseBrief();
 
@@ -102,6 +151,46 @@ test('rejects another Child pattern in the saved-image observation', () => {
   assert.ok(result.failures.some(item => item.code === 'CROSS_CHILD_CONTAMINATION'));
 });
 
+test('rejects sibling wording or complete tuple values even when target wording is also visible', () => {
+  const familyWithSiblings = {
+    ...family,
+    children: {
+      'HORSE-12X16': horseChild,
+      'KIDS-12X16': {
+        sku: 'KIDS-12X16',
+        active: true,
+        variation_values: {size_name: '12', pattern_name: 'Kids at Play', model_name: 'KIDS-200'},
+        product_master: {printed_copy: ['KIDS AT PLAY']}
+      }
+    }
+  };
+  const brief = compileVariationImageBrief({
+    scope: {type: 'child_specific', child_skus: ['HORSE-12X16']},
+    child: horseChild,
+    family: familyWithSiblings,
+    master,
+    layoutSeed: null,
+    userRequest: {},
+    claims: {}
+  });
+  const baseObservation = {
+    pattern_name: 'Horse Crossing',
+    size_name: '12 x 16 in',
+    orientation: 'landscape'
+  };
+
+  for (const visibleText of [['HORSE CROSSING', 'KIDS AT PLAY'], ['HORSE CROSSING', 'KIDS-200']]) {
+    const result = validateVariationImageObservation({brief, observation: {...baseObservation, visible_text: visibleText}});
+    assert.equal(result.ok, false);
+    assert.ok(result.failures.some(item => item.code === 'CROSS_CHILD_CONTAMINATION'));
+  }
+
+  assert.equal(validateVariationImageObservation({
+    brief,
+    observation: {...baseObservation, visible_text: ['HORSE CROSSING']}
+  }).ok, true);
+});
+
 test('reuses a rigid-aluminum merchant layout without requiring a new family image', () => {
   const result = evaluateSharedAssetApplicability({
     asset: {scope: 'shared_asset', fact_dependencies: {material: 'aluminum'}},
@@ -111,6 +200,18 @@ test('reuses a rigid-aluminum merchant layout without requiring a new family ima
 
   assert.equal(result.applicable, true);
   assert.deepEqual(result.reasons, []);
+});
+
+test('requires factual dependencies before a shared or subset asset is applicable', () => {
+  for (const asset of [{scope: 'shared_asset'}, {scope: 'subset_shared', child_skus: ['HORSE-12X16']}]) {
+    const result = evaluateSharedAssetApplicability({
+      asset,
+      child: horseChild,
+      commonFacts: {material: 'aluminum'}
+    });
+    assert.equal(result.applicable, false);
+    assert.ok(result.reasons.includes('MISSING_FACT_DEPENDENCIES'));
+  }
 });
 
 test('requires explicit Child scope and explicit subset SKU membership', () => {
@@ -153,6 +254,20 @@ test('does not report visual distortion without an explicit inspection finding',
 
   assert.equal(result.ok, true);
   assert.equal(result.failures.some(item => item.code === 'VISIBLE_DISTORTION'), false);
+});
+
+test('treats multiplication signs and unit aliases as the same visible size', () => {
+  const result = validateVariationImageObservation({
+    brief: horseBrief(),
+    observation: {
+      visible_text: ['HORSE CROSSING'],
+      pattern_name: 'Horse Crossing',
+      size_name: '12 × 16 INCHES',
+      orientation: 'landscape'
+    }
+  });
+
+  assert.equal(result.ok, true);
 });
 
 test('reports visible distortion only from an explicit inspection finding', () => {

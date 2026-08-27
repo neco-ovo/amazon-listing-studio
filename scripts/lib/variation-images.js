@@ -24,6 +24,7 @@ function normalizedText(value) {
   return String(value ?? '')
     .normalize('NFKC')
     .toLocaleLowerCase('en-US')
+    .replace(/[×✕]/gu, ' x ')
     .replace(/\b(?:inches|inch|in)\b/g, 'in')
     .match(/[\p{L}\p{N}]+/gu)?.join(' ') ?? '';
 }
@@ -77,10 +78,59 @@ function visibleRequirements(child, brief) {
     const value = child?.variation_values?.[field] ?? factValue(child?.facts?.[field]);
     if (normalizedText(value)) required[field] = structuredClone(value);
   }
-  if (normalizedText(brief.identity?.orientation)) required.orientation = brief.identity.orientation;
+  const orientation = brief.output?.target_orientation ?? brief.identity?.orientation;
+  if (normalizedText(orientation)) required.orientation = orientation;
   const printedWording = (brief.identity?.printed_copy ?? []).filter(value => normalizedText(value));
   if (printedWording.length > 0) required.printed_wording = structuredClone(printedWording);
   return required;
+}
+
+function semanticChildFacts(facts) {
+  if (!facts || Array.isArray(facts) || typeof facts !== 'object') return {};
+  return Object.fromEntries(Object.entries(facts)
+    .map(([field, fact]) => [field, factValue(fact)])
+    .filter(([, value]) => value !== null && value !== undefined && normalizedText(value))
+    .map(([field, value]) => [field, structuredClone(value)]));
+}
+
+function childPrintedWording(child) {
+  const productMaster = child?.product_master ?? child?.master ?? {};
+  const wording = child?.printed_copy ?? productMaster?.printed_copy ?? productMaster?.identity?.printed_copy ?? [];
+  return (Array.isArray(wording) ? wording : [wording]).filter(value => normalizedText(value));
+}
+
+function activeFamilyChildren(family) {
+  const children = Array.isArray(family?.children) ? family.children : Object.values(family?.children ?? {});
+  return children.filter(child => child && typeof child === 'object' && child.active !== false);
+}
+
+function phraseOverlaps(left, right) {
+  const leftText = normalizedText(left);
+  const rightText = normalizedText(right);
+  return Boolean(leftText && rightText)
+    && ((` ${leftText} `).includes(` ${rightText} `) || (` ${rightText} `).includes(` ${leftText} `));
+}
+
+function forbiddenSiblingVisible(family, child, required) {
+  const protectedValues = [
+    ...Object.values(required).flatMap(value => Array.isArray(value) ? value : [value]),
+    ...Object.values(child?.variation_values ?? {})
+  ];
+  const seen = new Set();
+  const add = (items, value) => {
+    const normalized = normalizedText(value);
+    if (!normalized || seen.has(normalized) || protectedValues.some(own => phraseOverlaps(value, own))) return;
+    seen.add(normalized);
+    items.push(structuredClone(value));
+  };
+  const values = [];
+  const printedWording = [];
+  for (const sibling of activeFamilyChildren(family)) {
+    if (!sibling.sku || sibling.sku === child?.sku) continue;
+    for (const value of Object.values(sibling.variation_values ?? {})) add(values, value);
+    for (const wording of childPrintedWording(sibling)) add(printedWording, wording);
+  }
+  return {values, printed_wording: printedWording};
 }
 
 export function compileVariationImageBrief({
@@ -102,10 +152,14 @@ export function compileVariationImageBrief({
     galleryItem: family.gallery_item ?? family.galleryItem ?? {},
     layoutSeed
   });
+  const requiredVisible = visibleRequirements(child, brief);
   brief.variation_binding = freezeDeep({
     scope: normalizedScope,
     child_sku: child?.sku ?? null,
-    required_visible: visibleRequirements(child, brief)
+    variation_values: structuredClone(child?.variation_values ?? {}),
+    child_facts: semanticChildFacts(child?.facts),
+    required_visible: requiredVisible,
+    forbidden_sibling_visible: forbiddenSiblingVisible(family, child, requiredVisible)
   });
   return brief;
 }
@@ -136,6 +190,11 @@ export function evaluateSharedAssetApplicability({asset, child, commonFacts = {}
   const scope = assetScope(asset);
   if (scope.type !== 'shared_asset' && scope.type !== 'subset_shared') {
     reasons.push('ASSET_SCOPE_NOT_SHARED');
+    return {applicable: false, reasons};
+  }
+  if (!asset?.fact_dependencies || Array.isArray(asset.fact_dependencies)
+    || typeof asset.fact_dependencies !== 'object' || Object.keys(asset.fact_dependencies).length === 0) {
+    reasons.push('MISSING_FACT_DEPENDENCIES');
     return {applicable: false, reasons};
   }
   if (scope.type === 'subset_shared') {
@@ -202,6 +261,25 @@ export function validateVariationImageObservation({brief, observation = {}} = {}
       field: 'printed_wording',
       expected: wording,
       actual: observedText || null
+    });
+  }
+
+  for (const value of brief.variation_binding.forbidden_sibling_visible?.values ?? []) {
+    if (!textIncludes(observedText, value)) continue;
+    failures.push({
+      code: 'CROSS_CHILD_CONTAMINATION',
+      field: 'variation_values',
+      actual: value,
+      message: 'Observed visible value belongs to an active sibling Child.'
+    });
+  }
+  for (const wording of brief.variation_binding.forbidden_sibling_visible?.printed_wording ?? []) {
+    if (!textIncludes(observedText, wording)) continue;
+    failures.push({
+      code: 'CROSS_CHILD_CONTAMINATION',
+      field: 'printed_wording',
+      actual: wording,
+      message: 'Observed printed wording belongs to an active sibling Child.'
     });
   }
 
