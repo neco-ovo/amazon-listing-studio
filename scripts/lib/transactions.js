@@ -29,6 +29,20 @@ async function defaultHashFile(filePath) {
   return createHash('sha256').update(await readFile(filePath)).digest('hex');
 }
 
+export async function hashApprovalFile(relativePath, {
+  projectDir,
+  hashFile = defaultHashFile
+} = {}) {
+  if (!relativePath || path.isAbsolute(relativePath)
+      || relativePath.replaceAll('\\', '/').split('/').some(part => part === '..')) {
+    fail('BLOCKING_INPUT', 'Artifact path must be a safe project-relative path');
+  }
+  const filePath = projectDir ? resolveInside(projectDir, relativePath) : relativePath;
+  const sha256 = String(await hashFile(filePath)).toLowerCase();
+  if (!SHA256.test(sha256)) fail('CAPABILITY_FAILURE', 'Hasher did not return a SHA-256 value');
+  return sha256;
+}
+
 function approvalId(type, artifactId, now) {
   const timestamp = now.toLowerCase().replace(/[^a-z0-9]/g, '');
   return `approval-${type}-${artifactId}-${timestamp}`;
@@ -54,8 +68,7 @@ export async function approveArtifact(state, input, {
     fail('STALE_DEPENDENCY', 'Candidate is not bound to the current Product Master');
   }
 
-  const sha256 = (await hashFile(resolveInside(projectDir, input.path))).toLowerCase();
-  if (!SHA256.test(sha256)) fail('CAPABILITY_FAILURE', 'Hasher did not return a SHA-256 value');
+  const sha256 = await hashApprovalFile(input.path, {projectDir, hashFile});
 
   const next = structuredClone(state);
   const id = approvalId('image', input.artifactId, input.now ?? new Date().toISOString());
