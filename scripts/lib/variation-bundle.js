@@ -95,6 +95,25 @@ function projectionHash(scope) {
   return hash(jsonBytes(scope));
 }
 
+function isSafeManifestPath(value) {
+  if (!isSafeArchivePath(value)) return false;
+  let current = value;
+  for (let attempt = 0; attempt < 4; attempt += 1) {
+    let decoded;
+    try {
+      decoded = decodeURIComponent(current);
+    } catch {
+      return false;
+    }
+    if (decoded === current) return true;
+    const separatorsBefore = [...current].filter(character => character === '/' || character === '\\').length;
+    const separatorsAfter = [...decoded].filter(character => character === '/' || character === '\\').length;
+    if (separatorsAfter !== separatorsBefore || !isSafeArchivePath(decoded)) return false;
+    current = decoded;
+  }
+  return false;
+}
+
 function assertExpectedScope(manifest, expected) {
   const provenance = manifest.approval_provenance;
   if (!record(provenance)
@@ -109,7 +128,7 @@ function assertExpectedScope(manifest, expected) {
         && hashVariationFinalScope(manifest.approval_scope) !== provenance.final_scope_sha256) {
       throw invalid('APPROVAL_SCOPE_MISMATCH', 'Family delivery no longer matches its final approval hash.');
     }
-    return;
+    return false;
   }
   if (expected.id !== provenance.approval_id
       || expected.variation_version !== provenance.variation_version
@@ -121,6 +140,7 @@ function assertExpectedScope(manifest, expected) {
   if (!isDeepStrictEqual(manifest.approval_scope, projected)) {
     throw invalid('APPROVAL_SCOPE_MISMATCH', 'Delivery projection does not match the expected immutable Variation scope.');
   }
+  return true;
 }
 
 function requireFinalApproval(state, supplied) {
@@ -327,7 +347,7 @@ async function loadImage(projectDir, asset, archivePath, hashFile) {
   return {
     relative_path: archivePath,
     archive_path: archivePath,
-    media_type: asset.media_type ?? mediaType(asset.path),
+    media_type: mediaType(asset.path),
     byte_size: bytes.length,
     sha256: actualHash,
     version: asset.version ?? 1,
@@ -353,7 +373,7 @@ function assertFrozenAsset(id, asset) {
   if (!record(asset) || asset.artifact_id !== id || !/^[a-f0-9]{64}$/.test(asset.sha256 ?? '')) {
     throw invalid('APPROVAL_SCOPE_MISMATCH', 'Frozen asset mapping is invalid.', {asset_id: id});
   }
-  if (!isSafeArchivePath(asset.path)) {
+  if (!isSafeManifestPath(asset.path)) {
     throw invalid('UNSAFE_PATH', 'Frozen asset mapping contains an unsafe path.', {asset_id: id, path: asset.path});
   }
 }
@@ -374,10 +394,15 @@ function deriveAssetLayout(scope, selectedSkus) {
       physical = {
         archivePath: `shared/${filename}`,
         sha256: asset.sha256,
+        mediaType: mediaType(asset.path),
         assetIds: [],
         assets: []
       };
       physicalShared.set(asset.sha256, physical);
+    } else if (physical.mediaType !== mediaType(asset.path)) {
+      throw invalid('APPROVAL_SCOPE_MISMATCH', 'Byte-identical shared assets declare conflicting image types.', {
+        asset_id: artifactId
+      });
     }
     physical.assetIds.push(artifactId);
     physical.assets.push({...structuredClone(asset), artifact_id: artifactId});
@@ -393,6 +418,7 @@ function deriveAssetLayout(scope, selectedSkus) {
     const mainPath = `children/${sku}/main${mainExtension}`;
     physicalChildren.push({
       archivePath: mainPath, sha256: main.sha256,
+      mediaType: mediaType(main.path),
       assetIds: [main.artifact_id], assets: [main]
     });
 
@@ -408,6 +434,7 @@ function deriveAssetLayout(scope, selectedSkus) {
       const archivePath = `children/${sku}/secondary/${filename}`;
       physicalChildren.push({
         archivePath, sha256: secondary.sha256,
+        mediaType: mediaType(secondary.path),
         assetIds: [secondary.artifact_id], assets: [secondary]
       });
       secondaryPaths.push(archivePath);
@@ -695,7 +722,7 @@ export async function verifyVariationDelivery({deliveryDir, expectedScope = null
       || !validManifestScope(manifest)) {
     throw invalid('MANIFEST_INVALID', 'Variation delivery manifest is incomplete.');
   }
-  assertExpectedScope(manifest, expectedScope);
+  const authenticityVerified = assertExpectedScope(manifest, expectedScope);
   if (!isDeepStrictEqual(manifest.delivery_scope.child_skus, manifest.approval_scope.child_skus)) {
     throw invalid('APPROVAL_SCOPE_MISMATCH', 'Delivered Child set does not equal the frozen delivery projection.');
   }
@@ -705,8 +732,13 @@ export async function verifyVariationDelivery({deliveryDir, expectedScope = null
   if (!archive['delivery-manifest.json'] || hash(archive['delivery-manifest.json']) !== hash(manifestBytes)) {
     throw invalid('HASH_MISMATCH', 'ZIP manifest does not match the external delivery manifest.');
   }
-  const archivePaths = manifest.artifacts.map(item => item.archive_path ?? item.relative_path);
-  if (archivePaths.some(item => !isSafeArchivePath(item)) || new Set(archivePaths).size !== archivePaths.length) {
+  if (manifest.artifacts.some(item => (
+    !isSafeManifestPath(item.archive_path) || !isSafeManifestPath(item.relative_path)
+  ))) {
+    throw invalid('UNSAFE_PATH', 'Every Variation artifact path field must be independently safe.');
+  }
+  const archivePaths = manifest.artifacts.map(item => item.archive_path);
+  if (new Set(archivePaths).size !== archivePaths.length) {
     throw invalid('UNSAFE_PATH', 'Variation manifest contains unsafe or duplicate archive paths.');
   }
   const scope = manifest.approval_scope;
@@ -736,8 +768,20 @@ export async function verifyVariationDelivery({deliveryDir, expectedScope = null
     );
   }
   const expectedImages = new Map(layout.physicalAssets.map(item => [item.archivePath, item]));
+  const expectedMediaTypes = new Map([
+    ['parent/listing.json', 'application/json'],
+    ['parent/listing.md', 'text/markdown'],
+    ['variation-matrix.json', 'application/json']
+  ]);
+  for (const sku of selected) {
+    expectedMediaTypes.set(`children/${sku}/listing.json`, 'application/json');
+    expectedMediaTypes.set(`children/${sku}/listing.md`, 'text/markdown');
+  }
+  for (const physical of layout.physicalAssets) {
+    expectedMediaTypes.set(physical.archivePath, physical.mediaType);
+  }
   for (const artifact of manifest.artifacts) {
-    const archivePath = artifact.archive_path ?? artifact.relative_path;
+    const archivePath = artifact.archive_path;
     if (artifact.container !== 'delivery.zip') {
       throw invalid('MANIFEST_INVALID', 'Variation artifact container is invalid.', {path: archivePath});
     }
@@ -746,13 +790,20 @@ export async function verifyVariationDelivery({deliveryDir, expectedScope = null
     if (bytes.length !== artifact.byte_size || hash(bytes) !== artifact.sha256) {
       throw invalid('HASH_MISMATCH', 'Variation artifact does not match its manifest hash.', {path: archivePath});
     }
-    if (String(artifact.media_type).startsWith('image/')) {
-      const frozen = expectedImages.get(archivePath);
-      if (!frozen || artifact.sha256 !== frozen.sha256
+    const frozen = expectedImages.get(archivePath);
+    if (frozen && (artifact.sha256 !== frozen.sha256
           || artifact.asset_id !== frozen.assetIds[0]
-          || !isDeepStrictEqual(artifact.asset_ids, frozen.assetIds)) {
+          || !isDeepStrictEqual(artifact.asset_ids, frozen.assetIds))) {
         throw invalid('HASH_MISMATCH', 'Variation image does not match its frozen asset mapping.', {path: archivePath});
-      }
+    }
+    if (artifact.media_type !== expectedMediaTypes.get(archivePath)) {
+      throw invalid('MANIFEST_INVALID', 'Variation artifact media type does not match its frozen archive role.', {
+        path: archivePath,
+        expected: expectedMediaTypes.get(archivePath),
+        actual: artifact.media_type ?? null
+      });
+    }
+    if (frozen) {
       try {
         const metadata = await sharp(bytes).metadata();
         if (!metadata.width || !metadata.height) throw new Error('missing raster dimensions');
@@ -765,7 +816,7 @@ export async function verifyVariationDelivery({deliveryDir, expectedScope = null
   }
   const expectedMembers = new Set(['delivery-manifest.json', ...archivePaths]);
   const actualMembers = Object.keys(archive);
-  if (actualMembers.some(member => !isSafeArchivePath(member)) || actualMembers.some(member => !expectedMembers.has(member))) {
+  if (actualMembers.some(member => !isSafeManifestPath(member)) || actualMembers.some(member => !expectedMembers.has(member))) {
     throw invalid('UNSAFE_PATH', 'Variation ZIP contains an unsafe or unmanifested member.');
   }
   if (actualMembers.length !== expectedMembers.size) {
@@ -837,7 +888,7 @@ export async function verifyVariationDelivery({deliveryDir, expectedScope = null
       });
     }
   }
-  const verifiedImages = manifest.artifacts.filter(item => String(item.media_type).startsWith('image/')).length;
+  const verifiedImages = layout.physicalAssets.length;
   return {
     ok: true,
     manifest,
@@ -845,6 +896,7 @@ export async function verifyVariationDelivery({deliveryDir, expectedScope = null
     verified_hashes: manifest.artifacts.length,
     verified_images: verifiedImages,
     verified_members: actualMembers.length,
-    scope_verified: true
+    scope_verified: authenticityVerified,
+    approval_authenticity_verified: authenticityVerified
   };
 }

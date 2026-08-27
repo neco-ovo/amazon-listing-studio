@@ -421,6 +421,18 @@ test('verification rejects incomplete, stale, conflicting, or changed Variation 
         artifact.byte_size = files[archivePath].length;
         artifact.sha256 = digest(files[archivePath]);
       }, 'HASH_MISMATCH'],
+      ['image media type downgrade', ({manifest}) => {
+        const artifact = manifest.artifacts.find(item => item.archive_path === 'shared/material.png');
+        artifact.media_type = 'application/octet-stream';
+      }, 'MANIFEST_INVALID'],
+      ['changed image hidden by media type downgrade', ({files, manifest}) => {
+        const archivePath = 'shared/material.png';
+        files[archivePath] = Buffer.from(files['shared/kids-scene.png']);
+        const artifact = manifest.artifacts.find(item => item.archive_path === archivePath);
+        artifact.media_type = 'application/octet-stream';
+        artifact.byte_size = files[archivePath].length;
+        artifact.sha256 = digest(files[archivePath]);
+      }, 'HASH_MISMATCH'],
       ['rehashed changed Child Listing JSON', ({files, manifest}) => {
         const archivePath = 'children/HORSE-12X16/listing.json';
         const listing = JSON.parse(Buffer.from(files[archivePath]).toString('utf8'));
@@ -474,14 +486,26 @@ test('verification rejects incomplete, stale, conflicting, or changed Variation 
         const archivePath = 'children/UNRELATED/main.png';
         files[archivePath] = Buffer.from(files[source.archive_path]);
         manifest.artifacts.push({...structuredClone(source), relative_path: archivePath, archive_path: archivePath});
-      }, 'MANIFEST_INVALID']
+      }, 'MANIFEST_INVALID'],
+      ['unsafe relative traversal hidden by safe archive path', ({manifest}) => {
+        manifest.artifacts.find(item => item.archive_path === 'shared/material.png').relative_path = '../outside.png';
+      }, 'UNSAFE_PATH'],
+      ['unsafe absolute archive path hidden by safe relative path', ({manifest}) => {
+        manifest.artifacts.find(item => item.archive_path === 'shared/material.png').archive_path = 'C:/outside.png';
+      }, 'UNSAFE_PATH'],
+      ['unsafe backslash relative path', ({manifest}) => {
+        manifest.artifacts.find(item => item.archive_path === 'shared/material.png').relative_path = 'shared\\material.png';
+      }, 'UNSAFE_PATH'],
+      ['encoded traversal relative path', ({manifest}) => {
+        manifest.artifacts.find(item => item.archive_path === 'shared/material.png').relative_path = 'shared/%2e%2e/outside.png';
+      }, 'UNSAFE_PATH']
     ];
     for (const [name, mutate, reason] of cases) {
       await t.test(name, async () => {
         const deliveryDir = path.join(root, `mutated-${name.replaceAll(' ', '-')}`);
         await rewriteVariationPackage(valid.outputDir, deliveryDir, mutate);
         await assert.rejects(
-          verifyVariationDelivery({deliveryDir}),
+          verifyVariationDelivery({deliveryDir, expectedScope: project.finalApproval}),
           error => error.code === 'BUNDLE_INVALID' && error.details?.reason === reason
         );
         await rm(deliveryDir, {recursive: true, force: true});
@@ -528,6 +552,36 @@ test('Child projection provenance must descend from the expected Family final ap
     await rewriteVariationPackage(result.outputDir, deliveryDir, ({manifest}) => {
       manifest.approval_provenance.final_scope_sha256 = 'f'.repeat(64);
     });
+    await assert.rejects(
+      verifyVariationDelivery({deliveryDir, expectedScope: project.finalApproval}),
+      error => error.code === 'BUNDLE_INVALID' && error.details?.reason === 'APPROVAL_SCOPE_MISMATCH'
+    );
+  });
+});
+
+test('standalone verification never treats self-hashed approval provenance as authentic', async () => {
+  await withTempWorkspace(async root => {
+    const project = await approvedProject(root);
+    const result = await buildVariationDelivery({
+      ...project,
+      outputDir: path.join(project.projectDir, 'delivery', 'self-hashed')
+    });
+    const standalone = await verifyVariationDelivery({deliveryDir: result.outputDir});
+    assert.equal(standalone.ok, true);
+    assert.equal(standalone.scope_verified, false);
+    assert.equal(standalone.approval_authenticity_verified, false);
+
+    const deliveryDir = path.join(root, 'consistently-rewritten-scope');
+    await rewriteVariationPackage(result.outputDir, deliveryDir, ({manifest}) => {
+      manifest.approval_scope.family_identity_version = 99;
+      manifest.approval_provenance.final_scope_sha256 = hashVariationFinalScope(manifest.approval_scope);
+      manifest.approval_provenance.projection_sha256 = digest(Buffer.from(
+        `${JSON.stringify(manifest.approval_scope, null, 2)}\n`
+      ));
+    });
+    const structurallyValid = await verifyVariationDelivery({deliveryDir});
+    assert.equal(structurallyValid.scope_verified, false);
+    assert.equal(structurallyValid.approval_authenticity_verified, false);
     await assert.rejects(
       verifyVariationDelivery({deliveryDir, expectedScope: project.finalApproval}),
       error => error.code === 'BUNDLE_INVALID' && error.details?.reason === 'APPROVAL_SCOPE_MISMATCH'

@@ -53,6 +53,24 @@ async function readJsonIfExists(filePath) {
   }
 }
 
+function currentVariationFinalApproval(state) {
+  if (state?.project?.mode !== 'variation_family'
+      || !Array.isArray(state.variation?.versions) || !Array.isArray(state.approvals)) {
+    throw blocking('Trusted Variation verification requires a Variation Family project');
+  }
+  const currentVersion = state.variation.versions
+    .filter(item => item?.status === 'approved' && Number.isInteger(item.version))
+    .sort((left, right) => left.version - right.version)
+    .at(-1);
+  const approval = state.approvals.find(item => item.id === currentVersion?.approval_id);
+  if (!currentVersion || !approval || approval.scope_type !== 'variation_final'
+      || approval.finalized !== true || approval.variation_version !== currentVersion.version
+      || approval.scope_sha256 !== currentVersion.scope_sha256) {
+    throw blocking('Trusted Variation verification requires the current immutable final approval');
+  }
+  return approval;
+}
+
 async function writeJsonAtomically(filePath, value) {
   const temporary = `${filePath}.tmp-${process.pid}-${Date.now()}`;
   await writeFile(temporary, `${JSON.stringify(value, null, 2)}\n`, {encoding: 'utf8', flag: 'wx'});
@@ -407,9 +425,19 @@ export async function runCli(argv, {
     } else if (command === 'verify-delivery') {
       const deliveryDir = path.resolve(requireOption(options, 'delivery-dir'));
       const manifest = await readJsonIfExists(path.join(deliveryDir, 'delivery-manifest.json'));
-      result = manifest?.delivery_kind === 'variation'
-        ? await verifyVariation({deliveryDir})
-        : await verifyV2({deliveryDir});
+      if (manifest?.delivery_kind === 'variation') {
+        if (!options['project-dir']) {
+          throw blocking('--project-dir is required for trusted Variation verification');
+        }
+        const projectDir = path.resolve(options['project-dir']);
+        const state = await readJsonIfExists(path.join(projectDir, 'state.json'));
+        result = await verifyVariation({
+          deliveryDir,
+          expectedScope: currentVariationFinalApproval(state)
+        });
+      } else {
+        result = await verifyV2({deliveryDir});
+      }
     } else {
       return {ok: false, code: 'UNKNOWN_COMMAND', message: `Unknown command: ${command ?? ''}`};
     }
