@@ -102,6 +102,22 @@ function applicableChildren(variation, asset) {
     .map(child => child.sku);
 }
 
+function sharedScopeDeclaration(candidate) {
+  const scope = typeof candidate.scope === 'string' ? candidate.scope : candidate.scope?.type;
+  if (!['shared_asset', 'subset_shared'].includes(scope)) {
+    fail('BLOCKING_INPUT', 'Artifact cannot substitute for a shared image scope');
+  }
+  const declared = scope === 'subset_shared'
+    ? (record(candidate.scope) ? candidate.scope.child_skus : candidate.child_skus)
+    : [];
+  if (scope === 'subset_shared' && (!Array.isArray(declared) || declared.length === 0
+      || declared.some(sku => typeof sku !== 'string' || !sku.trim())
+      || new Set(declared).size !== declared.length)) {
+    fail('BLOCKING_INPUT', 'Subset-shared approval requires a unique non-empty declared Child set');
+  }
+  return {asset_scope: scope, declared_child_skus: structuredClone(declared)};
+}
+
 async function approveChildMain(state, input, options) {
   const child = state.variation.children?.[input.childSku];
   if (!child || child.active === false) {
@@ -122,6 +138,11 @@ async function approveChildMain(state, input, options) {
   }
 
   const sha256 = await hashApprovalFile(input.path, options);
+  const masterPath = child.product_master?.approved_main_path;
+  const masterHash = child.product_master?.approved_main_sha256?.toLowerCase();
+  if ((masterPath && masterPath !== input.path) || (masterHash && masterHash !== sha256)) {
+    fail('BLOCKING_INPUT', 'Child main does not match the locked Product Master binding');
+  }
   const now = input.now ?? new Date().toISOString();
   const id = approvalId('child-main', input.artifactId, now);
   assertNewApprovalId(state, id);
@@ -136,6 +157,8 @@ async function approveChildMain(state, input, options) {
     product_master_version: Number(child.product_master?.version ?? 0),
     path: input.path,
     sha256,
+    approved_main_path: masterPath ?? input.path,
+    approved_main_sha256: masterHash ?? sha256,
     approved_at: now,
     user_action: input.userAction
   };
@@ -158,10 +181,7 @@ async function approveChildMain(state, input, options) {
 async function approveSharedImage(state, input, options) {
   const candidate = state.variation.shared_assets?.[input.artifactId];
   assertCandidate(candidate, input, 'shared image');
-  const scope = typeof candidate.scope === 'string' ? candidate.scope : candidate.scope?.type;
-  if (!['shared_asset', 'subset_shared'].includes(scope)) {
-    fail('BLOCKING_INPUT', 'Artifact cannot substitute for a shared image scope');
-  }
+  const scope = sharedScopeDeclaration(candidate);
   if (!record(input.factDependencies) || Object.keys(input.factDependencies).length === 0) {
     fail('BLOCKING_INPUT', 'Shared image approval requires explicit factual dependencies');
   }
@@ -190,6 +210,7 @@ async function approveSharedImage(state, input, options) {
     artifact_id: input.artifactId,
     path: input.path,
     sha256,
+    ...scope,
     fact_dependencies: structuredClone(input.factDependencies),
     applicable_child_skus: [...applicable],
     approved_at: now,
@@ -275,10 +296,12 @@ function listingSnapshot({content, version, approvalId: id, now}) {
 function ruleScope(content) {
   const rulesUnverified = Array.isArray(content.rules_unverified) ? [...new Set(content.rules_unverified)] : [];
   const ruleStatus = content.rule_status ?? (content.upload_ready === true ? 'verified' : 'rules_unverified');
-  if (rulesUnverified.length > 0 && content.upload_ready === true) {
-    fail('BLOCKING_INPUT', 'Rules-unverified Variation Listing cannot be upload ready');
+  const uploadReady = content.upload_ready === true;
+  if ((ruleStatus === 'verified' && rulesUnverified.length > 0)
+      || (uploadReady && (ruleStatus !== 'verified' || rulesUnverified.length > 0))) {
+    fail('BLOCKING_INPUT', 'Variation Listing rule status, unverified fields, and upload readiness are incoherent');
   }
-  return {rule_status: ruleStatus, rules_unverified: rulesUnverified, upload_ready: content.upload_ready === true};
+  return {rule_status: ruleStatus, rules_unverified: rulesUnverified, upload_ready: uploadReady};
 }
 
 function assertCallerBinding(content, expected, forbidden = []) {
@@ -330,6 +353,7 @@ function approveParentListing(state, input) {
     scope_type: 'parent_listing',
     parent_sku: state.variation.parent.sku,
     family_identity_version: Number(state.variation.family_identity?.version ?? 0),
+    theme_dimensions: [...state.variation.theme.dimensions],
     listing_version: version,
     content_sha256: snapshot.content_sha256,
     ...projectScope,
@@ -402,6 +426,8 @@ function approveChildListing(state, input) {
     product_master_version: Number(child.product_master?.version ?? 0),
     listing_version: version,
     parent_listing_version: parentSnapshot.version,
+    parent_listing_approval_id: parentApproval.id,
+    theme_dimensions: [...state.variation.theme.dimensions],
     content_sha256: snapshot.content_sha256,
     ...projectScope,
     ...ruleScope(content),
@@ -443,7 +469,47 @@ function approvalFor(state, id, scopeType) {
   return approval;
 }
 
-function finalChildScope(state, child) {
+function childSpecificAssets(state, child) {
+  const assets = new Map();
+  for (const container of [child.assets, child.gallery?.assets, state.variation.child_assets?.[child.sku]]) {
+    for (const [id, asset] of Object.entries(container ?? {})) assets.set(id, asset);
+  }
+  for (const id of child.legacy_refs?.gallery_asset_ids ?? []) {
+    const asset = state.gallery?.assets?.[id];
+    if (asset) assets.set(id, asset);
+  }
+  return assets;
+}
+
+function finalChildSecondaries(state, child) {
+  const secondary = [];
+  for (const [artifactId, asset] of childSpecificAssets(state, child)) {
+    if (artifactId === child.product_master?.approved_main_id || asset?.kind === 'main' || asset?.status !== 'approved') continue;
+    const approval = state.approvals.find(item => item.id === asset.approval_id);
+    const isLegacy = child.legacy_refs?.gallery_asset_ids?.includes(artifactId) === true;
+    if (!approval || approval.type !== 'image' || approval.scope_type !== undefined
+        || approval.user_action !== 'approved' || approval.artifact_id !== artifactId
+        || approval.path !== asset.path || approval.sha256 !== asset.sha256
+        || (asset.child_sku && asset.child_sku !== child.sku)
+        || (!isLegacy && !canonicalChildAssetPath(child.sku, asset.path))
+        || (approval.child_sku && approval.child_sku !== child.sku)
+        || (approval.product_master_version !== undefined
+          && approval.product_master_version !== child.product_master.version)) {
+      fail('BLOCKING_INPUT', 'Child-specific secondary approval binding is invalid', {
+        child_sku: child.sku, artifact_id: artifactId
+      });
+    }
+    secondary.push({
+      artifact_id: artifactId,
+      path: approval.path,
+      sha256: approval.sha256,
+      approval_id: approval.id
+    });
+  }
+  return secondary;
+}
+
+function finalChildScope(state, child, parentScope) {
   const master = child.product_master;
   if (master?.status !== 'locked' || !(Number(master.version) > 0) || !master.approved_main_id) {
     fail('BLOCKING_INPUT', 'Final Variation approval requires every Child Product Master to be locked', {child_sku: child.sku});
@@ -454,14 +520,19 @@ function finalChildScope(state, child) {
     fail('BLOCKING_INPUT', 'Final Variation approval requires the current approved Child main', {child_sku: child.sku});
   }
   const mainApproval = approvalFor(state, asset?.approval_id, 'child_main');
+  const masterPath = master.approved_main_path;
+  const masterHash = master.approved_main_sha256?.toLowerCase();
   if (mainApproval.child_sku !== child.sku || mainApproval.artifact_id !== master.approved_main_id
       || mainApproval.sha256 !== asset.sha256 || mainApproval.path !== asset.path
       || mainApproval.product_master_version !== master.version
+      || (masterPath && (masterPath !== asset.path || masterPath !== mainApproval.approved_main_path))
+      || (masterHash && (masterHash !== asset.sha256 || masterHash !== mainApproval.approved_main_sha256))
       || !isDeepStrictEqual(mainApproval.variation_values, child.variation_values)) {
     fail('BLOCKING_INPUT', 'Child main approval does not match its exact current Child scope', {child_sku: child.sku});
   }
   const listing = child.listing?.approved?.at(-1);
   const listingApproval = approvalFor(state, listing?.approval_id, 'child_listing');
+  const listingRuleMatches = isDeepStrictEqual(ruleScope(listingApproval), ruleScope(listing?.content));
   if (child.listing?.status !== 'approved' || listing?.status !== 'approved'
       || listingApproval.child_sku !== child.sku
       || listingApproval.listing_version !== listing.version
@@ -469,6 +540,10 @@ function finalChildScope(state, child) {
       || listingApproval.project_id !== state.project.product_id
       || listingApproval.marketplace !== state.project.marketplace
       || listingApproval.product_type !== state.project.product_type
+      || listingApproval.parent_listing_version !== parentScope.version
+      || listingApproval.parent_listing_approval_id !== parentScope.approvalId
+      || !isDeepStrictEqual(listingApproval.theme_dimensions, state.variation.theme.dimensions)
+      || !listingRuleMatches
       || !isDeepStrictEqual(listingApproval.variation_values, child.variation_values)
       || listingApproval.content_sha256 !== (listing.content_sha256 ?? listing.json_sha256)
       || listingApproval.content_sha256 !== hashText(listing.content)) {
@@ -480,6 +555,8 @@ function finalChildScope(state, child) {
       variation_values: structuredClone(child.variation_values),
       product_master_version: master.version,
       listing_version: listing.version,
+      approved_main_path: mainApproval.path,
+      approved_main_sha256: mainApproval.sha256,
       main_approval_id: mainApproval.id,
       listing_approval_id: listingApproval.id
     },
@@ -489,6 +566,7 @@ function finalChildScope(state, child) {
       sha256: mainApproval.sha256,
       approval_id: mainApproval.id
     },
+    secondary: finalChildSecondaries(state, child),
     listingApproval
   };
 }
@@ -503,13 +581,25 @@ function finalSharedScope(state, childSkus, {version, now, userAction}) {
         || !isDeepStrictEqual(approval.fact_dependencies, asset.fact_dependencies)) {
       fail('BLOCKING_INPUT', 'Shared image approval binding is invalid', {artifact_id: artifactId});
     }
+    if (!['shared_asset', 'subset_shared'].includes(approval.asset_scope)
+        || !Array.isArray(approval.declared_child_skus)
+        || (approval.asset_scope === 'shared_asset' && approval.declared_child_skus.length > 0)
+        || (approval.asset_scope === 'subset_shared' && approval.declared_child_skus.length === 0)) {
+      fail('BLOCKING_INPUT', 'Shared image approval has no immutable asset-scope declaration', {artifact_id: artifactId});
+    }
+    const approvedAsset = {
+      scope: approval.asset_scope === 'subset_shared'
+        ? {type: 'subset_shared', child_skus: structuredClone(approval.declared_child_skus)}
+        : 'shared_asset',
+      fact_dependencies: structuredClone(approval.fact_dependencies)
+    };
     const mapped = new Set(approval.applicable_child_skus ?? []);
     for (const mapping of state.variation.shared_asset_mappings ?? []) {
       if (mapping.approval_id === approval.id && mapping.artifact_id === artifactId) {
         for (const sku of mapping.child_skus ?? []) mapped.add(sku);
       }
     }
-    const currentlyApplicable = applicableChildren(state.variation, asset)
+    const currentlyApplicable = applicableChildren(state.variation, approvedAsset)
       .filter(sku => childSkus.includes(sku));
     const newChildren = currentlyApplicable.filter(sku => !mapped.has(sku));
     if (newChildren.length > 0) {
@@ -553,6 +643,7 @@ export function approveVariationVersion(state, input) {
   const parent = state.variation.parent;
   const parentListing = parent.listing?.approved?.at(-1);
   const parentApproval = approvalFor(state, parentListing?.approval_id, 'parent_listing');
+  const parentRuleMatches = isDeepStrictEqual(ruleScope(parentApproval), ruleScope(parentListing?.content));
   if (parent.status !== 'approved' || parentListing?.status !== 'approved'
       || parent.version !== parentListing.version
       || parentApproval.parent_sku !== parent.sku
@@ -560,16 +651,22 @@ export function approveVariationVersion(state, input) {
       || parentApproval.listing_version !== parentListing.version
       || parentApproval.marketplace !== state.project.marketplace
       || parentApproval.product_type !== state.project.product_type
+      || !isDeepStrictEqual(parentApproval.theme_dimensions, state.variation.theme.dimensions)
+      || !parentRuleMatches
       || parentApproval.content_sha256 !== (parentListing.content_sha256 ?? parentListing.json_sha256)
       || parentApproval.content_sha256 !== hashText(parentListing.content)) {
     fail('BLOCKING_INPUT', 'Final Variation approval requires a current Parent Listing approval');
   }
 
-  const childScopes = children.map(child => finalChildScope(state, child));
-  const ruleStatuses = new Set([parentApproval.rule_status, ...childScopes.map(item => item.listingApproval.rule_status)]);
-  if (ruleStatuses.size !== 1 || ruleStatuses.has(undefined)) {
+  const childScopes = children.map(child => finalChildScope(state, child, {
+    version: parentListing.version,
+    approvalId: parentApproval.id
+  }));
+  const ruleScopes = [parentApproval, ...childScopes.map(item => item.listingApproval)].map(ruleScope);
+  if (ruleScopes.some(scope => !isDeepStrictEqual(scope, ruleScopes[0]))) {
     fail('BLOCKING_INPUT', 'Parent and Child Listing rule scopes must match for final approval');
   }
+  const finalRuleScope = ruleScopes[0];
   const childSkus = children.map(child => child.sku);
   const version = Number(state.variation.versions?.at(-1)?.version ?? 0) + 1;
   const now = input.now ?? new Date().toISOString();
@@ -589,11 +686,15 @@ export function approveVariationVersion(state, input) {
     child_versions: childScopes.map(item => structuredClone(item.version)),
     asset_map: {
       child_main: Object.fromEntries(childScopes.map(item => [item.version.child_sku, structuredClone(item.main)])),
+      child_secondary: Object.fromEntries(childScopes.map(item => [
+        item.version.child_sku, structuredClone(item.secondary)
+      ])),
       shared: sharedScope.assets
     },
     marketplace: state.project.marketplace,
     product_type: state.project.product_type,
-    rule_status: parentApproval.rule_status
+    rule_scope: structuredClone(finalRuleScope),
+    ...structuredClone(finalRuleScope)
   };
   const approval = {
     id,
