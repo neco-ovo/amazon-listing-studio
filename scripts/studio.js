@@ -297,6 +297,12 @@ async function defaultLoadState(projectDir) {
   return JSON.parse(await readFile(path.join(path.resolve(projectDir), 'state.json'), 'utf8'));
 }
 
+async function ensureChildWorkspace(projectDir, childSku) {
+  for (const relative of [`children/${childSku}/assets`, `children/${childSku}/listing`]) {
+    await mkdir(path.join(projectDir, ...relative.split('/')), {recursive: true});
+  }
+}
+
 async function defaultWriteListingTransaction({projectDir, state, markdown}) {
   const result = await updateProject(projectDir, () => state);
   const listingDir = path.join(path.resolve(projectDir), 'listing');
@@ -387,6 +393,7 @@ export async function runCli(argv, {
           ? reviseVariationChild
           : removeVariationChild;
       result = await updateProject(projectDir, state => mutate(state, operationInput));
+      if (command === 'add-child') await ensureChildWorkspace(projectDir, operationInput.sku);
     }
     else if (command === 'record-candidate') {
       const projectDir = path.resolve(requireOption(options, 'project-dir'));

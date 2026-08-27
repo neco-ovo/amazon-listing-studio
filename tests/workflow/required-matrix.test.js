@@ -131,4 +131,27 @@ test('required Seed behavior matrix', async t => {
     };
     assert.equal(preflightListingScope(project, content).ok, true);
   });
+
+  await t.test('Variation guidance covers the optional Parent and exact Child matrix', async () => {
+    const guidance = await readFile('references/variation-workflow.md', 'utf8');
+    const seed = JSON.parse(await readFile('assets/merchant-layouts/rigid-aluminum-signs.json', 'utf8'));
+
+    for (const pattern of [
+      /ordered.+category-permitted.+compound.+theme/is,
+      /sparse.+(?:combination|tuple).+(?:Cartesian|invent)/is,
+      /category differences?.+(?:not|never).+hard.+(?:reject|boundary)/is,
+      /promot.+non-destructive.+(?:preserve|in place)/is,
+      /Parent.+common product identity.+Child.+purchasable SKU.+exact.+tuple/is,
+      /shared secondary.+reusable asset records?.+(?:not|rather than).+(?:Family gallery|gallery for the Family)/is,
+      /each Child main.+independently scoped.+approved/is,
+      /direct dependents?.+(?:fast|local).+(?:not|without).+full.+rerun/is,
+      /approval.+immutable/is,
+      /full Family.+one exact Child.+trusted project/is,
+      /01a03541-aca1-7572-8ee5-1b6444353559.+local reviewed seed.+runtime.+(?:never|does not).+task access/is
+    ]) assert.match(guidance, pattern);
+
+    assert.equal(seed.family_id, 'rigid-aluminum-signs');
+    assert.ok(seed.layouts.length >= 4);
+    assert.ok(seed.layouts.every(layout => layout.preview?.path && layout.preview?.sha256));
+  });
 });

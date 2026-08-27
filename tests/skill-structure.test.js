@@ -37,6 +37,23 @@ test('entrypoint describes two modes and four focused references', async () => {
   assert.doesNotMatch(skill, /read `?references\/capability-contracts\.md`?.*before every/is);
 });
 
+test('Skill routes optional Variation work to one focused reference', async () => {
+  const skill = await readFile(path.join(root, 'SKILL.md'), 'utf8');
+  const reference = await readFile(path.join(root, 'references', 'variation-workflow.md'), 'utf8');
+
+  assert.match(skill, /Parent|Child/);
+  assert.match(skill, /references\/variation-workflow\.md/);
+  assert.match(skill, /single-product.+does not load|only when.+Variation/is);
+  assert.ok(skill.split(/\r?\n/).length < 220, 'Variation routing must keep SKILL.md compact');
+  for (const phrase of [
+    'common product identity',
+    'purchasable SKU',
+    'category-permitted',
+    'shared secondary',
+    'direct dependents'
+  ]) assert.match(reference, new RegExp(phrase, 'i'));
+});
+
 test('entrypoint confines each product to a portable collection-root child directory', async () => {
   const skill = await readFile(path.join(root, 'SKILL.md'), 'utf8');
   assert.match(skill, /projects-root/i);

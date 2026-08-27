@@ -31,3 +31,5 @@ Present one consolidated Listing review. A small requested change uses `scripts/
 System scope fields come from current project state at approval, not from consumer-copy revision requests. Approval must pass the same Listing scope preflight used by finalization before it freezes JSON/Markdown hashes. Filling or normalizing metadata alone does not create another consumer-copy Listing version.
 
 Draft revisions are mutable. Preserve every unselected field byte-for-byte. Reject a stale expected draft revision or unknown path. Render Markdown from JSON; never maintain independent prose copies. On explicit approval, run `scripts/studio.js approve --project-dir <dir> --type listing`; only then create the next formal Listing version and its JSON/Markdown hashes.
+
+For Parent baselines, exact Child overrides, compound tuples, or Variation Listing approval, add `references/variation-workflow.md` only for a Variation Family.
