@@ -10,7 +10,12 @@ import { migrateLegacyProject } from './lib/migration.js';
 import { validateMainImage } from './lib/images.js';
 import { renderListing, reviseDraft } from './lib/listing-drafts.js';
 import { buildV2Delivery, verifyDelivery } from './lib/bundle.js';
-import { promoteToVariation } from './lib/variation-project.js';
+import {
+  addVariationChild,
+  promoteToVariation,
+  removeVariationChild,
+  reviseVariationChild
+} from './lib/variation-project.js';
 
 function parseArgs(argv) {
   const [command, ...rest] = argv;
@@ -293,6 +298,9 @@ function operationFor(command) {
     validate: 'knowledge_lookup',
     migrate: 'migrate',
     'promote-variation': 'product_identity_change',
+    'add-child': 'add_child',
+    'revise-child': 'child_listing_field_edit',
+    'remove-child': 'remove_child',
     'verify-delivery': 'finalize'
   };
   return classifyOperation({kind: kinds[command] ?? command});
@@ -317,6 +325,17 @@ export async function runCli(argv, {clock = Date.now, candidateDependencies, lis
         themeSource: theme.source,
         now: options.now
       });
+    }
+    else if (['add-child', 'revise-child', 'remove-child'].includes(command)) {
+      const projectDir = path.resolve(requireOption(options, 'project-dir'));
+      const input = JSON.parse(await readFile(path.resolve(requireOption(options, 'input')), 'utf8'));
+      const operationInput = {...input, ...(options.now ? {now: options.now} : {})};
+      const mutate = command === 'add-child'
+        ? addVariationChild
+        : command === 'revise-child'
+          ? reviseVariationChild
+          : removeVariationChild;
+      result = await updateProject(projectDir, state => mutate(state, operationInput));
     }
     else if (command === 'record-candidate') {
       const projectDir = path.resolve(requireOption(options, 'project-dir'));

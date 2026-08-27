@@ -3,7 +3,14 @@ import path from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
 import { validateProjectState } from './project-state.js';
 import { updateProject } from './transactions.js';
-import { createVariationExtension, selectVariationTheme, validateVariationExtension } from './variations.js';
+import { evaluateSharedAssetApplicability } from './variation-images.js';
+import {
+  computeCommonFacts,
+  createVariationExtension,
+  selectVariationTheme,
+  validateVariationExtension,
+  variationTupleKey
+} from './variations.js';
 
 const SUPPLEMENTAL_DIRECTORIES = childSku => [
   'family/shared-assets',
@@ -18,6 +25,300 @@ function fail(code, message, details = {}) {
 
 function record(value) {
   return value && typeof value === 'object' && !Array.isArray(value);
+}
+
+function operationNow(value) {
+  return typeof value === 'string' && value.trim() ? value : new Date().toISOString();
+}
+
+function assertVariationState(state) {
+  if (!record(state?.variation) || state.project?.mode !== 'variation_family') {
+    fail('BLOCKING_INPUT', 'A Variation Family project is required');
+  }
+  const validation = validateVariationExtension(state.variation);
+  if (!validation.valid) {
+    fail('BLOCKING_INPUT', 'Existing Variation state is invalid', {errors: validation.errors});
+  }
+}
+
+function activeChildren(variation) {
+  return Object.values(variation.children ?? {}).filter(child => child?.active !== false);
+}
+
+function activeChildSkus(variation) {
+  return activeChildren(variation).map(child => child.sku);
+}
+
+function commonFacts(variation) {
+  return computeCommonFacts(activeChildren(variation)).common;
+}
+
+function markStale(value, {reason, affectedIds, now}) {
+  return {
+    ...value,
+    status: 'stale',
+    stale_at: now,
+    stale_reason: reason,
+    affected_ids: [...affectedIds]
+  };
+}
+
+function recordOperation(variation, {kind, reasons, affectedIds, now}) {
+  variation.last_operation = {
+    kind,
+    at: now,
+    stale_reasons: [...new Set(reasons)],
+    affected_ids: [...new Set(affectedIds)]
+  };
+  variation.updated_at = now;
+}
+
+function updateProjectTimestamp(state, now) {
+  if (record(state.project)) state.project.updated_at = now;
+}
+
+function sharedAssetIsApproved(asset) {
+  return asset?.status === 'approved' || Boolean(asset?.approval_id) || Boolean(asset?.approved_at);
+}
+
+function recomputeSharedApplicability(variation, now) {
+  const children = activeChildren(variation);
+  const common = commonFacts(variation);
+  const applicability = {};
+  for (const [assetId, asset] of Object.entries(variation.shared_assets ?? {})) {
+    const applicable = [];
+    const inapplicable = [];
+    const reasonsByChild = {};
+    for (const child of children) {
+      const result = evaluateSharedAssetApplicability({asset, child, commonFacts: common});
+      if (result.applicable) applicable.push(child.sku);
+      else {
+        inapplicable.push(child.sku);
+        reasonsByChild[child.sku] = result.reasons;
+      }
+    }
+    applicability[assetId] = {
+      applicable_child_skus: applicable,
+      inapplicable_child_skus: inapplicable,
+      reasons_by_child: reasonsByChild,
+      evaluated_at: now
+    };
+    if (!sharedAssetIsApproved(asset)) asset.applicable_child_skus = [...applicable];
+  }
+  variation.shared_asset_applicability = applicability;
+}
+
+function validateChildSku(sku) {
+  if (typeof sku !== 'string' || sku !== sku.trim() || !/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(sku)) {
+    fail('BLOCKING_INPUT', 'Child SKU is unsafe or invalid', {sku: sku ?? null});
+  }
+}
+
+function assertCompleteTuple(variation, values) {
+  if (!record(values)) fail('BLOCKING_INPUT', 'Child variation_values are required');
+  const missing = variation.theme.dimensions.filter(dimension => (
+    typeof values[dimension] !== 'string' || values[dimension].trim() === ''
+  ));
+  if (missing.length > 0) fail('BLOCKING_INPUT', 'Child variation tuple is incomplete', {fields: missing});
+}
+
+function assertUniqueChild(variation, sku, values) {
+  if (Object.hasOwn(variation.children, sku)) {
+    fail('BLOCKING_INPUT', 'Child SKU already exists', {sku});
+  }
+  const tuple = variationTupleKey(variation.theme.dimensions, values);
+  const duplicate = Object.values(variation.children).find(child => (
+    variationTupleKey(variation.theme.dimensions, child.variation_values) === tuple
+  ));
+  if (duplicate) {
+    fail('BLOCKING_INPUT', 'A Child record already uses this variation tuple', {
+      sku: duplicate.sku,
+      tuple
+    });
+  }
+}
+
+function promotedListingFields(parent) {
+  const fields = parent?.listing?.promoted_fields ?? parent?.promoted_listing_fields ?? [];
+  return new Set(Array.isArray(fields) ? fields : []);
+}
+
+function changedPatch(current, patch) {
+  const changed = {};
+  for (const [field, value] of Object.entries(record(patch) ? patch : {})) {
+    if (!isDeepStrictEqual(current?.[field], value)) changed[field] = structuredClone(value);
+  }
+  return changed;
+}
+
+function currentListingContent(listing) {
+  if (record(listing?.draft?.content)) return listing.draft.content;
+  if (record(listing?.overrides)) return listing.overrides;
+  const approved = listing?.approved?.at(-1);
+  return record(approved?.content) ? approved.content : {};
+}
+
+function updateChildListing(listing, patch, sku, now) {
+  const current = currentListingContent(listing);
+  const fields = changedPatch(current, patch);
+  if (Object.keys(fields).length === 0) return {listing, changedFields: []};
+  const approvedVersion = Number(listing?.approved?.at(-1)?.version ?? 0);
+  const draftRevision = Number(listing?.draft?.revision ?? approvedVersion);
+  return {
+    listing: {
+      ...(record(listing) ? listing : {}),
+      status: 'draft',
+      draft: {
+        revision: draftRevision + 1,
+        content: {...structuredClone(current), ...fields},
+        updated_at: now
+      },
+      approved: structuredClone(listing?.approved ?? []),
+      stale_at: now,
+      stale_reason: 'CHILD_LISTING_FIELDS_CHANGED',
+      affected_ids: [sku]
+    },
+    changedFields: Object.keys(fields)
+  };
+}
+
+export function addVariationChild(state, input = {}) {
+  assertVariationState(state);
+  validateChildSku(input.sku);
+  assertCompleteTuple(state.variation, input.variation_values);
+  assertUniqueChild(state.variation, input.sku, input.variation_values);
+  if (!record(input.facts)) fail('BLOCKING_INPUT', 'Child facts are required');
+
+  const now = operationNow(input.now);
+  const next = structuredClone(state);
+  const variation = next.variation;
+  variation.children[input.sku] = {
+    sku: input.sku,
+    active: true,
+    variation_values: structuredClone(input.variation_values),
+    facts: structuredClone(input.facts),
+    product_master: null,
+    listing: {status: 'draft', draft: null, approved: []},
+    legacy_refs: {},
+    history: [{kind: 'added', at: now}]
+  };
+
+  const affectedIds = [variation.parent.sku, input.sku];
+  variation.parent.common_facts = commonFacts(variation);
+  variation.parent = markStale(variation.parent, {
+    reason: 'ACTIVE_CHILD_SET_CHANGED', affectedIds, now
+  });
+  recomputeSharedApplicability(variation, now);
+  recordOperation(variation, {
+    kind: 'add_child', reasons: ['ACTIVE_CHILD_SET_CHANGED'], affectedIds, now
+  });
+  updateProjectTimestamp(next, now);
+  return next;
+}
+
+export function reviseVariationChild(state, {sku, factPatch, listingPatch, now: requestedNow} = {}) {
+  assertVariationState(state);
+  validateChildSku(sku);
+  const existing = state.variation.children[sku];
+  if (!existing || existing.active === false) {
+    fail('BLOCKING_INPUT', 'An active Child is required for revision', {sku});
+  }
+  if (factPatch !== undefined && !record(factPatch)) fail('BLOCKING_INPUT', 'factPatch must be an object');
+  if (listingPatch !== undefined && !record(listingPatch)) fail('BLOCKING_INPUT', 'listingPatch must be an object');
+
+  const rawListingPatch = record(listingPatch?.fields) ? listingPatch.fields : listingPatch;
+  const changedFacts = changedPatch(existing.facts, factPatch);
+  const listingChanges = updateChildListing(existing.listing, rawListingPatch, sku, requestedNow);
+  if (Object.keys(changedFacts).length === 0 && listingChanges.changedFields.length === 0) {
+    return structuredClone(state);
+  }
+
+  const now = operationNow(requestedNow);
+  const next = structuredClone(state);
+  const variation = next.variation;
+  const target = variation.children[sku];
+  const reasons = [];
+  const affectedIds = [sku];
+
+  if (Object.keys(changedFacts).length > 0) {
+    const beforeCommon = commonFacts(variation);
+    target.facts = {...target.facts, ...changedFacts};
+    const afterCommon = commonFacts(variation);
+    target.product_master = target.product_master
+      ? markStale(target.product_master, {reason: 'CHILD_FACTS_CHANGED', affectedIds: [sku], now})
+      : null;
+    target.listing = markStale(target.listing, {
+      reason: 'CHILD_FACTS_CHANGED', affectedIds: [sku], now
+    });
+    reasons.push('CHILD_FACTS_CHANGED');
+    if (!isDeepStrictEqual(beforeCommon, afterCommon)) {
+      variation.parent.common_facts = afterCommon;
+      const parentAffected = [variation.parent.sku, sku];
+      variation.parent = markStale(variation.parent, {
+        reason: 'COMMON_FACTS_CHANGED', affectedIds: parentAffected, now
+      });
+      reasons.push('COMMON_FACTS_CHANGED');
+      affectedIds.push(...parentAffected);
+    }
+    recomputeSharedApplicability(variation, now);
+  }
+
+  if (listingChanges.changedFields.length > 0) {
+    target.listing = updateChildListing(target.listing, rawListingPatch, sku, now).listing;
+    reasons.push('CHILD_LISTING_FIELDS_CHANGED');
+    const promoted = promotedListingFields(variation.parent);
+    if (listingChanges.changedFields.some(field => promoted.has(field))) {
+      const parentAffected = [variation.parent.sku, sku];
+      variation.parent = markStale(variation.parent, {
+        reason: 'PROMOTED_CHILD_LISTING_FIELD_CHANGED', affectedIds: parentAffected, now
+      });
+      reasons.push('PROMOTED_CHILD_LISTING_FIELD_CHANGED');
+      affectedIds.push(...parentAffected);
+    }
+  }
+
+  target.history = [
+    ...(Array.isArray(target.history) ? target.history : []),
+    {kind: 'revised', at: now, fact_fields: Object.keys(changedFacts), listing_fields: listingChanges.changedFields}
+  ];
+  recordOperation(variation, {kind: 'revise_child', reasons, affectedIds, now});
+  updateProjectTimestamp(next, now);
+  return next;
+}
+
+export function removeVariationChild(state, {sku, now: requestedNow} = {}) {
+  assertVariationState(state);
+  validateChildSku(sku);
+  const existing = state.variation.children[sku];
+  if (!existing || existing.active === false) {
+    fail('BLOCKING_INPUT', 'An active Child is required for removal', {sku});
+  }
+  if (activeChildren(state.variation).length === 1) {
+    fail('BLOCKING_INPUT', 'A Variation Family must retain at least one active Child');
+  }
+
+  const now = operationNow(requestedNow);
+  const next = structuredClone(state);
+  const variation = next.variation;
+  const target = variation.children[sku];
+  target.active = false;
+  target.removed_at = now;
+  target.history = [
+    ...(Array.isArray(target.history) ? target.history : []),
+    {kind: 'removed', at: now}
+  ];
+
+  const affectedIds = [variation.parent.sku, sku];
+  variation.parent.common_facts = commonFacts(variation);
+  variation.parent = markStale(variation.parent, {
+    reason: 'ACTIVE_CHILD_SET_CHANGED', affectedIds, now
+  });
+  recomputeSharedApplicability(variation, now);
+  recordOperation(variation, {
+    kind: 'remove_child', reasons: ['ACTIVE_CHILD_SET_CHANGED'], affectedIds, now
+  });
+  updateProjectTimestamp(next, now);
+  return next;
 }
 
 function verifiedThemeSource(source) {
