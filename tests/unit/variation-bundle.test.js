@@ -1,0 +1,430 @@
+import assert from 'node:assert/strict';
+import {createHash} from 'node:crypto';
+import {mkdir, readFile, rm, writeFile} from 'node:fs/promises';
+import path from 'node:path';
+import test from 'node:test';
+
+import {unzipSync, zipSync} from 'fflate';
+import sharp from 'sharp';
+
+import {
+  approveVariationArtifact,
+  approveVariationListing,
+  approveVariationVersion
+} from '../../scripts/lib/variation-approvals.js';
+import {buildVariationDelivery, verifyVariationDelivery} from '../../scripts/lib/variation-bundle.js';
+import {materializeChildListing} from '../../scripts/lib/variation-listing.js';
+import {sha256File} from '../../scripts/lib/bundle.js';
+import {withTempWorkspace} from '../helpers/temp-workspace.js';
+
+const now = '2026-08-27T08:00:00.000Z';
+const digest = bytes => createHash('sha256').update(bytes).digest('hex');
+
+function fact(value) {
+  return {value, status: 'user_confirmed', publishable: true, conflicts: []};
+}
+
+const parentContent = {
+  parent_sku: 'SIGN-PARENT',
+  project_id: 'sign-family',
+  marketplace: 'amazon.com',
+  language: 'en-US',
+  product_type: 'METAL_SIGN',
+  title: 'Aluminum Safety Sign',
+  item_highlights: 'Weather-resistant aluminum safety sign.',
+  bullets: [{heading: 'CLEAR MESSAGE', body: 'Direct safety message for work areas.'}],
+  description: 'A clear aluminum sign for workplace safety messaging.',
+  backend_search_terms: 'aluminum safety workplace sign',
+  special_features: ['Weather resistant'],
+  attributes: {material: 'Aluminum'},
+  claim_refs: {title: ['material'], attributes: {material: ['material']}},
+  rule_status: 'verified',
+  rules_unverified: [],
+  upload_ready: true
+};
+
+function child(sku, color) {
+  return {
+    sku,
+    active: true,
+    variation_values: {color_name: color, size_name: '12 x 16 in'},
+    facts: {
+      material: fact('aluminum'),
+      color_name: fact(color),
+      size_name: fact('12 x 16 in')
+    },
+    product_master: {
+      version: 1,
+      status: 'locked',
+      approved_main_id: `${sku.toLowerCase()}-main`,
+      approved_main_path: `children/${sku}/assets/main.png`
+    },
+    assets: {
+      [`${sku.toLowerCase()}-main`]: {
+        id: `${sku.toLowerCase()}-main`,
+        kind: 'main',
+        child_sku: sku,
+        status: 'candidate',
+        inspection_status: 'pass',
+        path: `children/${sku}/assets/main.png`,
+        media_type: 'image/png'
+      }
+    },
+    listing: {status: 'draft', draft: null, approved: []},
+    legacy_refs: {}
+  };
+}
+
+function variationState() {
+  return {
+    schema_version: 2,
+    project: {
+      product_id: 'sign-family', product_name: 'Safety Sign Family', marketplace: 'amazon.com',
+      language: 'en-US', product_type: 'METAL_SIGN', stage: 'delivery', mode: 'variation_family', updated_at: now
+    },
+    facts: {},
+    product_master: null,
+    gallery: {plan: [], assets: {}, selected: []},
+    listing: {draft: null, approved: []},
+    approvals: [],
+    stale_dependencies: [],
+    delivery: null,
+    metrics: [],
+    variation: {
+      schema_version: 1,
+      mode: 'variation_family',
+      family_identity: {
+        version: 1,
+        status: 'locked',
+        facts: {material: fact('aluminum')},
+        non_merge_boundaries: []
+      },
+      theme: {
+        dimensions: ['color_name', 'size_name'],
+        source: {
+          kind: 'category_schema', id: 'METAL_SIGN',
+          allowed_themes: [['color_name', 'size_name']]
+        },
+        verification_status: 'verified'
+      },
+      parent: {
+        sku: 'SIGN-PARENT', version: 0, status: 'draft',
+        listing: {status: 'draft', draft: null, approved: []}
+      },
+      children: {
+        'HORSE-12X16': child('HORSE-12X16', 'Horse Crossing'),
+        'KIDS-12X16': child('KIDS-12X16', 'Kids at Play')
+      },
+      shared_assets: {
+        'material-v1': {
+          id: 'material-v1', kind: 'secondary', status: 'candidate', inspection_status: 'pass',
+          scope: 'shared_asset', path: 'family/shared-assets/material.png', media_type: 'image/png',
+          fact_dependencies: {material: 'aluminum'}
+        },
+        'kids-scene-v1': {
+          id: 'kids-scene-v1', kind: 'secondary', status: 'candidate', inspection_status: 'pass',
+          scope: {type: 'subset_shared', child_skus: ['KIDS-12X16']},
+          path: 'family/shared-assets/kids-scene.png', media_type: 'image/png',
+          fact_dependencies: {material: 'aluminum'}
+        }
+      },
+      versions: [],
+      updated_at: now
+    }
+  };
+}
+
+function childContent(state, sku) {
+  const record = state.variation.children[sku];
+  return materializeChildListing({
+    parentContent,
+    childOverrides: {
+      title: `Aluminum Safety Sign ${record.variation_values.color_name} 12 x 16 Inch`,
+      attributes: structuredClone(record.variation_values)
+    },
+    child: record,
+    dimensions: state.variation.theme.dimensions
+  });
+}
+
+async function png(filePath, color) {
+  await mkdir(path.dirname(filePath), {recursive: true});
+  await sharp({create: {width: 32, height: 32, channels: 3, background: color}}).png().toFile(filePath);
+}
+
+async function approvedProject(root) {
+  const projectDir = path.join(root, 'project');
+  let state = variationState();
+  const images = [
+    ['children/HORSE-12X16/assets/main.png', '#ff0000'],
+    ['children/HORSE-12X16/assets/size.png', '#00ff00'],
+    ['children/KIDS-12X16/assets/main.png', '#0000ff'],
+    ['children/KIDS-12X16/assets/size.png', '#ffff00'],
+    ['family/shared-assets/material.png', '#cccccc'],
+    ['family/shared-assets/kids-scene.png', '#999999']
+  ];
+  for (const [relative, color] of images) await png(path.join(projectDir, relative), color);
+
+  const hashRelative = relative => sha256File(path.join(projectDir, relative));
+  for (const sku of ['HORSE-12X16', 'KIDS-12X16']) {
+    const mainPath = `children/${sku}/assets/main.png`;
+    const mainHash = await hashRelative(mainPath);
+    state.variation.children[sku].product_master.approved_main_sha256 = mainHash;
+    state = await approveVariationArtifact(state, {
+      artifactId: `${sku.toLowerCase()}-main`, artifactType: 'child_main', childSku: sku,
+      path: mainPath, userAction: 'approved', now
+    }, {hashFile: hashRelative});
+
+    const secondaryId = `${sku.toLowerCase()}-size`;
+    const secondaryPath = `children/${sku}/assets/size.png`;
+    const secondaryHash = await hashRelative(secondaryPath);
+    const approvalId = `approval-${secondaryId}`;
+    state.variation.children[sku].assets[secondaryId] = {
+      id: secondaryId, kind: 'size_spec', child_sku: sku, status: 'approved',
+      inspection_status: 'pass', path: secondaryPath, media_type: 'image/png',
+      sha256: secondaryHash, approval_id: approvalId, approved_at: now, product_master_version: 1
+    };
+    state.approvals.push({
+      id: approvalId, type: 'image', artifact_id: secondaryId, child_sku: sku,
+      path: secondaryPath, sha256: secondaryHash, product_master_version: 1,
+      approved_at: now, user_action: 'approved'
+    });
+  }
+
+  state = await approveVariationArtifact(state, {
+    artifactId: 'material-v1', artifactType: 'shared_image',
+    childSkus: ['HORSE-12X16', 'KIDS-12X16'], factDependencies: {material: 'aluminum'},
+    path: 'family/shared-assets/material.png', userAction: 'approved', now
+  }, {hashFile: hashRelative});
+  state = await approveVariationArtifact(state, {
+    artifactId: 'kids-scene-v1', artifactType: 'shared_image',
+    childSkus: ['KIDS-12X16'], factDependencies: {material: 'aluminum'},
+    path: 'family/shared-assets/kids-scene.png', userAction: 'approved', now
+  }, {hashFile: hashRelative});
+  state = approveVariationListing(state, {
+    scopeType: 'parent_listing', content: parentContent, userAction: 'approved', now
+  });
+  for (const sku of ['HORSE-12X16', 'KIDS-12X16']) {
+    state = approveVariationListing(state, {
+      scopeType: 'child_listing', childSku: sku, content: childContent(state, sku),
+      userAction: 'approved', now
+    });
+  }
+  state = approveVariationVersion(state, {userAction: 'approved', now});
+  const finalApproval = structuredClone(state.approvals.at(-1));
+  await writeFile(path.join(projectDir, 'state.json'), `${JSON.stringify(state, null, 2)}\n`);
+  return {projectDir, state, finalApproval};
+}
+
+function textEntry(archive, name) {
+  return Buffer.from(archive[name]).toString('utf8');
+}
+
+async function rewriteVariationPackage(sourceDir, outputDir, mutate) {
+  const manifest = JSON.parse(await readFile(path.join(sourceDir, 'delivery-manifest.json'), 'utf8'));
+  const files = unzipSync(await readFile(path.join(sourceDir, 'delivery.zip')));
+  const matrix = JSON.parse(textEntry(files, 'variation-matrix.json'));
+  await mutate({files, matrix, manifest});
+  if (files['variation-matrix.json']) {
+    files['variation-matrix.json'] = Buffer.from(`${JSON.stringify(matrix, null, 2)}\n`);
+    const matrixArtifact = manifest.artifacts.find(item => item.archive_path === 'variation-matrix.json');
+    if (matrixArtifact) {
+      matrixArtifact.byte_size = files['variation-matrix.json'].length;
+      matrixArtifact.sha256 = digest(files['variation-matrix.json']);
+    }
+  }
+  files['delivery-manifest.json'] = Buffer.from(`${JSON.stringify(manifest, null, 2)}\n`);
+  await mkdir(outputDir, {recursive: true});
+  await writeFile(path.join(outputDir, 'delivery-manifest.json'), files['delivery-manifest.json']);
+  await writeFile(path.join(outputDir, 'delivery.zip'), Buffer.from(zipSync(files, {level: 6})));
+}
+
+test('builds a Family package with complete Listings and one copy of each physical shared image', async () => {
+  await withTempWorkspace(async root => {
+    const project = await approvedProject(root);
+    const result = await buildVariationDelivery({
+      ...project,
+      outputDir: path.join(project.projectDir, 'delivery', 'family-v1')
+    });
+    const archive = unzipSync(await readFile(result.zipPath));
+
+    assert.ok(archive['parent/listing.json']);
+    assert.ok(archive['parent/listing.md']);
+    assert.ok(archive['children/HORSE-12X16/listing.json']);
+    assert.ok(archive['children/KIDS-12X16/listing.json']);
+    assert.ok(archive['children/HORSE-12X16/main.png']);
+    assert.ok(archive['children/HORSE-12X16/secondary/size.png']);
+    assert.ok(archive['shared/material.png']);
+    assert.ok(archive['shared/kids-scene.png']);
+    assert.ok(archive['variation-matrix.json']);
+    assert.equal(Object.keys(archive).filter(name => name.endsWith('/material.png')).length, 1);
+    assert.equal(Object.keys(archive).filter(name => name.endsWith('/kids-scene.png')).length, 1);
+    assert.equal(Object.keys(archive).some(name => /\.(?:xlsx|xls|csv|tsv)$/i.test(name)), false);
+
+    const childListing = JSON.parse(textEntry(archive, 'children/HORSE-12X16/listing.json'));
+    assert.equal(childListing.child_sku, 'HORSE-12X16');
+    assert.equal(childListing.product_master_version, 1);
+    assert.equal(childListing.description, parentContent.description);
+
+    const matrix = JSON.parse(textEntry(archive, 'variation-matrix.json'));
+    assert.deepEqual(matrix.theme_dimensions, ['color_name', 'size_name']);
+    assert.deepEqual(matrix.children[0], {
+      parent_sku: 'SIGN-PARENT',
+      child_sku: 'HORSE-12X16',
+      theme_dimensions: ['color_name', 'size_name'],
+      variation_values: {color_name: 'Horse Crossing', size_name: '12 x 16 in'},
+      listing_version: 1,
+      product_master_version: 1,
+      asset_ids: {
+        main: 'horse-12x16-main',
+        child_secondary: ['horse-12x16-size'],
+        shared: ['material-v1']
+      },
+      asset_paths: [
+        'children/HORSE-12X16/main.png',
+        'children/HORSE-12X16/secondary/size.png',
+        'shared/material.png'
+      ]
+    });
+    assert.equal(result.verification.ok, true);
+  });
+});
+
+test('Child-only delivery excludes unrelated Child artifacts and rows', async () => {
+  await withTempWorkspace(async root => {
+    const project = await approvedProject(root);
+    const result = await buildVariationDelivery({
+      ...project,
+      childSkus: ['HORSE-12X16'],
+      outputDir: path.join(project.projectDir, 'delivery', 'horse-v1')
+    });
+    const archive = unzipSync(await readFile(result.zipPath));
+    const matrix = JSON.parse(textEntry(archive, 'variation-matrix.json'));
+
+    assert.ok(archive['parent/listing.json']);
+    assert.ok(archive['children/HORSE-12X16/listing.json']);
+    assert.equal(archive['children/KIDS-12X16/listing.json'], undefined);
+    assert.equal(archive['children/KIDS-12X16/main.png'], undefined);
+    assert.ok(archive['shared/material.png']);
+    assert.equal(archive['shared/kids-scene.png'], undefined);
+    assert.deepEqual(matrix.children.map(row => row.child_sku), ['HORSE-12X16']);
+    assert.deepEqual(result.manifest.delivery_scope, {
+      type: 'child', child_skus: ['HORSE-12X16']
+    });
+  });
+});
+
+test('build rejects stale approval, unsafe paths, and incomplete selections', async t => {
+  await t.test('stale immutable approval', async () => {
+    await withTempWorkspace(async root => {
+      const project = await approvedProject(root);
+      project.finalApproval.child_versions[0].listing_version = 99;
+      await assert.rejects(
+        buildVariationDelivery({...project, outputDir: path.join(project.projectDir, 'delivery', 'stale')}),
+        error => error.code === 'BUNDLE_INVALID' && error.details?.reason === 'APPROVAL_SCOPE_MISMATCH'
+      );
+    });
+  });
+
+  await t.test('unsafe approved asset path', async () => {
+    await withTempWorkspace(async root => {
+      const project = await approvedProject(root);
+      const finalRecord = project.state.approvals.find(item => item.id === project.finalApproval.id);
+      project.finalApproval.asset_map.shared['material-v1'].path = '../outside.png';
+      finalRecord.asset_map.shared['material-v1'].path = '../outside.png';
+      project.state.variation.versions.at(-1).scope.asset_map.shared['material-v1'].path = '../outside.png';
+      await writeFile(path.join(project.projectDir, 'state.json'), `${JSON.stringify(project.state, null, 2)}\n`);
+      await assert.rejects(
+        buildVariationDelivery({...project, outputDir: path.join(project.projectDir, 'delivery', 'unsafe')}),
+        error => error.code === 'BUNDLE_INVALID' && error.details?.reason === 'UNSAFE_PATH'
+      );
+    });
+  });
+
+  await t.test('unknown or duplicate Child selection', async () => {
+    await withTempWorkspace(async root => {
+      const project = await approvedProject(root);
+      for (const childSkus of [
+        ['MISSING'],
+        ['HORSE-12X16', 'HORSE-12X16'],
+        ['HORSE-12X16', 'KIDS-12X16'],
+        []
+      ]) {
+        await assert.rejects(
+          buildVariationDelivery({
+            ...project, childSkus,
+            outputDir: path.join(project.projectDir, 'delivery', `bad-${childSkus.length}-${childSkus[0] ?? 'none'}`)
+          }),
+          error => error.code === 'BUNDLE_INVALID' && error.details?.reason === 'APPROVAL_SCOPE_MISMATCH'
+        );
+      }
+    });
+  });
+});
+
+test('verification rejects incomplete, stale, conflicting, or changed Variation packages', async t => {
+  await withTempWorkspace(async root => {
+    const project = await approvedProject(root);
+    const valid = await buildVariationDelivery({
+      ...project,
+      outputDir: path.join(project.projectDir, 'delivery', 'valid')
+    });
+    const cases = [
+      ['duplicate tuple', ({matrix}) => matrix.children.push(structuredClone(matrix.children[0])), 'DUPLICATE_VARIATION_TUPLE'],
+      ['missing Child main', ({files}) => { delete files['children/HORSE-12X16/main.png']; }, 'MISSING_FILE'],
+      ['stale Child Listing', ({matrix}) => { matrix.children[0].listing_version = 99; }, 'APPROVAL_SCOPE_MISMATCH'],
+      ['changed Child rule scope', ({files, manifest}) => {
+        const archivePath = 'children/HORSE-12X16/listing.json';
+        const listing = JSON.parse(Buffer.from(files[archivePath]).toString('utf8'));
+        listing.rule_status = 'rules_unverified';
+        listing.rules_unverified = ['title'];
+        listing.upload_ready = false;
+        files[archivePath] = Buffer.from(`${JSON.stringify(listing, null, 2)}\n`);
+        const artifact = manifest.artifacts.find(item => item.archive_path === archivePath);
+        artifact.byte_size = files[archivePath].length;
+        artifact.sha256 = digest(files[archivePath]);
+      }, 'APPROVAL_SCOPE_MISMATCH'],
+      ['changed shared asset', ({files}) => { files['shared/material.png'] = Buffer.from('changed'); }, 'HASH_MISMATCH'],
+      ['missing matrix', ({files}) => { delete files['variation-matrix.json']; }, 'MANIFEST_INVALID'],
+      ['incomplete immutable scope', ({manifest}) => { delete manifest.approval_scope.child_skus; }, 'MANIFEST_INVALID'],
+      ['absent mapped member', ({matrix}) => { matrix.children[0].asset_paths.push('children/HORSE-12X16/missing.png'); }, 'MISSING_FILE'],
+      ['missing shared row mapping', ({matrix}) => {
+        matrix.children[0].asset_paths = matrix.children[0].asset_paths.filter(item => item !== 'shared/material.png');
+      }, 'APPROVAL_SCOPE_MISMATCH'],
+      ['unrelated Child artifact', ({files, manifest}) => {
+        const source = manifest.artifacts.find(item => item.archive_path === 'children/HORSE-12X16/main.png');
+        const archivePath = 'children/UNRELATED/main.png';
+        files[archivePath] = Buffer.from(files[source.archive_path]);
+        manifest.artifacts.push({...structuredClone(source), relative_path: archivePath, archive_path: archivePath});
+      }, 'MANIFEST_INVALID']
+    ];
+    for (const [name, mutate, reason] of cases) {
+      await t.test(name, async () => {
+        const deliveryDir = path.join(root, `mutated-${name.replaceAll(' ', '-')}`);
+        await rewriteVariationPackage(valid.outputDir, deliveryDir, mutate);
+        await assert.rejects(
+          verifyVariationDelivery({deliveryDir}),
+          error => error.code === 'BUNDLE_INVALID' && error.details?.reason === reason
+        );
+        await rm(deliveryDir, {recursive: true, force: true});
+      });
+    }
+  });
+});
+
+test('verification enforces an externally supplied immutable approval scope', async () => {
+  await withTempWorkspace(async root => {
+    const project = await approvedProject(root);
+    const result = await buildVariationDelivery({
+      ...project,
+      outputDir: path.join(project.projectDir, 'delivery', 'family')
+    });
+    await assert.rejects(
+      verifyVariationDelivery({
+        deliveryDir: result.outputDir,
+        expectedScope: {...project.finalApproval, variation_version: 99}
+      }),
+      error => error.code === 'BUNDLE_INVALID' && error.details?.reason === 'APPROVAL_SCOPE_MISMATCH'
+    );
+  });
+});

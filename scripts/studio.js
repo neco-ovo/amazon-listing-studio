@@ -10,6 +10,7 @@ import { migrateLegacyProject } from './lib/migration.js';
 import { validateMainImage } from './lib/images.js';
 import { renderListing, reviseDraft } from './lib/listing-drafts.js';
 import { buildV2Delivery, verifyDelivery } from './lib/bundle.js';
+import {buildVariationDelivery, verifyVariationDelivery} from './lib/variation-bundle.js';
 import {
   addVariationChild,
   promoteToVariation,
@@ -39,6 +40,15 @@ async function pathExists(target) {
     return true;
   } catch (error) {
     if (error.code === 'ENOENT') return false;
+    throw error;
+  }
+}
+
+async function readJsonIfExists(filePath) {
+  try {
+    return JSON.parse(await readFile(filePath, 'utf8'));
+  } catch (error) {
+    if (error.code === 'ENOENT') return null;
     throw error;
   }
 }
@@ -309,7 +319,16 @@ function operationFor(command, input = null) {
   return classifyOperation({kind: kinds[command] ?? command});
 }
 
-export async function runCli(argv, {clock = Date.now, candidateDependencies, listingDependencies, hashFile, buildV2 = buildV2Delivery, verifyV2 = verifyDelivery} = {}) {
+export async function runCli(argv, {
+  clock = Date.now,
+  candidateDependencies,
+  listingDependencies,
+  hashFile,
+  buildV2 = buildV2Delivery,
+  verifyV2 = verifyDelivery,
+  buildVariation = buildVariationDelivery,
+  verifyVariation = verifyVariationDelivery
+} = {}) {
   const started = clock();
   let parsed;
   try {
@@ -373,9 +392,24 @@ export async function runCli(argv, {clock = Date.now, candidateDependencies, lis
       const projectDir = path.resolve(requireOption(options, 'project-dir'));
       const outputDir = projectOutputPath(projectDir, requireOption(options, 'output'), 'Delivery output');
       const finalApproval = JSON.parse(await readFile(path.resolve(requireOption(options, 'approval')), 'utf8'));
-      result = await buildV2({projectDir, outputDir, finalApproval});
+      const state = await readJsonIfExists(path.join(projectDir, 'state.json'));
+      if (state?.project?.mode === 'variation_family') {
+        result = await buildVariation({
+          projectDir,
+          outputDir,
+          finalApproval,
+          childSkus: options['child-sku'] ? [options['child-sku']] : null
+        });
+      } else {
+        if (options['child-sku']) throw blocking('--child-sku requires a Variation Family project');
+        result = await buildV2({projectDir, outputDir, finalApproval});
+      }
     } else if (command === 'verify-delivery') {
-      result = await verifyV2({deliveryDir: path.resolve(requireOption(options, 'delivery-dir'))});
+      const deliveryDir = path.resolve(requireOption(options, 'delivery-dir'));
+      const manifest = await readJsonIfExists(path.join(deliveryDir, 'delivery-manifest.json'));
+      result = manifest?.delivery_kind === 'variation'
+        ? await verifyVariation({deliveryDir})
+        : await verifyV2({deliveryDir});
     } else {
       return {ok: false, code: 'UNKNOWN_COMMAND', message: `Unknown command: ${command ?? ''}`};
     }

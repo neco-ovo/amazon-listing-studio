@@ -18,6 +18,13 @@ function hash(bytes) {
   return createHash('sha256').update(bytes).digest('hex');
 }
 
+export function isSafeArchivePath(value) {
+  if (typeof value !== 'string' || !value || value.includes('\\') || value.includes('\0')
+    || path.posix.isAbsolute(value) || /^[a-z]:/i.test(value)) return false;
+  const parts = value.split('/');
+  return parts.every(part => part && part !== '.' && part !== '..') && path.posix.normalize(value) === value;
+}
+
 export async function sha256File(filePath) {
   return hash(await readFile(filePath));
 }
@@ -225,13 +232,7 @@ export async function verifyDelivery({deliveryDir, expectedScope = null}) {
     throw invalid('MANIFEST_INVALID', 'Delivery manifest approval scope is incomplete.');
   }
   const archivePaths = manifest.artifacts.map(item => item.archive_path ?? item.relative_path);
-  const safeArchivePath = value => {
-    if (typeof value !== 'string' || !value || value.includes('\\') || value.includes('\0')
-      || path.posix.isAbsolute(value) || /^[a-z]:/i.test(value)) return false;
-    const parts = value.split('/');
-    return parts.every(part => part && part !== '.' && part !== '..') && path.posix.normalize(value) === value;
-  };
-  if (archivePaths.some(item => !safeArchivePath(item)) || new Set(archivePaths).size !== archivePaths.length) {
+  if (archivePaths.some(item => !isSafeArchivePath(item)) || new Set(archivePaths).size !== archivePaths.length) {
     throw invalid('MANIFEST_INVALID', 'Delivery manifest artifact paths must be unique safe archive-relative paths.');
   }
   if (archivePaths.filter(item => item === 'listing/listing.json').length !== 1
