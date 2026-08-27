@@ -111,6 +111,28 @@ function phraseOverlaps(left, right) {
     && ((` ${leftText} `).includes(` ${rightText} `) || (` ${rightText} `).includes(` ${leftText} `));
 }
 
+function phraseTokens(value) {
+  return String(value ?? '')
+    .normalize('NFKC')
+    .replace(/[×✕]/gu, ' x ')
+    .match(/[\p{L}\p{N}]+/gu) ?? [];
+}
+
+function residualForeignPhrase(value, protectedValues) {
+  const originalTokens = phraseTokens(value);
+  const candidate = originalTokens.map(normalizedText);
+  for (const protectedValue of protectedValues) {
+    const protectedTokens = phraseTokens(protectedValue).map(normalizedText);
+    if (protectedTokens.length === 0 || protectedTokens.length >= candidate.length) continue;
+    for (let start = 0; start <= candidate.length - protectedTokens.length; start += 1) {
+      if (!protectedTokens.every((token, index) => candidate[start + index] === token)) continue;
+      const residual = [...originalTokens.slice(0, start), ...originalTokens.slice(start + protectedTokens.length)].join(' ');
+      if (normalizedText(residual) && !protectedValues.some(own => phraseOverlaps(residual, own))) return residual;
+    }
+  }
+  return null;
+}
+
 function forbiddenSiblingVisible(family, child, required) {
   const protectedValues = [
     ...Object.values(required).flatMap(value => Array.isArray(value) ? value : [value]),
@@ -119,7 +141,12 @@ function forbiddenSiblingVisible(family, child, required) {
   const seen = new Set();
   const add = (items, value) => {
     const normalized = normalizedText(value);
-    if (!normalized || seen.has(normalized) || protectedValues.some(own => phraseOverlaps(value, own))) return;
+    if (!normalized || seen.has(normalized)) return;
+    if (protectedValues.some(own => phraseOverlaps(value, own))) {
+      const residual = residualForeignPhrase(value, protectedValues);
+      if (residual) add(items, residual);
+      return;
+    }
     seen.add(normalized);
     items.push(structuredClone(value));
   };

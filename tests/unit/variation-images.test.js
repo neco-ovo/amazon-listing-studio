@@ -191,6 +191,72 @@ test('rejects sibling wording or complete tuple values even when target wording 
   }).ok, true);
 });
 
+test('rejects foreign residual wording when a sibling phrase extends the bound Child wording', () => {
+  const familyWithExtendedSiblingWording = {
+    ...family,
+    children: {
+      'HORSE-12X16': horseChild,
+      'KIDS-12X16': {
+        sku: 'KIDS-12X16',
+        active: true,
+        variation_values: {},
+        product_master: {printed_copy: ['HORSE CROSSING - KIDS AT PLAY']}
+      }
+    }
+  };
+  const brief = compileVariationImageBrief({
+    scope: {type: 'child_specific', child_skus: ['HORSE-12X16']},
+    child: horseChild,
+    family: familyWithExtendedSiblingWording,
+    master,
+    layoutSeed: null,
+    userRequest: {},
+    claims: {}
+  });
+
+  const result = validateVariationImageObservation({
+    brief,
+    observation: {
+      visible_text: ['HORSE CROSSING', 'HORSE CROSSING - KIDS AT PLAY'],
+      pattern_name: 'Horse Crossing',
+      size_name: '12 x 16 in',
+      orientation: 'landscape'
+    }
+  });
+
+  assert.equal(result.ok, false);
+  assert.ok(result.failures.some(item => item.code === 'CROSS_CHILD_CONTAMINATION' && item.actual === 'KIDS AT PLAY'));
+});
+
+test('does not treat a wholly contained sibling phrase as foreign wording', () => {
+  const redMaster = {...master, printed_copy: ['DARK RED']};
+  const redChild = {
+    sku: 'DARK-RED',
+    variation_values: {color_name: 'Dark Red'},
+    facts: {}
+  };
+  const brief = compileVariationImageBrief({
+    scope: {type: 'child_specific', child_skus: ['DARK-RED']},
+    child: redChild,
+    family: {
+      ...family,
+      children: {
+        'DARK-RED': redChild,
+        RED: {sku: 'RED', active: true, variation_values: {}, product_master: {printed_copy: ['RED']}}
+      }
+    },
+    master: redMaster,
+    layoutSeed: null,
+    userRequest: {},
+    claims: {}
+  });
+
+  assert.equal(validateVariationImageObservation({
+    brief,
+    observation: {visible_text: ['DARK RED'], color_name: 'Dark Red', orientation: 'landscape'}
+  }).ok, true);
+});
+
 test('reuses a rigid-aluminum merchant layout without requiring a new family image', () => {
   const result = evaluateSharedAssetApplicability({
     asset: {scope: 'shared_asset', fact_dependencies: {material: 'aluminum'}},
