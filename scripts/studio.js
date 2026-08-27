@@ -71,6 +71,15 @@ function currentVariationFinalApproval(state) {
   return approval;
 }
 
+function hasVariationDeliveryShape(manifest) {
+  return manifest && (
+    ['family', 'child'].includes(manifest.delivery_type)
+    || Number.isInteger(manifest.variation_version)
+    || manifest.approval_scope?.scope_type === 'variation_final'
+    || manifest.approval_provenance !== undefined
+  );
+}
+
 async function writeJsonAtomically(filePath, value) {
   const temporary = `${filePath}.tmp-${process.pid}-${Date.now()}`;
   await writeFile(temporary, `${JSON.stringify(value, null, 2)}\n`, {encoding: 'utf8', flag: 'wx'});
@@ -425,18 +434,32 @@ export async function runCli(argv, {
     } else if (command === 'verify-delivery') {
       const deliveryDir = path.resolve(requireOption(options, 'delivery-dir'));
       const manifest = await readJsonIfExists(path.join(deliveryDir, 'delivery-manifest.json'));
-      if (manifest?.delivery_kind === 'variation') {
-        if (!options['project-dir']) {
-          throw blocking('--project-dir is required for trusted Variation verification');
-        }
+      if (options['project-dir']) {
         const projectDir = path.resolve(options['project-dir']);
         const state = await readJsonIfExists(path.join(projectDir, 'state.json'));
-        result = await verifyVariation({
-          deliveryDir,
-          expectedScope: currentVariationFinalApproval(state)
-        });
-      } else {
+        if (state?.project?.mode === 'variation_family') {
+          if (manifest?.delivery_kind !== 'variation') {
+            throw blocking('Delivery manifest kind does not match trusted Variation project mode');
+          }
+          result = await verifyVariation({
+            deliveryDir,
+            expectedScope: currentVariationFinalApproval(state)
+          });
+        } else if (state?.schema_version === 2 && !Object.hasOwn(state, 'variation')
+            && (state?.project?.mode === undefined || state?.project?.mode === 'single_product')) {
+          if (manifest?.delivery_kind !== undefined && manifest?.delivery_kind !== null) {
+            throw blocking('Delivery manifest kind does not match trusted single-product project mode');
+          }
+          result = await verifyV2({deliveryDir});
+        } else {
+          throw blocking('Trusted delivery verification requires a recognized persisted project mode');
+        }
+      } else if (manifest?.delivery_kind === 'variation' || hasVariationDeliveryShape(manifest)) {
+        throw blocking('--project-dir is required for trusted Variation verification');
+      } else if (manifest?.delivery_kind === undefined || manifest?.delivery_kind === null) {
         result = await verifyV2({deliveryDir});
+      } else {
+        throw blocking('Delivery manifest kind is unsupported without a trusted project mode');
       }
     } else {
       return {ok: false, code: 'UNKNOWN_COMMAND', message: `Unknown command: ${command ?? ''}`};

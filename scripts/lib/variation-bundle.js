@@ -378,6 +378,37 @@ function assertFrozenAsset(id, asset) {
   }
 }
 
+function validateFrozenScopePaths(scope) {
+  for (const version of scope.child_versions) {
+    if (!isSafeManifestPath(version.approved_main_path)) {
+      throw invalid('UNSAFE_PATH', 'Frozen Child version contains an unsafe approved main path.', {
+        child_sku: version.child_sku ?? null,
+        path: version.approved_main_path ?? null
+      });
+    }
+    if (version.approved_main_path !== scope.asset_map.child_main?.[version.child_sku]?.path) {
+      throw invalid('APPROVAL_SCOPE_MISMATCH', 'Frozen Child main path copies do not agree.', {
+        child_sku: version.child_sku ?? null
+      });
+    }
+  }
+  for (const [sku, asset] of Object.entries(scope.asset_map.child_main)) {
+    assertFrozenAsset(asset?.artifact_id, asset);
+    if (!scope.child_skus.includes(sku)) {
+      throw invalid('APPROVAL_SCOPE_MISMATCH', 'Frozen main-image path belongs to an unselected Child.', {child_sku: sku});
+    }
+  }
+  for (const [sku, assets] of Object.entries(scope.asset_map.child_secondary)) {
+    if (!scope.child_skus.includes(sku) || !Array.isArray(assets)) {
+      throw invalid('APPROVAL_SCOPE_MISMATCH', 'Frozen secondary-image path mapping is invalid.', {child_sku: sku});
+    }
+    for (const asset of assets) assertFrozenAsset(asset?.artifact_id, asset);
+  }
+  for (const [artifactId, asset] of Object.entries(scope.asset_map.shared)) {
+    assertFrozenAsset(artifactId, {...asset, artifact_id: artifactId});
+  }
+}
+
 function deriveAssetLayout(scope, selectedSkus) {
   const sharedPaths = {};
   const physicalShared = new Map();
@@ -722,6 +753,7 @@ export async function verifyVariationDelivery({deliveryDir, expectedScope = null
       || !validManifestScope(manifest)) {
     throw invalid('MANIFEST_INVALID', 'Variation delivery manifest is incomplete.');
   }
+  validateFrozenScopePaths(manifest.approval_scope);
   const authenticityVerified = assertExpectedScope(manifest, expectedScope);
   if (!isDeepStrictEqual(manifest.delivery_scope.child_skus, manifest.approval_scope.child_skus)) {
     throw invalid('APPROVAL_SCOPE_MISMATCH', 'Delivered Child set does not equal the frozen delivery projection.');

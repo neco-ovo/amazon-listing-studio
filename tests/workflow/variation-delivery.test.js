@@ -109,3 +109,74 @@ test('Variation verify-delivery fails closed without a trusted project scope', a
     assert.equal(calls, 0);
   });
 });
+
+test('trusted Variation project mode cannot be downgraded to the legacy verifier', async t => {
+  await withTempWorkspace(async root => {
+    const {projectDir} = await project(root, 'variation_family');
+    for (const [name, manifest] of [
+      ['removed kind', {schema_version: 1}],
+      ['mismatched kind', {schema_version: 1, delivery_kind: 'legacy'}]
+    ]) {
+      await t.test(name, async () => {
+        const deliveryDir = path.join(root, name.replaceAll(' ', '-'));
+        await mkdir(deliveryDir);
+        await writeFile(path.join(deliveryDir, 'delivery-manifest.json'), JSON.stringify(manifest));
+        let variationCalls = 0;
+        let legacyCalls = 0;
+        const result = await runCli([
+          'verify-delivery', '--delivery-dir', deliveryDir, '--project-dir', projectDir
+        ], {
+          verifyVariation: async () => { variationCalls += 1; return {ok: true}; },
+          verifyV2: async () => { legacyCalls += 1; return {ok: true}; }
+        });
+        assert.equal(result.ok, false);
+        assert.equal(result.code, 'BLOCKING_INPUT');
+        assert.match(result.message, /kind.+mode|mode.+kind/i);
+        assert.equal(variationCalls, 0);
+        assert.equal(legacyCalls, 0);
+      });
+    }
+  });
+});
+
+test('trusted schema-v2 project without Variation state keeps the legacy verifier', async () => {
+  await withTempWorkspace(async root => {
+    const projectDir = path.join(root, 'single-without-mode');
+    const deliveryDir = path.join(root, 'legacy-delivery');
+    await mkdir(projectDir);
+    await mkdir(deliveryDir);
+    await writeFile(path.join(projectDir, 'state.json'), JSON.stringify({
+      schema_version: 2, project: {product_id: 'single-product'}
+    }));
+    await writeFile(path.join(deliveryDir, 'delivery-manifest.json'), JSON.stringify({schema_version: 2}));
+    let legacyCalls = 0;
+    const result = await runCli([
+      'verify-delivery', '--delivery-dir', deliveryDir, '--project-dir', projectDir
+    ], {
+      verifyV2: async () => { legacyCalls += 1; return {ok: true}; }
+    });
+    assert.equal(result.ok, true);
+    assert.equal(legacyCalls, 1);
+  });
+});
+
+test('no-project verification rejects a Variation-shaped manifest with its kind removed', async () => {
+  await withTempWorkspace(async root => {
+    const deliveryDir = path.join(root, 'ambiguous-kindless-variation');
+    await mkdir(deliveryDir);
+    await writeFile(path.join(deliveryDir, 'delivery-manifest.json'), JSON.stringify({
+      schema_version: 1,
+      delivery_type: 'family',
+      variation_version: 1,
+      approval_provenance: {approval_id: 'final-v1'}
+    }));
+    let legacyCalls = 0;
+    const result = await runCli(['verify-delivery', '--delivery-dir', deliveryDir], {
+      verifyV2: async () => { legacyCalls += 1; return {ok: true}; }
+    });
+    assert.equal(result.ok, false);
+    assert.equal(result.code, 'BLOCKING_INPUT');
+    assert.match(result.message, /project-dir.+Variation/i);
+    assert.equal(legacyCalls, 0);
+  });
+});

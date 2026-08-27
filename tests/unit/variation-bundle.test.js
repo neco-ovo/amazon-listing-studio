@@ -589,6 +589,35 @@ test('standalone verification never treats self-hashed approval provenance as au
   });
 });
 
+test('standalone verification rejects every unsafe duplicated final-scope path', async t => {
+  await withTempWorkspace(async root => {
+    const project = await approvedProject(root);
+    const result = await buildVariationDelivery({
+      ...project,
+      outputDir: path.join(project.projectDir, 'delivery', 'scope-paths')
+    });
+    for (const [name, unsafePath] of [
+      ['traversal', '../outside.png'],
+      ['encoded traversal', 'children/HORSE-12X16/%2e%2e/outside.png']
+    ]) {
+      await t.test(name, async () => {
+        const deliveryDir = path.join(root, `unsafe-scope-${name.replaceAll(' ', '-')}`);
+        await rewriteVariationPackage(result.outputDir, deliveryDir, ({manifest}) => {
+          manifest.approval_scope.child_versions[0].approved_main_path = unsafePath;
+          manifest.approval_provenance.final_scope_sha256 = hashVariationFinalScope(manifest.approval_scope);
+          manifest.approval_provenance.projection_sha256 = digest(Buffer.from(
+            `${JSON.stringify(manifest.approval_scope, null, 2)}\n`
+          ));
+        });
+        await assert.rejects(
+          verifyVariationDelivery({deliveryDir}),
+          error => error.code === 'BUNDLE_INVALID' && error.details?.reason === 'UNSAFE_PATH'
+        );
+      });
+    }
+  });
+});
+
 test('verification enforces an externally supplied immutable approval scope', async () => {
   await withTempWorkspace(async root => {
     const project = await approvedProject(root);
