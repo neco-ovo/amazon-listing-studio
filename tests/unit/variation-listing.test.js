@@ -9,6 +9,12 @@ import {
 
 const validParentListing = {
   parent_sku: 'SIGN-PARENT',
+  project_id: 'hard-hat-signs',
+  version: 1,
+  marketplace: 'amazon.com',
+  language: 'en-US',
+  product_type: 'METAL_SIGN',
+  product_master_version: 1,
   title: 'Hard Hat Required Aluminum Safety Sign',
   item_highlights: 'Weather-resistant aluminum safety sign.',
   bullets: [
@@ -109,6 +115,16 @@ test('Child title keeps core search identity and required variation values withi
   assert.equal(title.endsWith(' '), false);
 });
 
+test('Child title blocks instead of dropping required identity when the budget is impossible', () => {
+  assert.throws(() => buildChildTitle({
+    coreTerms: ['hard hat required sign'],
+    identity: ['aluminum'],
+    attributes: ['weather resistant'],
+    variationValues: ['12 x 16 inch'],
+    limit: 40
+  }), error => error.code === 'BLOCKING_INPUT');
+});
+
 test('flags a Parent title containing one Child size', () => {
   const result = auditVariationListings({
     parentContent: {...validParentListing, title: 'Aluminum Safety Sign 12 x 16 Inch'},
@@ -136,6 +152,47 @@ test('Parent leakage audit uses only supported facts from active Children', () =
   });
 
   assert.equal(result.findings.some(item => item.code === 'PARENT_CHILD_ONLY_ATTRIBUTE' && /steel|matte/i.test(item.value ?? '')), false);
+});
+
+test('blocks Parent facts from an unresolved family fact group and reports the conflict', () => {
+  const factsVariation = structuredClone(variation);
+  factsVariation.children['SKU-8X12'].facts.material = {
+    value: 'aluminum', status: 'unknown', publishable: false, conflicts: []
+  };
+  const result = auditVariationListings({
+    parentContent: validParentListing,
+    childContents: {'SKU-8X12': childListing('SKU-8X12'), 'SKU-12X16': childListing('SKU-12X16')},
+    variation: factsVariation
+  });
+
+  assert.equal(result.ok, false);
+  assert.ok(result.findings.some(item => item.code === 'VARIATION_FACT_CONFLICT' && item.field === 'material'));
+  assert.ok(result.findings.some(item => item.code === 'PARENT_UNRESOLVED_ATTRIBUTE'
+    && item.field === 'material' && item.value === 'aluminum'));
+  assert.deepEqual(result.affectedSkus, ['SIGN-PARENT', 'SKU-8X12', 'SKU-12X16']);
+});
+
+test('requires complete effective Child content even when tuple metadata is correct', () => {
+  const child = variation.children['SKU-8X12'];
+  const incomplete = {
+    parent_sku: 'SIGN-PARENT',
+    child_sku: child.sku,
+    variation_theme: ['size_name'],
+    variation_values: structuredClone(child.variation_values),
+    title: 'Hard Hat Required Aluminum Safety Sign 8 x 12 in',
+    attributes: {material: 'Aluminum', size_name: '8 x 12 in'}
+  };
+  const result = auditVariationListings({
+    parentContent: validParentListing,
+    childContents: {'SKU-8X12': incomplete, 'SKU-12X16': childListing('SKU-12X16')},
+    variation
+  });
+
+  for (const path of ['item_highlights', 'bullets', 'description', 'backend_search_terms', 'special_features', 'claim_refs']) {
+    assert.ok(result.findings.some(item => item.code === 'MISSING_CHILD_CONTENT'
+      && item.sku === 'SKU-8X12' && item.path === path), path);
+  }
+  assert.deepEqual(result.affectedSkus, ['SKU-8X12']);
 });
 
 test('flags missing Child listings and mismatched Child tuples and titles', () => {
@@ -167,6 +224,68 @@ test('flags a Child title that also contains a sibling variation value', () => {
 
   assert.ok(result.findings.some(item => item.code === 'CHILD_TITLE_VARIATION_MISMATCH'
     && item.sku === 'SKU-8X12' && item.value === '12 x 16 in'));
+});
+
+test('does not treat an overlapping sibling value inside the own complete value as contamination', () => {
+  const colorVariation = structuredClone(variation);
+  colorVariation.theme.dimensions = ['color_name'];
+  colorVariation.children = {
+    'SKU-RED': {sku: 'SKU-RED', active: true, variation_values: {color_name: 'Red'}, facts: {color_name: 'Red'}},
+    'SKU-DARK-RED': {sku: 'SKU-DARK-RED', active: true, variation_values: {color_name: 'Dark Red'}, facts: {color_name: 'Dark Red'}}
+  };
+  const makeColorChild = (sku, title) => materializeChildListing({
+    parentContent: validParentListing,
+    childOverrides: {title, attributes: {color_name: colorVariation.children[sku].variation_values.color_name}},
+    child: colorVariation.children[sku],
+    dimensions: ['color_name']
+  });
+  const clean = makeColorChild('SKU-DARK-RED', 'Hard Hat Required Aluminum Safety Sign Dark Red');
+  const red = makeColorChild('SKU-RED', 'Hard Hat Required Aluminum Safety Sign Red');
+
+  const cleanResult = auditVariationListings({
+    parentContent: validParentListing,
+    childContents: {'SKU-RED': red, 'SKU-DARK-RED': clean},
+    variation: colorVariation
+  });
+  assert.equal(cleanResult.findings.some(item => item.code === 'CHILD_TITLE_VARIATION_MISMATCH'
+    && item.sku === 'SKU-DARK-RED'), false);
+
+  clean.title += ' Red';
+  const contaminatedResult = auditVariationListings({
+    parentContent: validParentListing,
+    childContents: {'SKU-RED': red, 'SKU-DARK-RED': clean},
+    variation: colorVariation
+  });
+  assert.ok(contaminatedResult.findings.some(item => item.code === 'CHILD_TITLE_VARIATION_MISMATCH'
+    && item.sku === 'SKU-DARK-RED' && item.value === 'Red'));
+});
+
+test('requires exact ordered tuple keys and exact stored values', async t => {
+  await t.test('rejects extra tuple keys', () => {
+    const content = childListing('SKU-8X12');
+    content.variation_values.extra = 'ignored';
+    const result = auditVariationListings({
+      parentContent: validParentListing,
+      childContents: {'SKU-8X12': content, 'SKU-12X16': childListing('SKU-12X16')},
+      variation
+    });
+    assert.ok(result.findings.some(item => item.code === 'CHILD_VARIATION_TUPLE_MISMATCH'
+      && item.sku === 'SKU-8X12'));
+  });
+
+  for (const value of ['8 X 12 in', ' 8 x 12 in ']) {
+    await t.test(`rejects tuple drift: ${JSON.stringify(value)}`, () => {
+      const content = childListing('SKU-8X12');
+      content.variation_values.size_name = value;
+      const result = auditVariationListings({
+        parentContent: validParentListing,
+        childContents: {'SKU-8X12': content, 'SKU-12X16': childListing('SKU-12X16')},
+        variation
+      });
+      assert.ok(result.findings.some(item => item.code === 'CHILD_VARIATION_TUPLE_MISMATCH'
+        && item.sku === 'SKU-8X12'));
+    });
+  }
 });
 
 test('delegates bounded retail-language audit for Parent and Child content', () => {

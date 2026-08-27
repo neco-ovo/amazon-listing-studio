@@ -1,5 +1,5 @@
 import {auditListing} from './listing-audit.js';
-import {computeCommonFacts, variationTupleKey} from './variations.js';
+import {computeCommonFacts} from './variations.js';
 
 const OVERRIDE_FIELDS = new Set([
   'title',
@@ -22,6 +22,21 @@ const RETAIL_FIELDS = [
   'special_features',
   'attributes'
 ];
+const REQUIRED_CHILD_FIELDS = [
+  'project_id',
+  'version',
+  'marketplace',
+  'language',
+  'product_type',
+  'product_master_version',
+  'title',
+  'item_highlights',
+  'bullets',
+  'description',
+  'backend_search_terms',
+  'special_features',
+  'attributes'
+];
 
 function normalizedText(value) {
   return String(value ?? '')
@@ -36,6 +51,27 @@ function containsValue(text, value) {
   const haystack = normalizedText(text);
   const needle = normalizedText(value);
   return Boolean(needle) && (` ${haystack} `).includes(` ${needle} `);
+}
+
+function phraseOccurrences(text, phrase) {
+  const tokens = normalizedText(text).split(' ').filter(Boolean);
+  const phraseTokens = normalizedText(phrase).split(' ').filter(Boolean);
+  if (phraseTokens.length === 0) return [];
+  const matches = [];
+  for (let start = 0; start <= tokens.length - phraseTokens.length; start += 1) {
+    if (phraseTokens.every((token, offset) => tokens[start + offset] === token)) {
+      matches.push({start, end: start + phraseTokens.length - 1});
+    }
+  }
+  return matches;
+}
+
+function containsIndependentValue(title, ownValue, siblingValue) {
+  const own = phraseOccurrences(title, ownValue);
+  const sibling = phraseOccurrences(title, siblingValue);
+  return sibling.some(candidate => !own.some(interval => (
+    interval.start <= candidate.start && interval.end >= candidate.end
+  )));
 }
 
 function stringEntries(value, prefix) {
@@ -70,6 +106,12 @@ function addFinding(findings, finding) {
     findings.keys.add(key);
     findings.items.push(finding);
   }
+}
+
+function blockingInput(message) {
+  const error = new Error(message);
+  error.code = 'BLOCKING_INPUT';
+  return error;
 }
 
 function titleCase(value) {
@@ -117,11 +159,8 @@ export function buildChildTitle({coreTerms = [], identity = [], attributes = [],
   const requiredVariation = distinctParts(variationValues, seen);
   const prefix = [...core, ...identityParts];
 
-  while (joinedLength([...prefix, ...requiredVariation]) > limit && prefix.length > core.length) {
-    prefix.pop();
-  }
   if (joinedLength([...prefix, ...requiredVariation]) > limit) {
-    throw new RangeError('core title terms and variation values exceed the title limit');
+    throw blockingInput('core title terms, identity, and variation values exceed the title limit');
   }
 
   const includedOptional = [];
@@ -131,6 +170,32 @@ export function buildChildTitle({coreTerms = [], identity = [], attributes = [],
     }
   }
   return [...prefix, ...includedOptional, ...requiredVariation].join(' ');
+}
+
+function exactTuple(dimensions, expected, actual) {
+  if (!expected || Array.isArray(expected) || typeof expected !== 'object'
+    || !actual || Array.isArray(actual) || typeof actual !== 'object') return false;
+  const actualKeys = Object.keys(actual);
+  return actualKeys.length === dimensions.length
+    && actualKeys.every((key, index) => key === dimensions[index])
+    && dimensions.every(dimension => Object.hasOwn(expected, dimension)
+      && Object.hasOwn(actual, dimension)
+      && actual[dimension] === expected[dimension]);
+}
+
+function hasRequiredContent(value) {
+  if (typeof value === 'string') return Boolean(value.trim());
+  if (Array.isArray(value)) return value.length > 0;
+  if (value && typeof value === 'object') return Object.keys(value).length > 0;
+  return value !== null && value !== undefined;
+}
+
+function requiredChildContent(parentContent) {
+  const required = new Map(REQUIRED_CHILD_FIELDS.map(field => [field, true]));
+  for (const field of Object.keys(parentContent ?? {})) {
+    if (!required.has(field)) required.set(field, false);
+  }
+  return required;
 }
 
 export function materializeChildListing({parentContent = {}, childOverrides = {}, child = {}, dimensions = []} = {}) {
@@ -161,6 +226,7 @@ export function auditVariationListings({parentContent = {}, childContents = {}, 
   const contents = childContentMap(childContents);
   const parentSku = variation?.parent?.sku ?? parentContent.parent_sku ?? parentContent.sku ?? null;
   const findings = {items: [], keys: new Set()};
+  const requiredContent = requiredChildContent(parentContent);
   const valuesByDimension = Object.fromEntries(dimensions.map(dimension => [dimension, new Map()]));
   for (const child of children) {
     for (const dimension of dimensions) {
@@ -182,6 +248,22 @@ export function auditVariationListings({parentContent = {}, childContents = {}, 
       if (normalizedText(value)) leakageValues.set(normalizedText(value), {field, value});
     }
   }
+  const conflictValues = new Map();
+  for (const field of Object.keys(commonFacts.conflicts)) {
+    addFinding(findings, {
+      sku: parentSku,
+      affected_skus: children.map(child => child.sku),
+      path: `facts.${field}`,
+      code: 'VARIATION_FACT_CONFLICT',
+      field
+    });
+    for (const child of children) {
+      const candidate = computeCommonFacts([child]).common[field];
+      if (normalizedText(candidate)) {
+        conflictValues.set(`${field}\u001f${normalizedText(candidate)}`, {field, value: candidate});
+      }
+    }
+  }
   for (const entry of retailStrings(parentContent)) {
     for (const candidate of leakageValues.values()) {
       if (containsValue(entry.value, candidate.value)) {
@@ -189,6 +271,17 @@ export function auditVariationListings({parentContent = {}, childContents = {}, 
           sku: parentSku,
           path: entry.path,
           code: 'PARENT_CHILD_ONLY_ATTRIBUTE',
+          field: candidate.field,
+          value: candidate.value
+        });
+      }
+    }
+    for (const candidate of conflictValues.values()) {
+      if (containsValue(entry.value, candidate.value)) {
+        addFinding(findings, {
+          sku: parentSku,
+          path: entry.path,
+          code: 'PARENT_UNRESOLVED_ATTRIBUTE',
           field: candidate.field,
           value: candidate.value
         });
@@ -208,9 +301,13 @@ export function auditVariationListings({parentContent = {}, childContents = {}, 
       continue;
     }
 
-    const expectedTuple = variationTupleKey(dimensions, child.variation_values);
-    const actualTuple = variationTupleKey(dimensions, content.variation_values);
-    if (!expectedTuple || actualTuple !== expectedTuple || content.child_sku !== sku
+    for (const [field, requireValue] of requiredContent) {
+      if (!Object.hasOwn(content, field) || (requireValue && !hasRequiredContent(content[field]))) {
+        addFinding(findings, {sku, path: field, code: 'MISSING_CHILD_CONTENT'});
+      }
+    }
+
+    if (!exactTuple(dimensions, child.variation_values, content.variation_values) || content.child_sku !== sku
       || content.parent_sku !== parentSku
       || JSON.stringify(content.variation_theme) !== JSON.stringify(dimensions)) {
       addFinding(findings, {
@@ -241,7 +338,8 @@ export function auditVariationListings({parentContent = {}, childContents = {}, 
         });
       }
       for (const [normalizedValue, value] of valuesByDimension[dimension]) {
-        if (normalizedValue !== normalizedText(expected) && containsValue(content.title, value)) {
+        if (normalizedValue !== normalizedText(expected)
+          && containsIndependentValue(content.title, expected, value)) {
           addFinding(findings, {
             sku,
             path: 'title',
@@ -258,6 +356,9 @@ export function auditVariationListings({parentContent = {}, childContents = {}, 
     }
   }
 
-  const affectedSkus = [...new Set(findings.items.map(finding => finding.sku).filter(Boolean))];
+  const affectedSkus = [...new Set(findings.items.flatMap(finding => [
+    finding.sku,
+    ...(finding.affected_skus ?? [])
+  ]).filter(Boolean))];
   return {ok: findings.items.length === 0, findings: findings.items, affectedSkus};
 }
