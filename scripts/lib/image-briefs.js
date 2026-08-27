@@ -64,6 +64,7 @@ export function compileImageBrief({
   const fixedMerchantLayout = layoutSeed?.reference_role === 'MERCHANT_LAYOUT_SEED'
     && layoutSeed?.reuse_policy === 'FIXED_LAYOUT_ALLOWED';
   const differenceRequirements = fixedMerchantLayout ? [] : differences(userRequest, master);
+  const compiledLayoutSeed = layoutSeed ? structuredClone(layoutSeed) : null;
 
   return {
     identity,
@@ -76,7 +77,7 @@ export function compileImageBrief({
       layout_paths: structuredClone(references.layout ?? [])
     },
     permitted_claims: permittedClaims(claims),
-    layout_seed: layoutSeed ? structuredClone(layoutSeed) : null,
+    layout_seed: compiledLayoutSeed,
     difference_plan: differenceRequirements,
     difference_requirements: differenceRequirements,
     text_strategy: traceableTypography ? 'deterministic_traceable' : 'one_pass_complete',
