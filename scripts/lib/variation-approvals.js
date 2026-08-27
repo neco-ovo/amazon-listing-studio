@@ -50,6 +50,31 @@ function hashText(value) {
   return createHash('sha256').update(`${JSON.stringify(value, null, 2)}\n`, 'utf8').digest('hex');
 }
 
+export function variationFinalScopePayload(scope) {
+  return {
+    family_identity_version: scope.family_identity_version,
+    parent_sku: scope.parent_sku,
+    parent_version: scope.parent_version,
+    parent_listing_approval_id: scope.parent_listing_approval_id,
+    parent_listing_content_sha256: scope.parent_listing_content_sha256,
+    theme_dimensions: structuredClone(scope.theme_dimensions),
+    child_skus: structuredClone(scope.child_skus),
+    child_variations: structuredClone(scope.child_variations),
+    child_versions: structuredClone(scope.child_versions),
+    asset_map: structuredClone(scope.asset_map),
+    marketplace: scope.marketplace,
+    product_type: scope.product_type,
+    rule_scope: structuredClone(scope.rule_scope),
+    rule_status: scope.rule_status,
+    rules_unverified: structuredClone(scope.rules_unverified),
+    upload_ready: scope.upload_ready
+  };
+}
+
+export function hashVariationFinalScope(scope) {
+  return hashText(variationFinalScopePayload(scope));
+}
+
 function exactArray(actual, expected) {
   return Array.isArray(actual) && isDeepStrictEqual(actual, expected);
 }
@@ -555,6 +580,7 @@ function finalChildScope(state, child, parentScope) {
       variation_values: structuredClone(child.variation_values),
       product_master_version: master.version,
       listing_version: listing.version,
+      listing_content_sha256: listingApproval.content_sha256,
       approved_main_path: mainApproval.path,
       approved_main_sha256: mainApproval.sha256,
       main_approval_id: mainApproval.id,
@@ -675,8 +701,10 @@ export function approveVariationVersion(state, input) {
   assertNewApprovalId(state, id);
   const frozenScope = {
     family_identity_version: state.variation.family_identity.version,
+    parent_sku: parent.sku,
     parent_version: parentListing.version,
     parent_listing_approval_id: parentApproval.id,
+    parent_listing_content_sha256: parentApproval.content_sha256,
     theme_dimensions: [...state.variation.theme.dimensions],
     child_skus: [...childSkus],
     child_variations: childScopes.map(item => ({
@@ -696,6 +724,7 @@ export function approveVariationVersion(state, input) {
     rule_scope: structuredClone(finalRuleScope),
     ...structuredClone(finalRuleScope)
   };
+  const scopeSha256 = hashVariationFinalScope(frozenScope);
   const approval = {
     id,
     type: 'final',
@@ -704,6 +733,7 @@ export function approveVariationVersion(state, input) {
     variation_version: version,
     finalized: true,
     ...structuredClone(frozenScope),
+    scope_sha256: scopeSha256,
     approved_at: now,
     user_action: input.userAction
   };
@@ -713,6 +743,7 @@ export function approveVariationVersion(state, input) {
     status: 'approved',
     approval_id: id,
     scope: structuredClone(frozenScope),
+    scope_sha256: scopeSha256,
     approved_at: now
   };
   const next = structuredClone(state);

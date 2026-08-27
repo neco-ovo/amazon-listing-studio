@@ -9,6 +9,10 @@ import sharp from 'sharp';
 import {isSafeArchivePath, sha256File} from './bundle.js';
 import {DomainError} from './errors.js';
 import {renderListing} from './listing-drafts.js';
+import {
+  hashVariationFinalScope,
+  variationFinalScopePayload
+} from './variation-approvals.js';
 import {validateVariationExtension} from './variations.js';
 
 function invalid(reason, message, details = {}) {
@@ -57,26 +61,65 @@ function assertUniqueTuples(dimensions, rows) {
   }
 }
 
-function immutableScope(approval) {
-  const fields = [
-    'scope_version', 'scope_type', 'variation_version', 'family_identity_version',
-    'parent_version', 'parent_listing_approval_id', 'theme_dimensions', 'child_skus',
-    'child_variations', 'child_versions', 'asset_map', 'marketplace', 'product_type',
-    'rule_scope', 'rule_status', 'rules_unverified', 'upload_ready'
-  ];
-  return Object.fromEntries(fields.map(field => [field, structuredClone(approval?.[field])]));
+function fullDeliveryScope(approval) {
+  return {
+    scope_version: approval.scope_version,
+    scope_type: approval.scope_type,
+    variation_version: approval.variation_version,
+    ...variationFinalScopePayload(approval)
+  };
 }
 
-function assertExpectedScope(actual, expected) {
-  if (!expected) return;
-  const expectedFields = immutableScope(expected);
-  for (const [field, value] of Object.entries(expectedFields)) {
-    if (value !== undefined && !isDeepStrictEqual(actual[field], value)) {
-      throw invalid('APPROVAL_SCOPE_MISMATCH', 'Delivery does not match the expected immutable Variation scope.', {field});
+function projectDeliveryScope(approval, selectedSkus) {
+  const full = fullDeliveryScope(approval);
+  const selected = new Set(selectedSkus);
+  return {
+    ...full,
+    child_skus: full.child_skus.filter(sku => selected.has(sku)),
+    child_variations: full.child_variations.filter(item => selected.has(item.child_sku)),
+    child_versions: full.child_versions.filter(item => selected.has(item.child_sku)),
+    asset_map: {
+      child_main: Object.fromEntries(Object.entries(full.asset_map.child_main)
+        .filter(([sku]) => selected.has(sku))),
+      child_secondary: Object.fromEntries(Object.entries(full.asset_map.child_secondary)
+        .filter(([sku]) => selected.has(sku))),
+      shared: Object.fromEntries(Object.entries(full.asset_map.shared).flatMap(([id, asset]) => {
+        const childSkus = asset.child_skus.filter(sku => selected.has(sku));
+        return childSkus.length > 0 ? [[id, {...structuredClone(asset), child_skus: childSkus}]] : [];
+      }))
     }
+  };
+}
+
+function projectionHash(scope) {
+  return hash(jsonBytes(scope));
+}
+
+function assertExpectedScope(manifest, expected) {
+  const provenance = manifest.approval_provenance;
+  if (!record(provenance)
+      || provenance.approval_id !== manifest.approval_id
+      || provenance.variation_version !== manifest.variation_version
+      || !/^[a-f0-9]{64}$/.test(provenance.final_scope_sha256 ?? '')
+      || provenance.projection_sha256 !== projectionHash(manifest.approval_scope)) {
+    throw invalid('APPROVAL_SCOPE_MISMATCH', 'Delivery approval projection provenance is invalid.');
   }
-  if (expected.id !== undefined && actual.approval_id !== expected.id) {
-    throw invalid('APPROVAL_SCOPE_MISMATCH', 'Delivery approval ID does not match the expected scope.');
+  if (!expected) {
+    if (manifest.delivery_type === 'family'
+        && hashVariationFinalScope(manifest.approval_scope) !== provenance.final_scope_sha256) {
+      throw invalid('APPROVAL_SCOPE_MISMATCH', 'Family delivery no longer matches its final approval hash.');
+    }
+    return;
+  }
+  if (expected.id !== provenance.approval_id
+      || expected.variation_version !== provenance.variation_version
+      || expected.scope_sha256 !== provenance.final_scope_sha256
+      || hashVariationFinalScope(expected) !== expected.scope_sha256) {
+    throw invalid('APPROVAL_SCOPE_MISMATCH', 'Delivery does not descend from the expected final approval.');
+  }
+  const projected = projectDeliveryScope(expected, manifest.delivery_scope.child_skus);
+  if (!isDeepStrictEqual(manifest.approval_scope, projected)) {
+    throw invalid('APPROVAL_SCOPE_MISMATCH', 'Delivery projection does not match the expected immutable Variation scope.');
   }
 }
 
@@ -90,7 +133,9 @@ function requireFinalApproval(state, supplied) {
     throw invalid('APPROVAL_SCOPE_MISMATCH', 'Variation Family state is invalid.', {errors: validation.errors});
   }
   if (!supplied?.id || supplied.finalized !== true || supplied.scope_type !== 'variation_final'
-      || supplied.scope_version !== 1 || supplied.user_action !== 'approved') {
+      || supplied.scope_version !== 1 || supplied.user_action !== 'approved'
+      || !/^[a-f0-9]{64}$/.test(supplied.scope_sha256 ?? '')
+      || hashVariationFinalScope(supplied) !== supplied.scope_sha256) {
     throw invalid('APPROVAL_SCOPE_MISMATCH', 'An immutable final Variation approval is required.');
   }
   const stored = state.approvals.find(item => item.id === supplied.id);
@@ -100,7 +145,8 @@ function requireFinalApproval(state, supplied) {
   const version = state.variation.versions?.find(item => (
     item.approval_id === supplied.id && item.version === supplied.variation_version && item.status === 'approved'
   ));
-  if (!version || !record(version.scope)) {
+  if (!version || !record(version.scope) || version.scope_sha256 !== supplied.scope_sha256
+      || hashVariationFinalScope(version.scope) !== version.scope_sha256) {
     throw invalid('APPROVAL_SCOPE_MISMATCH', 'Approved Variation version record is missing.');
   }
   for (const [field, value] of Object.entries(version.scope)) {
@@ -127,7 +173,9 @@ function latestApprovedListing(owner) {
   return owner?.listing?.approved?.at(-1);
 }
 
-function validateListingSnapshot({state, snapshot, approvalId, version, scopeType, child = null}) {
+function validateListingSnapshot({
+  state, snapshot, approvalId, version, scopeType, expectedContentHash, child = null
+}) {
   if (snapshot?.status !== 'approved' || snapshot.version !== version || snapshot.approval_id !== approvalId
       || !record(snapshot.content)) {
     throw invalid('APPROVAL_SCOPE_MISMATCH', 'Approved Listing snapshot is stale or incomplete.', {
@@ -137,7 +185,8 @@ function validateListingSnapshot({state, snapshot, approvalId, version, scopeTyp
   const approval = approvalById(state, approvalId, scopeType);
   const contentHash = hash(jsonBytes(snapshot.content));
   if (approval.content_sha256 !== contentHash
-      || approval.content_sha256 !== (snapshot.content_sha256 ?? snapshot.json_sha256)) {
+      || approval.content_sha256 !== (snapshot.content_sha256 ?? snapshot.json_sha256)
+      || approval.content_sha256 !== expectedContentHash) {
     throw invalid('HASH_MISMATCH', 'Approved Listing content changed after approval.', {
       child_sku: child?.sku ?? null
     });
@@ -168,6 +217,7 @@ function validateCurrentScope(state, approval) {
       || !isDeepStrictEqual(dimensions, state.variation.theme?.dimensions)
       || approval.family_identity_version !== state.variation.family_identity?.version
       || approval.parent_version !== state.variation.parent?.version
+      || approval.parent_sku !== state.variation.parent?.sku
       || approval.marketplace !== state.project.marketplace
       || approval.product_type !== state.project.product_type) {
     throw invalid('APPROVAL_SCOPE_MISMATCH', 'Final approval no longer matches the current Family scope.');
@@ -184,7 +234,8 @@ function validateCurrentScope(state, approval) {
   const parentSnapshot = latestApprovedListing(state.variation.parent);
   validateListingSnapshot({
     state, snapshot: parentSnapshot, approvalId: approval.parent_listing_approval_id,
-    version: approval.parent_version, scopeType: 'parent_listing'
+    version: approval.parent_version, scopeType: 'parent_listing',
+    expectedContentHash: approval.parent_listing_content_sha256
   });
   if (parentSnapshot.content.parent_sku !== state.variation.parent.sku) {
     throw invalid('APPROVAL_SCOPE_MISMATCH', 'Parent Listing identity does not match the current Parent SKU.');
@@ -202,7 +253,8 @@ function validateCurrentScope(state, approval) {
     }
     validateListingSnapshot({
       state, snapshot: latestApprovedListing(child), approvalId: version.listing_approval_id,
-      version: version.listing_version, scopeType: 'child_listing', child
+      version: version.listing_version, scopeType: 'child_listing',
+      expectedContentHash: version.listing_content_sha256, child
     });
     const main = approval.asset_map?.child_main?.[child.sku];
     if (!main || main.artifact_id !== child.product_master?.approved_main_id
@@ -297,6 +349,91 @@ function safeOutputName(sourcePath, fallbackId, used) {
   return filename;
 }
 
+function assertFrozenAsset(id, asset) {
+  if (!record(asset) || asset.artifact_id !== id || !/^[a-f0-9]{64}$/.test(asset.sha256 ?? '')) {
+    throw invalid('APPROVAL_SCOPE_MISMATCH', 'Frozen asset mapping is invalid.', {asset_id: id});
+  }
+  if (!isSafeArchivePath(asset.path)) {
+    throw invalid('UNSAFE_PATH', 'Frozen asset mapping contains an unsafe path.', {asset_id: id, path: asset.path});
+  }
+}
+
+function deriveAssetLayout(scope, selectedSkus) {
+  const sharedPaths = {};
+  const physicalShared = new Map();
+  const sharedUsedNames = new Set();
+  for (const [artifactId, asset] of Object.entries(scope.asset_map.shared)) {
+    assertFrozenAsset(artifactId, {...asset, artifact_id: artifactId});
+    if (!Array.isArray(asset.child_skus) || asset.child_skus.some(sku => !scope.child_skus.includes(sku))) {
+      throw invalid('APPROVAL_SCOPE_MISMATCH', 'Frozen shared asset Child mapping is invalid.', {asset_id: artifactId});
+    }
+    if (!asset.child_skus.some(sku => selectedSkus.includes(sku))) continue;
+    let physical = physicalShared.get(asset.sha256);
+    if (!physical) {
+      const filename = safeOutputName(asset.path, artifactId, sharedUsedNames);
+      physical = {
+        archivePath: `shared/${filename}`,
+        sha256: asset.sha256,
+        assetIds: [],
+        assets: []
+      };
+      physicalShared.set(asset.sha256, physical);
+    }
+    physical.assetIds.push(artifactId);
+    physical.assets.push({...structuredClone(asset), artifact_id: artifactId});
+    sharedPaths[artifactId] = physical.archivePath;
+  }
+
+  const children = {};
+  const physicalChildren = [];
+  for (const sku of selectedSkus) {
+    const main = scope.asset_map.child_main[sku];
+    assertFrozenAsset(main?.artifact_id, main);
+    const mainExtension = path.posix.extname(main.path).toLowerCase() || '.png';
+    const mainPath = `children/${sku}/main${mainExtension}`;
+    physicalChildren.push({
+      archivePath: mainPath, sha256: main.sha256,
+      assetIds: [main.artifact_id], assets: [main]
+    });
+
+    const secondaries = scope.asset_map.child_secondary[sku];
+    if (!Array.isArray(secondaries)) {
+      throw invalid('APPROVAL_SCOPE_MISMATCH', 'Frozen Child secondary mapping is invalid.', {child_sku: sku});
+    }
+    const usedSecondaryNames = new Set();
+    const secondaryPaths = [];
+    for (const secondary of secondaries) {
+      assertFrozenAsset(secondary.artifact_id, secondary);
+      const filename = safeOutputName(secondary.path, secondary.artifact_id, usedSecondaryNames);
+      const archivePath = `children/${sku}/secondary/${filename}`;
+      physicalChildren.push({
+        archivePath, sha256: secondary.sha256,
+        assetIds: [secondary.artifact_id], assets: [secondary]
+      });
+      secondaryPaths.push(archivePath);
+    }
+    const sharedIds = Object.entries(scope.asset_map.shared)
+      .filter(([, asset]) => asset.child_skus.includes(sku))
+      .map(([artifactId]) => artifactId);
+    children[sku] = {
+      asset_ids: {
+        main: main.artifact_id,
+        child_secondary: secondaries.map(item => item.artifact_id),
+        shared: sharedIds
+      },
+      asset_paths: [
+        mainPath,
+        ...secondaryPaths,
+        ...new Set(sharedIds.map(id => sharedPaths[id]))
+      ]
+    };
+  }
+  return {
+    children,
+    physicalAssets: [...physicalChildren, ...physicalShared.values()]
+  };
+}
+
 function listingArtifacts(prefix, snapshot) {
   const content = structuredClone(snapshot.content);
   const json = jsonBytes(content);
@@ -384,58 +521,39 @@ export async function buildVariationDelivery({
   const {children, parentSnapshot} = validateCurrentScope(state, approval);
   const selected = selectChildren(approval, children, childSkus);
   const selectedSkus = selected.map(child => child.sku);
+  const deliveryScope = projectDeliveryScope(approval, selectedSkus);
+  const layout = deriveAssetLayout(deliveryScope, selectedSkus);
   const artifacts = listingArtifacts('parent', parentSnapshot);
   const rows = [];
 
-  const sharedArchivePaths = {};
-  const sharedPhysical = new Map();
-  const sharedUsedNames = new Set();
-  for (const [artifactId, asset] of Object.entries(approval.asset_map.shared)) {
-    if (!Array.isArray(asset.child_skus) || asset.child_skus.some(sku => !approval.child_skus.includes(sku))) {
+  for (const [artifactId, asset] of Object.entries(deliveryScope.asset_map.shared)) {
+    if (!Array.isArray(asset.child_skus) || asset.child_skus.some(sku => !selectedSkus.includes(sku))) {
       throw invalid('APPROVAL_SCOPE_MISMATCH', 'Shared asset has an invalid immutable Child mapping.', {artifact_id: artifactId});
     }
-    const applicable = selectedSkus.filter(sku => asset.child_skus.includes(sku));
-    if (applicable.length === 0) continue;
     approvalById(state, asset.approval_id, 'shared_image');
-    const physicalKey = `${asset.path}\0${asset.sha256}`;
-    let archivePath = sharedPhysical.get(physicalKey);
-    if (!archivePath) {
-      const filename = safeOutputName(asset.path, artifactId, sharedUsedNames);
-      archivePath = `shared/${filename}`;
-      artifacts.push(await loadImage(projectDir, {...asset, artifact_id: artifactId}, archivePath, hashFile));
-      sharedPhysical.set(physicalKey, archivePath);
-    } else {
-      const physicalArtifact = artifacts.find(item => item.archive_path === archivePath);
-      physicalArtifact.asset_ids.push(artifactId);
+  }
+  for (const sku of selectedSkus) {
+    approvalById(state, deliveryScope.asset_map.child_main[sku].approval_id, 'child_main');
+    for (const secondary of deliveryScope.asset_map.child_secondary[sku]) {
+      approvalById(state, secondary.approval_id);
     }
-    sharedArchivePaths[artifactId] = archivePath;
+  }
+  for (const physical of layout.physicalAssets) {
+    let delivered = null;
+    for (const source of physical.assets) {
+      const loaded = await loadImage(projectDir, source, physical.archivePath, hashFile);
+      if (!delivered) delivered = loaded;
+    }
+    delivered.asset_id = physical.assetIds[0];
+    delivered.asset_ids = [...physical.assetIds];
+    artifacts.push(delivered);
   }
 
   for (const child of selected) {
     const version = approval.child_versions.find(item => item.child_sku === child.sku);
     const snapshot = latestApprovedListing(child);
     artifacts.push(...listingArtifacts(`children/${child.sku}`, snapshot));
-    const main = approval.asset_map.child_main[child.sku];
-    const mainExtension = path.posix.extname(main.path).toLowerCase() || '.png';
-    const mainArchivePath = `children/${child.sku}/main${mainExtension}`;
-    artifacts.push(await loadImage(projectDir, main, mainArchivePath, hashFile));
-
-    const secondaryIds = [];
-    const secondaryPaths = [];
-    const usedSecondaryNames = new Set();
-    for (const secondary of approval.asset_map.child_secondary[child.sku]) {
-      approvalById(state, secondary.approval_id);
-      const filename = safeOutputName(secondary.path, secondary.artifact_id, usedSecondaryNames);
-      const archivePath = `children/${child.sku}/secondary/${filename}`;
-      artifacts.push(await loadImage(projectDir, secondary, archivePath, hashFile));
-      secondaryIds.push(secondary.artifact_id);
-      secondaryPaths.push(archivePath);
-    }
-    const sharedIds = Object.entries(approval.asset_map.shared)
-      .filter(([, asset]) => asset.child_skus.includes(child.sku))
-      .map(([artifactId]) => artifactId)
-      .filter(artifactId => sharedArchivePaths[artifactId]);
-    const sharedPaths = [...new Set(sharedIds.map(artifactId => sharedArchivePaths[artifactId]))];
+    const childLayout = layout.children[child.sku];
     rows.push({
       parent_sku: state.variation.parent.sku,
       child_sku: child.sku,
@@ -443,12 +561,8 @@ export async function buildVariationDelivery({
       variation_values: structuredClone(child.variation_values),
       listing_version: version.listing_version,
       product_master_version: version.product_master_version,
-      asset_ids: {
-        main: main.artifact_id,
-        child_secondary: secondaryIds,
-        shared: sharedIds
-      },
-      asset_paths: [mainArchivePath, ...secondaryPaths, ...sharedPaths]
+      asset_ids: structuredClone(childLayout.asset_ids),
+      asset_paths: [...childLayout.asset_paths]
     });
   }
 
@@ -476,10 +590,12 @@ export async function buildVariationDelivery({
     parent_sku: state.variation.parent.sku,
     marketplace: approval.marketplace,
     product_type: approval.product_type,
-    approval_scope: {
+    approval_scope: deliveryScope,
+    approval_provenance: {
       approval_id: approval.id,
-      project_id: state.project.product_id,
-      ...immutableScope(approval)
+      variation_version: approval.variation_version,
+      final_scope_sha256: approval.scope_sha256,
+      projection_sha256: projectionHash(deliveryScope)
     },
     delivery_scope: {
       type: childSkus === null ? 'family' : 'child',
@@ -501,7 +617,7 @@ function parseJsonMember(archive, member, reason = 'MANIFEST_INVALID') {
   }
 }
 
-function exactRow(row, scope, manifest) {
+function exactRow(row, scope, manifest, expectedLayout) {
   const variation = scope.child_variations.find(item => item.child_sku === row.child_sku);
   const version = scope.child_versions.find(item => item.child_sku === row.child_sku);
   if (!variation || !version || row.parent_sku !== manifest.parent_sku
@@ -513,34 +629,12 @@ function exactRow(row, scope, manifest) {
       child_sku: row.child_sku ?? null
     });
   }
-  const expectedMain = scope.asset_map.child_main[row.child_sku]?.artifact_id;
-  const expectedSecondary = (scope.asset_map.child_secondary[row.child_sku] ?? []).map(item => item.artifact_id);
-  const expectedShared = Object.entries(scope.asset_map.shared)
-    .filter(([, asset]) => asset.child_skus.includes(row.child_sku))
-    .map(([id]) => id);
-  if (row.asset_ids?.main !== expectedMain
-      || !isDeepStrictEqual(row.asset_ids?.child_secondary, expectedSecondary)
-      || !isDeepStrictEqual(row.asset_ids?.shared, expectedShared)) {
+  if (!expectedLayout
+      || !isDeepStrictEqual(row.asset_ids, expectedLayout.asset_ids)
+      || !isDeepStrictEqual(row.asset_paths, expectedLayout.asset_paths)) {
     throw invalid('APPROVAL_SCOPE_MISMATCH', 'Variation Matrix assets do not match the immutable approval.', {
       child_sku: row.child_sku
     });
-  }
-  const expectedMappings = [
-    [expectedMain, `children/${row.child_sku}/main`],
-    ...expectedSecondary.map(id => [id, `children/${row.child_sku}/secondary/`]),
-    ...expectedShared.map(id => [id, 'shared/'])
-  ];
-  for (const [assetId, prefix] of expectedMappings) {
-    const artifact = manifest.artifacts.find(item => (
-      Array.isArray(item.asset_ids) && item.asset_ids.includes(assetId)
-    ));
-    if (!artifact || !artifact.archive_path.startsWith(prefix)
-        || !row.asset_paths.includes(artifact.archive_path)) {
-      throw invalid('APPROVAL_SCOPE_MISMATCH', 'Variation Matrix asset path does not match its frozen asset ID.', {
-        child_sku: row.child_sku,
-        asset_id: assetId
-      });
-    }
   }
 }
 
@@ -562,13 +656,19 @@ function validManifestScope(manifest) {
     && manifest.marketplace && manifest.product_type
     && Number.isInteger(manifest.variation_version) && manifest.variation_version > 0
     && Number.isInteger(scope.scope_version) && scope.scope_version === 1
+    && scope.scope_type === 'variation_final'
+    && scope.parent_sku === manifest.parent_sku
     && Number.isInteger(scope.parent_version) && scope.parent_version > 0
     && Number.isInteger(scope.family_identity_version) && scope.family_identity_version > 0
+    && /^[a-f0-9]{64}$/.test(scope.parent_listing_content_sha256 ?? '')
     && Array.isArray(scope.theme_dimensions) && scope.theme_dimensions.length > 0
     && Array.isArray(scope.child_skus) && scope.child_skus.length > 0
-    && Array.isArray(scope.child_variations) && Array.isArray(scope.child_versions)
+    && Array.isArray(scope.child_variations) && scope.child_variations.length === scope.child_skus.length
+    && Array.isArray(scope.child_versions) && scope.child_versions.length === scope.child_skus.length
+    && scope.child_versions.every(item => /^[a-f0-9]{64}$/.test(item.listing_content_sha256 ?? ''))
     && record(scope.asset_map?.child_main) && record(scope.asset_map?.child_secondary)
     && record(scope.asset_map?.shared) && record(scope.rule_scope)
+    && record(manifest.approval_provenance)
     && ['family', 'child'].includes(delivery.type)
     && delivery.type === manifest.delivery_type
     && Array.isArray(delivery.child_skus) && delivery.child_skus.length > 0
@@ -595,7 +695,10 @@ export async function verifyVariationDelivery({deliveryDir, expectedScope = null
       || !validManifestScope(manifest)) {
     throw invalid('MANIFEST_INVALID', 'Variation delivery manifest is incomplete.');
   }
-  assertExpectedScope(manifest.approval_scope, expectedScope);
+  assertExpectedScope(manifest, expectedScope);
+  if (!isDeepStrictEqual(manifest.delivery_scope.child_skus, manifest.approval_scope.child_skus)) {
+    throw invalid('APPROVAL_SCOPE_MISMATCH', 'Delivered Child set does not equal the frozen delivery projection.');
+  }
   if (!archive['variation-matrix.json']) {
     throw invalid('MANIFEST_INVALID', 'Variation delivery is missing variation-matrix.json.');
   }
@@ -606,6 +709,33 @@ export async function verifyVariationDelivery({deliveryDir, expectedScope = null
   if (archivePaths.some(item => !isSafeArchivePath(item)) || new Set(archivePaths).size !== archivePaths.length) {
     throw invalid('UNSAFE_PATH', 'Variation manifest contains unsafe or duplicate archive paths.');
   }
+  const scope = manifest.approval_scope;
+  const selected = manifest.delivery_scope.child_skus;
+  const layout = deriveAssetLayout(scope, selected);
+  const expectedArtifacts = new Set(['parent/listing.json', 'parent/listing.md', 'variation-matrix.json']);
+  for (const sku of selected) {
+    expectedArtifacts.add(`children/${sku}/listing.json`);
+    expectedArtifacts.add(`children/${sku}/listing.md`);
+  }
+  for (const physical of layout.physicalAssets) expectedArtifacts.add(physical.archivePath);
+  const artifactSet = new Set(archivePaths);
+  const missingArtifacts = [...expectedArtifacts].filter(item => !artifactSet.has(item));
+  if (missingArtifacts.length > 0) {
+    throw invalid('MISSING_FILE', 'Variation delivery is missing an approved artifact.', {paths: missingArtifacts});
+  }
+  const extraArtifacts = [...artifactSet].filter(item => !expectedArtifacts.has(item));
+  if (extraArtifacts.length > 0) {
+    const unrelatedChild = extraArtifacts.some(item => {
+      const match = /^children\/([^/]+)\//.exec(item);
+      return match && !selected.includes(match[1]);
+    });
+    throw invalid(
+      unrelatedChild ? 'MANIFEST_INVALID' : 'APPROVAL_SCOPE_MISMATCH',
+      'Variation delivery contains artifacts outside the frozen delivery projection.',
+      {paths: extraArtifacts}
+    );
+  }
+  const expectedImages = new Map(layout.physicalAssets.map(item => [item.archivePath, item]));
   for (const artifact of manifest.artifacts) {
     const archivePath = artifact.archive_path ?? artifact.relative_path;
     if (artifact.container !== 'delivery.zip') {
@@ -617,6 +747,12 @@ export async function verifyVariationDelivery({deliveryDir, expectedScope = null
       throw invalid('HASH_MISMATCH', 'Variation artifact does not match its manifest hash.', {path: archivePath});
     }
     if (String(artifact.media_type).startsWith('image/')) {
+      const frozen = expectedImages.get(archivePath);
+      if (!frozen || artifact.sha256 !== frozen.sha256
+          || artifact.asset_id !== frozen.assetIds[0]
+          || !isDeepStrictEqual(artifact.asset_ids, frozen.assetIds)) {
+        throw invalid('HASH_MISMATCH', 'Variation image does not match its frozen asset mapping.', {path: archivePath});
+      }
       try {
         const metadata = await sharp(bytes).metadata();
         if (!metadata.width || !metadata.height) throw new Error('missing raster dimensions');
@@ -640,14 +776,11 @@ export async function verifyVariationDelivery({deliveryDir, expectedScope = null
   }
 
   const matrix = parseJsonMember(archive, 'variation-matrix.json');
-  const scope = manifest.approval_scope;
-  const selected = manifest.delivery_scope.child_skus;
   if (!Array.isArray(matrix.children)) {
     throw invalid('MANIFEST_INVALID', 'Variation Matrix Child rows are invalid.');
   }
   assertUniqueTuples(matrix.theme_dimensions, matrix.children);
   if (!Array.isArray(selected) || selected.length === 0 || new Set(selected).size !== selected.length
-      || selected.some(sku => !scope.child_skus.includes(sku))
       || matrix.children.length !== selected.length
       || matrix.parent_sku !== manifest.parent_sku
       || !isDeepStrictEqual(matrix.theme_dimensions, scope.theme_dimensions)) {
@@ -656,25 +789,8 @@ export async function verifyVariationDelivery({deliveryDir, expectedScope = null
   if (!isDeepStrictEqual(matrix.children.map(row => row.child_sku), selected)) {
     throw invalid('APPROVAL_SCOPE_MISMATCH', 'Variation Matrix does not contain the exact selected Child order.');
   }
-  for (const row of matrix.children) exactRow(row, scope, manifest);
+  for (const row of matrix.children) exactRow(row, scope, manifest, layout.children[row.child_sku]);
 
-  const artifactSet = new Set(archivePaths);
-  const mappedArtifacts = new Set(['parent/listing.json', 'parent/listing.md', 'variation-matrix.json']);
-  for (const row of matrix.children) {
-    mappedArtifacts.add(`children/${row.child_sku}/listing.json`);
-    mappedArtifacts.add(`children/${row.child_sku}/listing.md`);
-    for (const assetPath of row.asset_paths ?? []) mappedArtifacts.add(assetPath);
-  }
-  const unrelatedArtifacts = [...artifactSet].filter(artifact => !mappedArtifacts.has(artifact));
-  if (unrelatedArtifacts.length > 0) {
-    throw invalid('MANIFEST_INVALID', 'Variation delivery contains artifacts outside the selected Child scope.', {
-      paths: unrelatedArtifacts
-    });
-  }
-  if (!artifactSet.has('parent/listing.json') || !artifactSet.has('parent/listing.md')
-      || !artifactSet.has('variation-matrix.json')) {
-    throw invalid('MANIFEST_INVALID', 'Variation delivery is missing required Parent or Matrix artifacts.');
-  }
   const parentListing = parseJsonMember(archive, 'parent/listing.json');
   if (parentListing.parent_sku !== manifest.parent_sku || parentListing.version !== scope.parent_version
       || parentListing.project_id !== manifest.project_id || parentListing.marketplace !== manifest.marketplace
@@ -682,8 +798,14 @@ export async function verifyVariationDelivery({deliveryDir, expectedScope = null
       || !listingRuleScopeMatches(parentListing, scope)) {
     throw invalid('APPROVAL_SCOPE_MISMATCH', 'Delivered Parent Listing does not match the manifest scope.');
   }
+  if (hash(archive['parent/listing.json']) !== scope.parent_listing_content_sha256) {
+    throw invalid('HASH_MISMATCH', 'Delivered Parent Listing differs from its final approval.');
+  }
+  const expectedParentMarkdown = Buffer.from(renderListing(parentListing), 'utf8');
+  if (!Buffer.from(archive['parent/listing.md']).equals(expectedParentMarkdown)) {
+    throw invalid('HASH_MISMATCH', 'Delivered Parent Markdown is not derived from the approved Listing JSON.');
+  }
 
-  let verifiedImages = 0;
   for (const row of matrix.children) {
     const prefix = `children/${row.child_sku}`;
     for (const required of [`${prefix}/listing.json`, `${prefix}/listing.md`, ...row.asset_paths]) {
@@ -702,8 +824,20 @@ export async function verifyVariationDelivery({deliveryDir, expectedScope = null
         child_sku: row.child_sku
       });
     }
+    const version = scope.child_versions.find(item => item.child_sku === row.child_sku);
+    if (hash(archive[`${prefix}/listing.json`]) !== version.listing_content_sha256) {
+      throw invalid('HASH_MISMATCH', 'Delivered Child Listing differs from its final approval.', {
+        child_sku: row.child_sku
+      });
+    }
+    const expectedMarkdown = Buffer.from(renderListing(listing), 'utf8');
+    if (!Buffer.from(archive[`${prefix}/listing.md`]).equals(expectedMarkdown)) {
+      throw invalid('HASH_MISMATCH', 'Delivered Child Markdown is not derived from the approved Listing JSON.', {
+        child_sku: row.child_sku
+      });
+    }
   }
-  verifiedImages = manifest.artifacts.filter(item => String(item.media_type).startsWith('image/')).length;
+  const verifiedImages = manifest.artifacts.filter(item => String(item.media_type).startsWith('image/')).length;
   return {
     ok: true,
     manifest,

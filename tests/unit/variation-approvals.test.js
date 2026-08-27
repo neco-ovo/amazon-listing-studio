@@ -533,7 +533,10 @@ test('final approval freezes the complete Variation scope', async () => {
   assert.deepEqual(approval.child_skus, ['HORSE-12X16', 'KIDS-12X16']);
   assert.equal(approval.marketplace, 'amazon.com');
   assert.equal(approval.rule_status, 'verified');
+  assert.match(approval.parent_listing_content_sha256, /^[a-f0-9]{64}$/);
+  assert.match(approval.scope_sha256, /^[a-f0-9]{64}$/);
   assert.ok(approval.child_versions.every(item => item.product_master_version > 0 && item.listing_version > 0));
+  assert.ok(approval.child_versions.every(item => /^[a-f0-9]{64}$/.test(item.listing_content_sha256)));
   assert.equal(Object.keys(approval.asset_map.child_main).length, 2);
   assert.equal(Object.keys(approval.asset_map.child_secondary).length, 2);
   assert.equal(Object.keys(approval.asset_map.shared).length, 1);
@@ -542,6 +545,7 @@ test('final approval freezes the complete Variation scope', async () => {
     variation_values: {color_name: 'Horse Crossing', size_name: '12 x 16 in'}
   });
   assert.equal(next.variation.versions.at(-1).approval_id, approval.id);
+  assert.equal(next.variation.versions.at(-1).scope_sha256, approval.scope_sha256);
 
   next.variation.children['HORSE-12X16'].variation_values.color_name = 'Changed';
   assert.equal(approval.child_variations[0].variation_values.color_name, 'Horse Crossing');

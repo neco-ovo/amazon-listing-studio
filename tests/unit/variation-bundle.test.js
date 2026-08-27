@@ -10,7 +10,8 @@ import sharp from 'sharp';
 import {
   approveVariationArtifact,
   approveVariationListing,
-  approveVariationVersion
+  approveVariationVersion,
+  hashVariationFinalScope
 } from '../../scripts/lib/variation-approvals.js';
 import {buildVariationDelivery, verifyVariationDelivery} from '../../scripts/lib/variation-bundle.js';
 import {materializeChildListing} from '../../scripts/lib/variation-listing.js';
@@ -121,6 +122,11 @@ function variationState() {
           scope: 'shared_asset', path: 'family/shared-assets/material.png', media_type: 'image/png',
           fact_dependencies: {material: 'aluminum'}
         },
+        'material-copy-v1': {
+          id: 'material-copy-v1', kind: 'secondary', status: 'candidate', inspection_status: 'pass',
+          scope: 'shared_asset', path: 'family/shared-assets/material-copy.png', media_type: 'image/png',
+          fact_dependencies: {material: 'aluminum'}
+        },
         'kids-scene-v1': {
           id: 'kids-scene-v1', kind: 'secondary', status: 'candidate', inspection_status: 'pass',
           scope: {type: 'subset_shared', child_skus: ['KIDS-12X16']},
@@ -164,6 +170,10 @@ async function approvedProject(root) {
     ['family/shared-assets/kids-scene.png', '#999999']
   ];
   for (const [relative, color] of images) await png(path.join(projectDir, relative), color);
+  await writeFile(
+    path.join(projectDir, 'family/shared-assets/material-copy.png'),
+    await readFile(path.join(projectDir, 'family/shared-assets/material.png'))
+  );
 
   const hashRelative = relative => sha256File(path.join(projectDir, relative));
   for (const sku of ['HORSE-12X16', 'KIDS-12X16']) {
@@ -195,6 +205,11 @@ async function approvedProject(root) {
     artifactId: 'material-v1', artifactType: 'shared_image',
     childSkus: ['HORSE-12X16', 'KIDS-12X16'], factDependencies: {material: 'aluminum'},
     path: 'family/shared-assets/material.png', userAction: 'approved', now
+  }, {hashFile: hashRelative});
+  state = await approveVariationArtifact(state, {
+    artifactId: 'material-copy-v1', artifactType: 'shared_image',
+    childSkus: ['HORSE-12X16', 'KIDS-12X16'], factDependencies: {material: 'aluminum'},
+    path: 'family/shared-assets/material-copy.png', userAction: 'approved', now
   }, {hashFile: hashRelative});
   state = await approveVariationArtifact(state, {
     artifactId: 'kids-scene-v1', artifactType: 'shared_image',
@@ -255,6 +270,7 @@ test('builds a Family package with complete Listings and one copy of each physic
     assert.ok(archive['children/HORSE-12X16/main.png']);
     assert.ok(archive['children/HORSE-12X16/secondary/size.png']);
     assert.ok(archive['shared/material.png']);
+    assert.equal(archive['shared/material-copy.png'], undefined);
     assert.ok(archive['shared/kids-scene.png']);
     assert.ok(archive['variation-matrix.json']);
     assert.equal(Object.keys(archive).filter(name => name.endsWith('/material.png')).length, 1);
@@ -278,7 +294,7 @@ test('builds a Family package with complete Listings and one copy of each physic
       asset_ids: {
         main: 'horse-12x16-main',
         child_secondary: ['horse-12x16-size'],
-        shared: ['material-v1']
+        shared: ['material-v1', 'material-copy-v1']
       },
       asset_paths: [
         'children/HORSE-12X16/main.png',
@@ -306,11 +322,19 @@ test('Child-only delivery excludes unrelated Child artifacts and rows', async ()
     assert.equal(archive['children/KIDS-12X16/listing.json'], undefined);
     assert.equal(archive['children/KIDS-12X16/main.png'], undefined);
     assert.ok(archive['shared/material.png']);
+    assert.equal(archive['shared/material-copy.png'], undefined);
     assert.equal(archive['shared/kids-scene.png'], undefined);
     assert.deepEqual(matrix.children.map(row => row.child_sku), ['HORSE-12X16']);
     assert.deepEqual(result.manifest.delivery_scope, {
       type: 'child', child_skus: ['HORSE-12X16']
     });
+    assert.deepEqual(result.manifest.approval_scope.child_skus, ['HORSE-12X16']);
+    assert.deepEqual(result.manifest.approval_scope.child_versions.map(item => item.child_sku), ['HORSE-12X16']);
+    assert.deepEqual(result.manifest.approval_scope.child_variations.map(item => item.child_sku), ['HORSE-12X16']);
+    assert.deepEqual(Object.keys(result.manifest.approval_scope.asset_map.child_main), ['HORSE-12X16']);
+    assert.deepEqual(Object.keys(result.manifest.approval_scope.asset_map.child_secondary), ['HORSE-12X16']);
+    assert.match(result.manifest.approval_provenance.final_scope_sha256, /^[a-f0-9]{64}$/);
+    assert.equal(JSON.stringify(result.manifest.approval_scope).includes('KIDS-12X16'), false);
   });
 });
 
@@ -332,7 +356,12 @@ test('build rejects stale approval, unsafe paths, and incomplete selections', as
       const finalRecord = project.state.approvals.find(item => item.id === project.finalApproval.id);
       project.finalApproval.asset_map.shared['material-v1'].path = '../outside.png';
       finalRecord.asset_map.shared['material-v1'].path = '../outside.png';
-      project.state.variation.versions.at(-1).scope.asset_map.shared['material-v1'].path = '../outside.png';
+      const version = project.state.variation.versions.at(-1);
+      version.scope.asset_map.shared['material-v1'].path = '../outside.png';
+      const scopeHash = hashVariationFinalScope(project.finalApproval);
+      project.finalApproval.scope_sha256 = scopeHash;
+      finalRecord.scope_sha256 = scopeHash;
+      version.scope_sha256 = scopeHash;
       await writeFile(path.join(project.projectDir, 'state.json'), `${JSON.stringify(project.state, null, 2)}\n`);
       await assert.rejects(
         buildVariationDelivery({...project, outputDir: path.join(project.projectDir, 'delivery', 'unsafe')}),
@@ -385,11 +414,60 @@ test('verification rejects incomplete, stale, conflicting, or changed Variation 
         artifact.sha256 = digest(files[archivePath]);
       }, 'APPROVAL_SCOPE_MISMATCH'],
       ['changed shared asset', ({files}) => { files['shared/material.png'] = Buffer.from('changed'); }, 'HASH_MISMATCH'],
+      ['rehashed changed shared asset', ({files, manifest}) => {
+        const archivePath = 'shared/material.png';
+        files[archivePath] = Buffer.from(files['shared/kids-scene.png']);
+        const artifact = manifest.artifacts.find(item => item.archive_path === archivePath);
+        artifact.byte_size = files[archivePath].length;
+        artifact.sha256 = digest(files[archivePath]);
+      }, 'HASH_MISMATCH'],
+      ['rehashed changed Child Listing JSON', ({files, manifest}) => {
+        const archivePath = 'children/HORSE-12X16/listing.json';
+        const listing = JSON.parse(Buffer.from(files[archivePath]).toString('utf8'));
+        listing.description = 'Substituted after final approval.';
+        files[archivePath] = Buffer.from(`${JSON.stringify(listing, null, 2)}\n`);
+        const artifact = manifest.artifacts.find(item => item.archive_path === archivePath);
+        artifact.byte_size = files[archivePath].length;
+        artifact.sha256 = digest(files[archivePath]);
+      }, 'HASH_MISMATCH'],
+      ['rehashed changed Parent Listing JSON', ({files, manifest}) => {
+        const archivePath = 'parent/listing.json';
+        const listing = JSON.parse(Buffer.from(files[archivePath]).toString('utf8'));
+        listing.description = 'Substituted Parent content after final approval.';
+        files[archivePath] = Buffer.from(`${JSON.stringify(listing, null, 2)}\n`);
+        const artifact = manifest.artifacts.find(item => item.archive_path === archivePath);
+        artifact.byte_size = files[archivePath].length;
+        artifact.sha256 = digest(files[archivePath]);
+      }, 'HASH_MISMATCH'],
+      ['rehashed changed Child Listing Markdown', ({files, manifest}) => {
+        const archivePath = 'children/HORSE-12X16/listing.md';
+        files[archivePath] = Buffer.from('# Substituted markdown\n');
+        const artifact = manifest.artifacts.find(item => item.archive_path === archivePath);
+        artifact.byte_size = files[archivePath].length;
+        artifact.sha256 = digest(files[archivePath]);
+      }, 'HASH_MISMATCH'],
+      ['rehashed changed Parent Listing Markdown', ({files, manifest}) => {
+        const archivePath = 'parent/listing.md';
+        files[archivePath] = Buffer.from('# Substituted Parent markdown\n');
+        const artifact = manifest.artifacts.find(item => item.archive_path === archivePath);
+        artifact.byte_size = files[archivePath].length;
+        artifact.sha256 = digest(files[archivePath]);
+      }, 'HASH_MISMATCH'],
       ['missing matrix', ({files}) => { delete files['variation-matrix.json']; }, 'MANIFEST_INVALID'],
       ['incomplete immutable scope', ({manifest}) => { delete manifest.approval_scope.child_skus; }, 'MANIFEST_INVALID'],
-      ['absent mapped member', ({matrix}) => { matrix.children[0].asset_paths.push('children/HORSE-12X16/missing.png'); }, 'MISSING_FILE'],
+      ['absent mapped member', ({matrix}) => { matrix.children[0].asset_paths.push('children/HORSE-12X16/missing.png'); }, 'APPROVAL_SCOPE_MISMATCH'],
       ['missing shared row mapping', ({matrix}) => {
         matrix.children[0].asset_paths = matrix.children[0].asset_paths.filter(item => item !== 'shared/material.png');
+      }, 'APPROVAL_SCOPE_MISMATCH'],
+      ['injected mapped asset', ({files, matrix, manifest}) => {
+        const archivePath = 'shared/injected.png';
+        const source = manifest.artifacts.find(item => item.archive_path === 'shared/material.png');
+        files[archivePath] = Buffer.from(files[source.archive_path]);
+        manifest.artifacts.push({
+          ...structuredClone(source), relative_path: archivePath, archive_path: archivePath,
+          asset_id: 'injected-v1', asset_ids: ['injected-v1']
+        });
+        matrix.children[0].asset_paths.push(archivePath);
       }, 'APPROVAL_SCOPE_MISMATCH'],
       ['unrelated Child artifact', ({files, manifest}) => {
         const source = manifest.artifacts.find(item => item.archive_path === 'children/HORSE-12X16/main.png');
@@ -409,6 +487,51 @@ test('verification rejects incomplete, stale, conflicting, or changed Variation 
         await rm(deliveryDir, {recursive: true, force: true});
       });
     }
+  });
+});
+
+test('Family verification rejects a package that consistently drops one approved Child', async () => {
+  await withTempWorkspace(async root => {
+    const project = await approvedProject(root);
+    const valid = await buildVariationDelivery({
+      ...project,
+      outputDir: path.join(project.projectDir, 'delivery', 'valid-family')
+    });
+    const deliveryDir = path.join(root, 'family-with-one-child-dropped');
+    await rewriteVariationPackage(valid.outputDir, deliveryDir, ({files, matrix, manifest}) => {
+      manifest.delivery_scope.child_skus = ['HORSE-12X16'];
+      matrix.children = matrix.children.filter(row => row.child_sku === 'HORSE-12X16');
+      for (const artifact of [...manifest.artifacts]) {
+        if (!artifact.archive_path.startsWith('children/KIDS-12X16/')) continue;
+        delete files[artifact.archive_path];
+        manifest.artifacts.splice(manifest.artifacts.indexOf(artifact), 1);
+      }
+      delete files['shared/kids-scene.png'];
+      manifest.artifacts = manifest.artifacts.filter(item => item.archive_path !== 'shared/kids-scene.png');
+    });
+    await assert.rejects(
+      verifyVariationDelivery({deliveryDir}),
+      error => error.code === 'BUNDLE_INVALID' && error.details?.reason === 'APPROVAL_SCOPE_MISMATCH'
+    );
+  });
+});
+
+test('Child projection provenance must descend from the expected Family final approval', async () => {
+  await withTempWorkspace(async root => {
+    const project = await approvedProject(root);
+    const result = await buildVariationDelivery({
+      ...project,
+      childSkus: ['HORSE-12X16'],
+      outputDir: path.join(project.projectDir, 'delivery', 'horse-projection')
+    });
+    const deliveryDir = path.join(root, 'wrong-provenance');
+    await rewriteVariationPackage(result.outputDir, deliveryDir, ({manifest}) => {
+      manifest.approval_provenance.final_scope_sha256 = 'f'.repeat(64);
+    });
+    await assert.rejects(
+      verifyVariationDelivery({deliveryDir, expectedScope: project.finalApproval}),
+      error => error.code === 'BUNDLE_INVALID' && error.details?.reason === 'APPROVAL_SCOPE_MISMATCH'
+    );
   });
 });
 
