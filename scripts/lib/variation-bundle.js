@@ -207,15 +207,27 @@ function currentChildAsset(state, child, artifactId) {
 
 function assertCurrentAssetBinding(state, child, frozen, scopeType, version) {
   const current = currentChildAsset(state, child, frozen.artifact_id);
-  const approval = approvalById(state, frozen.approval_id, scopeType);
+  const approval = approvalById(state, frozen.approval_id, scopeType === 'child_secondary' ? null : scopeType);
+  const approvalScope = approval.scope_type ?? null;
+  const isSecondary = scopeType === 'child_secondary';
+  const legacySecondary = isSecondary && frozen.approval_scope_type === null;
+  const isLegacyAsset = child.legacy_refs?.gallery_asset_ids?.includes(frozen.artifact_id) === true;
   if (current?.status !== 'approved' || current.path !== frozen.path || current.sha256 !== frozen.sha256
       || current.approval_id !== frozen.approval_id
       || approval.type !== 'image'
-      || (scopeType === 'child_main' && approval.scope_version !== 1)
+      || (legacySecondary ? approval.scope_version !== undefined : approval.scope_version !== 1)
       || approval.artifact_id !== frozen.artifact_id || approval.path !== frozen.path
       || approval.sha256 !== frozen.sha256
-      || approval.child_sku !== child.sku
-      || approval.product_master_version !== version.product_master_version
+      || (isSecondary && ![null, 'child_secondary'].includes(frozen.approval_scope_type))
+      || (legacySecondary && !isLegacyAsset)
+      || (isSecondary && approvalScope !== frozen.approval_scope_type)
+      || (isSecondary && frozen.child_sku !== child.sku)
+      || (isSecondary && frozen.product_master_version !== version.product_master_version)
+      || (!legacySecondary && approval.child_sku !== child.sku)
+      || (legacySecondary && approval.child_sku !== undefined && approval.child_sku !== child.sku)
+      || (!legacySecondary && approval.product_master_version !== version.product_master_version)
+      || (legacySecondary && approval.product_master_version !== undefined
+        && approval.product_master_version !== version.product_master_version)
       || (current.child_sku !== undefined && current.child_sku !== child.sku)
       || (current.product_master_version !== undefined
         && current.product_master_version !== version.product_master_version)
@@ -336,7 +348,7 @@ function validateCurrentScope(state, approval, selectedSkus) {
       throw invalid('APPROVAL_SCOPE_MISMATCH', 'A Child secondary-image mapping is missing.', {child_sku: child.sku});
     }
     for (const secondary of approval.asset_map.child_secondary[child.sku]) {
-      assertCurrentAssetBinding(state, child, secondary, null, version);
+      assertCurrentAssetBinding(state, child, secondary, 'child_secondary', version);
     }
   }
   if (!record(approval.asset_map?.shared)) {
@@ -364,8 +376,12 @@ function validateCurrentScope(state, approval, selectedSkus) {
         || scopedApproval.sha256 !== frozen.sha256
         || !isDeepStrictEqual(scopedApproval.fact_dependencies, frozen.fact_dependencies)
         || scopedApproval.type !== 'image' || scopedApproval.scope_version !== 1
-        || scopedApproval.asset_scope !== currentScope
-        || !isDeepStrictEqual(scopedApproval.declared_child_skus, currentDeclared)
+        || !['shared_asset', 'subset_shared'].includes(frozen.asset_scope)
+        || !Array.isArray(frozen.declared_child_skus)
+        || scopedApproval.asset_scope !== frozen.asset_scope
+        || currentScope !== frozen.asset_scope
+        || !isDeepStrictEqual(scopedApproval.declared_child_skus, frozen.declared_child_skus)
+        || !isDeepStrictEqual(currentDeclared, frozen.declared_child_skus)
         || !isDeepStrictEqual(current.applicable_child_skus, scopedApproval.applicable_child_skus)
         || !isDeepStrictEqual(currentMembers, frozen.child_skus)) {
       throw invalid('APPROVAL_SCOPE_MISMATCH', 'A current shared-asset binding is stale or unapproved.', {

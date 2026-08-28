@@ -95,3 +95,57 @@ None blocking.
 ### Round 2 concerns
 
 None blocking.
+
+## Fix Round 3
+
+### Approval integrity changes
+
+1. **Candidate inspection and hashing share one byte snapshot**
+   - Variation candidate recording reads the scoped file once and computes its SHA-256 from that immutable snapshot.
+   - Decode, deterministic image validation, and saved-file inspection receive snapshot-backed buffers rather than reopening the mutable path.
+   - Approval still rehashes the live path and rejects bytes changed after recording.
+   - A deterministic test replaces the path from inside the inspection callback and proves the recorded hash remains the hash of the inspected bytes.
+   - The legacy single-product candidate path retains its existing file-path defaults.
+
+2. **Shared final scope freezes its declaration**
+   - Every final shared entry now includes immutable `asset_scope` and `declared_child_skus` fields.
+   - Delivery compares the stored shared approval and the live shared asset independently against those frozen values.
+   - A coordinated approval-plus-live mutation with unchanged applicable Children is rejected.
+
+3. **Child-secondary scope identity is immutable**
+   - New scoped Child secondaries use `scope_type: "child_secondary"` with scope version 1, exact Child SKU, and exact Product Master version.
+   - Final scope entries freeze normalized approval scope, Child owner, and Product Master binding.
+   - Delivery rejects substitutions to both `child_main` and `shared_image` scopes while IDs, paths, and hashes remain unchanged.
+
+4. **Promoted legacy secondaries remain coherent**
+   - An unscoped image approval is accepted only when the Child's preserved legacy references name that artifact.
+   - Missing legacy Child/PM fields are normalized into the final scope from the current Child and locked Product Master.
+   - Any present mismatched legacy Child or Product Master value is rejected.
+   - A fixture-level end-to-end test performs final approval and real delivery with a promoted legacy secondary.
+
+### Round 3 TDD evidence
+
+- Candidate snapshot RED: the injected decoder received no snapshot bytes; after the implementation, an in-inspection path replacement no longer changes the recorded hash.
+- Shared-scope RED: two failures showed missing frozen declaration fields and accepted coordinated mutation.
+- Child-secondary RED: a valid explicit `child_secondary` approval was rejected before the normalized contract was implemented.
+- Promoted-legacy RED: valid legacy final approval failed under the explicit-only contract; the minimal compatibility branch made finalization and delivery agree.
+- Legacy file-path regression RED: the shared default decoder attempted to open an undefined source until the single-product fallback was restored.
+
+### Round 3 self-review
+
+- Candidate bytes are read once; all Variation inspection stages derive from copies of the same snapshot and no post-inspection path hash is used.
+- Shared approval and live scope can no longer be changed together to bypass the final snapshot.
+- Explicit Child-secondary and promoted-legacy contracts are disjoint; other scoped approvals are rejected.
+- Legacy omissions are normalized only in the final snapshot, without mutating historical approval records.
+
+### Round 3 verification evidence
+
+- Focused CLI/approvals/delivery/project/images/state/candidate suite: 149/149 passed.
+- Full `npm test`: 380/380 passed.
+- Official `quick_validate.py`: `Skill is valid!`.
+- All changed JavaScript files passed `node --check`; `git diff --check` passed.
+- PyYAML was installed only into `.tmp-quick-validate` for the official validator and the verified absolute temporary directory was removed afterward; project dependencies were unchanged.
+
+### Round 3 concerns
+
+None blocking.

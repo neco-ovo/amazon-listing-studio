@@ -200,7 +200,8 @@ async function approvedProject(root) {
       sha256: secondaryHash, approval_id: approvalId, approved_at: now, product_master_version: 1
     };
     state.approvals.push({
-      id: approvalId, type: 'image', artifact_id: secondaryId, child_sku: sku,
+      id: approvalId, type: 'image', scope_version: 1, scope_type: 'child_secondary',
+      artifact_id: secondaryId, child_sku: sku,
       path: secondaryPath, sha256: secondaryHash, product_master_version: 1,
       approved_at: now, user_action: 'approved'
     });
@@ -243,6 +244,26 @@ async function approvedProject(root) {
   const finalApproval = structuredClone(state.approvals.at(-1));
   await writeFile(path.join(projectDir, 'state.json'), `${JSON.stringify(state, null, 2)}\n`);
   return {projectDir, state, finalApproval};
+}
+
+function reopenWithPromotedLegacySecondary(project) {
+  const state = structuredClone(project.state);
+  state.approvals = state.approvals.filter(item => item.scope_type !== 'variation_final');
+  state.variation.versions = [];
+  const child = state.variation.children['HORSE-12X16'];
+  const artifactId = 'horse-12x16-size';
+  const asset = child.assets[artifactId];
+  delete child.assets[artifactId];
+  delete asset.child_sku;
+  delete asset.product_master_version;
+  state.gallery.assets[artifactId] = asset;
+  child.legacy_refs.gallery_asset_ids = [artifactId];
+  const approval = state.approvals.find(item => item.id === asset.approval_id);
+  delete approval.scope_version;
+  delete approval.scope_type;
+  delete approval.child_sku;
+  delete approval.product_master_version;
+  return {state, child, asset, approval};
 }
 
 function textEntry(archive, name) {
@@ -318,6 +339,59 @@ test('builds a Family package with complete Listings and one copy of each physic
     });
     assert.equal(result.verification.ok, true);
   });
+});
+
+test('promoted legacy secondary finalizes and delivers with normalized immutable ownership', async () => {
+  await withTempWorkspace(async root => {
+    const project = await approvedProject(root);
+    const legacy = reopenWithPromotedLegacySecondary(project);
+    const state = approveVariationVersion(legacy.state, {
+      userAction: 'approved', now: '2026-08-27T08:01:00.000Z'
+    });
+    const finalApproval = state.approvals.at(-1);
+    assert.deepEqual(finalApproval.asset_map.child_secondary['HORSE-12X16'], [{
+      artifact_id: 'horse-12x16-size',
+      path: 'children/HORSE-12X16/assets/size.png',
+      sha256: legacy.asset.sha256,
+      approval_id: legacy.approval.id,
+      approval_scope_type: null,
+      child_sku: 'HORSE-12X16',
+      product_master_version: 1
+    }]);
+    await writeFile(
+      path.join(project.projectDir, 'state.json'),
+      `${JSON.stringify(state, null, 2)}\n`
+    );
+
+    const result = await buildVariationDelivery({
+      projectDir: project.projectDir,
+      outputDir: path.join(project.projectDir, 'delivery', 'promoted-legacy'),
+      finalApproval
+    });
+    assert.equal(result.verification.ok, true);
+  });
+});
+
+test('promoted legacy secondary rejects any present mismatched ownership binding', async t => {
+  for (const [name, mutate] of [
+    ['Child owner', approval => { approval.child_sku = 'KIDS-12X16'; }],
+    ['Product Master version', approval => { approval.product_master_version = 99; }]
+  ]) {
+    await t.test(name, async () => {
+      await withTempWorkspace(async root => {
+        const project = await approvedProject(root);
+        const legacy = reopenWithPromotedLegacySecondary(project);
+        mutate(legacy.approval);
+
+        assert.throws(
+          () => approveVariationVersion(legacy.state, {
+            userAction: 'approved', now: '2026-08-27T08:01:00.000Z'
+          }),
+          error => error.code === 'BLOCKING_INPUT'
+        );
+      });
+    });
+  }
 });
 
 test('Child-only delivery excludes unrelated Child artifacts and rows', async () => {
@@ -468,6 +542,35 @@ test('build rejects drift in a currently approved shared asset dependency bindin
   });
 });
 
+test('build rejects coordinated shared scope mutation against the frozen final scope', async () => {
+  await withTempWorkspace(async root => {
+    const project = await approvedProject(root);
+    const approval = project.state.approvals.find(item => (
+      item.scope_type === 'shared_image' && item.artifact_id === 'material-v1'
+    ));
+    const declared = ['HORSE-12X16', 'KIDS-12X16'];
+    approval.asset_scope = 'subset_shared';
+    approval.declared_child_skus = declared;
+    project.state.variation.shared_assets['material-v1'].scope = {
+      type: 'subset_shared', child_skus: declared
+    };
+    await writeFile(
+      path.join(project.projectDir, 'state.json'),
+      `${JSON.stringify(project.state, null, 2)}\n`
+    );
+
+    await assert.rejects(
+      buildVariationDelivery({
+        projectDir: project.projectDir,
+        outputDir: path.join(project.projectDir, 'delivery', 'coordinated-shared-scope'),
+        finalApproval: project.finalApproval
+      }),
+      error => error.code === 'BUNDLE_INVALID'
+        && error.details?.reason === 'APPROVAL_SCOPE_MISMATCH'
+    );
+  });
+});
+
 test('build rejects mutated scoped approval identity with unchanged IDs, paths, and hashes', async t => {
   const cases = [
     ['Child main owner', state => {
@@ -476,6 +579,12 @@ test('build rejects mutated scoped approval identity with unchanged IDs, paths, 
     }],
     ['Child secondary Product Master binding', state => {
       state.approvals.find(item => item.id === 'approval-horse-12x16-size').product_master_version = 99;
+    }],
+    ['Child secondary scope changed to Child main', state => {
+      state.approvals.find(item => item.id === 'approval-horse-12x16-size').scope_type = 'child_main';
+    }],
+    ['Child secondary scope changed to shared image', state => {
+      state.approvals.find(item => item.id === 'approval-horse-12x16-size').scope_type = 'shared_image';
     }],
     ['shared immutable scope', state => {
       state.approvals.find(item => item.scope_type === 'shared_image' && item.artifact_id === 'material-v1').asset_scope

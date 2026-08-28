@@ -150,7 +150,8 @@ async function fullyApprovedState() {
       path, sha256: secondaryHash, approval_id: approvalId, approved_at: now, product_master_version: 1
     };
     state.approvals.push({
-      id: approvalId, type: 'image', artifact_id: artifactId, child_sku: sku, path,
+      id: approvalId, type: 'image', scope_version: 1, scope_type: 'child_secondary',
+      artifact_id: artifactId, child_sku: sku, path,
       sha256: secondaryHash, product_master_version: 1, approved_at: now, user_action: 'approved'
     });
   }
@@ -481,7 +482,10 @@ test('final asset map includes approved Child-specific secondary assets', async 
     artifact_id: 'horse-12x16-size',
     path: 'children/HORSE-12X16/assets/size.png',
     sha256: hash('d'),
-    approval_id: 'approval-horse-12x16-size'
+    approval_id: 'approval-horse-12x16-size',
+    approval_scope_type: 'child_secondary',
+    child_sku: 'HORSE-12X16',
+    product_master_version: 1
   }]);
 });
 
@@ -562,6 +566,8 @@ test('final approval freezes the complete Variation scope', async () => {
   assert.equal(Object.keys(approval.asset_map.child_main).length, 2);
   assert.equal(Object.keys(approval.asset_map.child_secondary).length, 2);
   assert.equal(Object.keys(approval.asset_map.shared).length, 1);
+  assert.equal(approval.asset_map.shared['material-v1'].asset_scope, 'shared_asset');
+  assert.deepEqual(approval.asset_map.shared['material-v1'].declared_child_skus, []);
   assert.deepEqual(approval.child_variations[0], {
     child_sku: 'HORSE-12X16',
     variation_values: {color_name: 'Horse Crossing', size_name: '12 x 16 in'}

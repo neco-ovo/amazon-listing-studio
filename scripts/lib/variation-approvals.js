@@ -550,12 +550,22 @@ function finalChildSecondaries(state, child) {
     if (artifactId === child.product_master?.approved_main_id || asset?.kind === 'main' || asset?.status !== 'approved') continue;
     const approval = state.approvals.find(item => item.id === asset.approval_id);
     const isLegacy = child.legacy_refs?.gallery_asset_ids?.includes(artifactId) === true;
-    if (!approval || approval.type !== 'image' || approval.scope_type !== undefined
+    const approvalScope = approval?.scope_type ?? null;
+    const explicitScope = approvalScope === 'child_secondary';
+    const legacyScope = approvalScope === null && isLegacy;
+    if (!approval || approval.type !== 'image' || (!explicitScope && !legacyScope)
+        || (explicitScope ? approval.scope_version !== 1 : approval.scope_version !== undefined)
         || approval.user_action !== 'approved' || approval.artifact_id !== artifactId
         || approval.path !== asset.path || approval.sha256 !== asset.sha256
-        || (asset.child_sku && asset.child_sku !== child.sku)
+        || (explicitScope && asset.child_sku !== child.sku)
+        || (asset.child_sku !== undefined && asset.child_sku !== child.sku)
+        || (explicitScope && asset.product_master_version !== child.product_master.version)
+        || (asset.product_master_version !== undefined
+          && asset.product_master_version !== child.product_master.version)
         || (!isLegacy && !canonicalChildAssetPath(child.sku, asset.path))
-        || (approval.child_sku && approval.child_sku !== child.sku)
+        || (explicitScope && approval.child_sku !== child.sku)
+        || (approval.child_sku !== undefined && approval.child_sku !== child.sku)
+        || (explicitScope && approval.product_master_version !== child.product_master.version)
         || (approval.product_master_version !== undefined
           && approval.product_master_version !== child.product_master.version)) {
       fail('BLOCKING_INPUT', 'Child-specific secondary approval binding is invalid', {
@@ -566,7 +576,10 @@ function finalChildSecondaries(state, child) {
       artifact_id: artifactId,
       path: approval.path,
       sha256: approval.sha256,
-      approval_id: approval.id
+      approval_id: approval.id,
+      approval_scope_type: approvalScope,
+      child_sku: child.sku,
+      product_master_version: child.product_master.version
     });
   }
   return secondary;
@@ -687,6 +700,8 @@ function finalSharedScope(state, childSkus, {version, now, userAction}) {
       path: approval.path,
       sha256: approval.sha256,
       approval_id: approval.id,
+      asset_scope: approval.asset_scope,
+      declared_child_skus: structuredClone(approval.declared_child_skus),
       fact_dependencies: structuredClone(approval.fact_dependencies),
       child_skus: applicable
     };

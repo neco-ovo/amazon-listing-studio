@@ -1,11 +1,12 @@
 #!/usr/bin/env node
+import {createHash} from 'node:crypto';
 import { access, mkdir, readFile, readdir, rename, stat, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import sharp from 'sharp';
 import { classifyOperation, validateChangedListing } from './lib/operations.js';
 import { createProjectState, renderProjectSummary, validateProjectState } from './lib/project-state.js';
-import { approveArtifact, approveListingDraft, hashApprovalFile, updateProject } from './lib/transactions.js';
+import { approveArtifact, approveListingDraft, updateProject } from './lib/transactions.js';
 import { migrateLegacyProject } from './lib/migration.js';
 import { validateMainImage } from './lib/images.js';
 import { renderListing, reviseDraft } from './lib/listing-drafts.js';
@@ -200,17 +201,17 @@ function projectOutputPath(projectDir, requestedPath, label) {
   return resolved;
 }
 
-async function defaultDecode(filePath) {
-  const metadata = await sharp(filePath).metadata();
+async function defaultDecode(_filePath, _candidate, {fileBytes} = {}) {
+  const metadata = await sharp(fileBytes ?? _filePath).metadata();
   if (!(metadata.width > 0) || !(metadata.height > 0)) {
     throw Object.assign(new Error('Candidate raster has invalid dimensions'), {code: 'CAPABILITY_FAILURE'});
   }
   return {width: metadata.width, height: metadata.height, format: metadata.format};
 }
 
-async function defaultCheck({filePath, candidate}) {
+async function defaultCheck({filePath, fileBytes, candidate}) {
   if (candidate.kind !== 'main') return {ok: true, failures: []};
-  return validateMainImage(filePath, candidate.check_options ?? {});
+  return validateMainImage(fileBytes ?? filePath, candidate.check_options ?? {});
 }
 
 async function defaultInspect({candidate}) {
@@ -348,8 +349,7 @@ function variationArtifactExists(state, artifactId) {
 export async function runRecordVariationCandidate({projectDir, candidate}, {
   decode = defaultDecode,
   check = defaultCheck,
-  inspect = defaultInspect,
-  hashFile
+  inspect = defaultInspect
 } = {}) {
   const current = await defaultLoadState(projectDir);
   assertVariationCandidateScope(current, candidate);
@@ -357,14 +357,18 @@ export async function runRecordVariationCandidate({projectDir, candidate}, {
     throw blocking('Variation artifact ID already exists', {artifact_id: candidate.artifactId});
   }
   const filePath = candidatePath(projectDir, candidate.path);
+  const fileBytes = await readFile(filePath);
+  const snapshotSha256 = createHash('sha256').update(fileBytes).digest('hex');
   const normalizedCandidate = {...candidate, kind: variationCandidateKind(candidate)};
-  const decoded = await decode(filePath, normalizedCandidate);
-  const deterministic = await check({filePath, candidate: normalizedCandidate, decoded});
-  const inspection = await inspect({filePath, candidate: normalizedCandidate, decoded, deterministic});
+  const decoded = await decode(filePath, normalizedCandidate, {fileBytes: Buffer.from(fileBytes)});
+  const deterministic = await check({
+    filePath, fileBytes: Buffer.from(fileBytes), candidate: normalizedCandidate, decoded
+  });
+  const inspection = await inspect({
+    filePath, fileBytes: Buffer.from(fileBytes), candidate: normalizedCandidate, decoded, deterministic
+  });
   const passed = deterministic?.ok === true && inspection?.status === 'pass';
-  const candidateSha256 = passed
-    ? await hashApprovalFile(candidate.path, {projectDir, hashFile})
-    : null;
+  const candidateSha256 = passed ? snapshotSha256 : null;
   const reasonCodes = [...new Set([
     ...(deterministic?.failures ?? []).map(failure => failure.code).filter(Boolean),
     ...(inspection?.reason_codes ?? []),
