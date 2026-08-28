@@ -60,6 +60,36 @@ test('rejects whitespace-padded child SKU keys', () => {
   assert.equal(validateVariationExtension(variation).valid, false);
 });
 
+test('rejects Child SKUs that are unsafe portable directory names', () => {
+  for (const childSku of [
+    'CON', 'prn.txt', 'AUX', 'NUL.json', 'COM1', 'lpt9.bin',
+    'SKU.', 'SKU ', 'SKU/ONE', 'SKU\\ONE', '.', '..'
+  ]) {
+    const variation = createVariationExtension({
+      parentSku: 'SIGN-PARENT', dimensions: ['size_name'], firstChildSku: childSku,
+      firstChildFacts: {size_name: '12 x 16 in'}
+    });
+
+    const validation = validateVariationExtension(variation);
+    assert.equal(validation.valid, false, childSku);
+    assert.match(validation.errors.join('\n'), /child SKU.+(?:unsafe|directory)/i, childSku);
+  }
+});
+
+test('rejects case-insensitive Child SKU directory collisions', () => {
+  const variation = createVariationExtension({
+    parentSku: 'SIGN-PARENT', dimensions: ['size_name'], firstChildSku: 'ABC',
+    firstChildFacts: {size_name: '12 x 16 in'}
+  });
+  variation.children.abc = structuredClone(variation.children.ABC);
+  variation.children.abc.sku = 'abc';
+  variation.children.abc.variation_values.size_name = '8 x 12 in';
+
+  const validation = validateVariationExtension(variation);
+  assert.equal(validation.valid, false);
+  assert.match(validation.errors.join('\n'), /case-insensitive|directory collision/i);
+});
+
 test('selects only an exact category-permitted compound theme', () => {
   assert.deepEqual(selectVariationTheme({
     allowedThemes: [['size_name'], ['color_name', 'size_name']],

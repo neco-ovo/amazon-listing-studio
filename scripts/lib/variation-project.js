@@ -5,6 +5,7 @@ import { validateProjectState } from './project-state.js';
 import { updateProject } from './transactions.js';
 import { evaluateSharedAssetApplicability } from './variation-images.js';
 import {
+  childSkuDirectoryKey,
   computeCommonFacts,
   createVariationExtension,
   selectVariationTheme,
@@ -158,7 +159,7 @@ function recomputeSharedApplicability(variation, now) {
 }
 
 function validateChildSku(sku) {
-  if (typeof sku !== 'string' || sku !== sku.trim() || !/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(sku)) {
+  if (!childSkuDirectoryKey(sku)) {
     fail('BLOCKING_INPUT', 'Child SKU is unsafe or invalid', {sku: sku ?? null});
   }
 }
@@ -199,6 +200,16 @@ function assertCompleteTuple(variation, values, facts) {
 function assertUniqueChild(variation, sku, values) {
   if (Object.hasOwn(variation.children, sku)) {
     fail('BLOCKING_INPUT', 'Child SKU already exists', {sku});
+  }
+  const directoryKey = childSkuDirectoryKey(sku);
+  const directoryCollision = Object.keys(variation.children).find(existingSku => (
+    childSkuDirectoryKey(existingSku) === directoryKey
+  ));
+  if (directoryCollision) {
+    fail('BLOCKING_INPUT', 'Child SKU has a case-insensitive directory collision', {
+      sku,
+      existing_sku: directoryCollision
+    });
   }
   const tuple = variationTupleKey(variation.theme.dimensions, values);
   const duplicate = Object.values(variation.children).find(child => (

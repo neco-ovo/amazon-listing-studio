@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {readFile, writeFile} from 'node:fs/promises';
+import {access, mkdir, readFile, unlink, writeFile} from 'node:fs/promises';
 import path from 'node:path';
 
 import {createProjectState, renderProjectSummary} from '../../scripts/lib/project-state.js';
@@ -140,6 +140,27 @@ test('adding rejects a reused SKU or active variation tuple', () => {
       error => error.code === 'BLOCKING_INPUT'
     );
   }
+});
+
+test('adding rejects Windows-unsafe and case-folded sibling Child directory keys', () => {
+  for (const sku of ['CON', 'SKU.']) {
+    assert.throws(
+      () => addVariationChild(variationState(), {
+        sku, variation_values: {size_name: '8 x 12 in'},
+        facts: {size_name: fact('8 x 12 in')}, now: later
+      }),
+      error => error.code === 'BLOCKING_INPUT' && /SKU|directory/i.test(error.message),
+      sku
+    );
+  }
+
+  assert.throws(
+    () => addVariationChild(variationState(), {
+      sku: 'sku-12x16', variation_values: {size_name: '8 x 12 in'},
+      facts: {size_name: fact('8 x 12 in')}, now: later
+    }),
+    error => error.code === 'BLOCKING_INPUT' && /collision|exists/i.test(error.message)
+  );
 });
 
 test('adding does not reuse a preserved inactive Child tuple', () => {
@@ -381,5 +402,63 @@ test('JSON-file Child CLI commands persist add, revise, and soft removal', async
     const saved = JSON.parse(await readFile(path.join(projectDir, 'state.json'), 'utf8'));
     assert.equal(saved.variation.children['SKU-8X12'].active, false);
     assert.equal(saved.variation.children['SKU-8X12'].listing.draft.content.title, 'Updated Child Title');
+  });
+});
+
+test('add-child preflights occupied workspace paths before state mutation and remains retryable', async () => {
+  await withTempWorkspace(async projectDir => {
+    const state = variationState();
+    const statePath = path.join(projectDir, 'state.json');
+    await writeFile(statePath, `${JSON.stringify(state, null, 2)}\n`);
+    await writeFile(path.join(projectDir, 'project.md'), renderProjectSummary(state));
+
+    const inputPath = path.join(projectDir, 'add-occupied.json');
+    await writeFile(inputPath, JSON.stringify({
+      sku: 'SKU-8X12', variation_values: {size_name: '8 x 12 in'},
+      facts: {material: fact('aluminum'), size_name: fact('8 x 12 in')}, now: later
+    }));
+    const childRoot = path.join(projectDir, 'children', 'SKU-8X12');
+    const occupiedAssets = path.join(childRoot, 'assets');
+    await mkdir(childRoot, {recursive: true});
+    await writeFile(occupiedAssets, 'occupied by a file');
+    const before = await readFile(statePath, 'utf8');
+
+    const failed = await runCli(['add-child', '--project-dir', projectDir, '--input', inputPath]);
+
+    assert.equal(failed.ok, false);
+    assert.equal(failed.code, 'BLOCKING_INPUT');
+    assert.match(failed.message, /workspace|directory|occupied/i);
+    assert.equal(await readFile(statePath, 'utf8'), before);
+
+    await unlink(occupiedAssets);
+    const retried = await runCli(['add-child', '--project-dir', projectDir, '--input', inputPath]);
+    assert.equal(retried.ok, true);
+    await access(path.join(childRoot, 'assets'));
+    await access(path.join(childRoot, 'listing'));
+    const saved = JSON.parse(await readFile(statePath, 'utf8'));
+    assert.equal(saved.variation.children['SKU-8X12'].sku, 'SKU-8X12');
+  });
+});
+
+test('add-child rejects case-insensitive sibling directory collisions before mutation', async () => {
+  await withTempWorkspace(async projectDir => {
+    const state = variationState();
+    const statePath = path.join(projectDir, 'state.json');
+    await writeFile(statePath, `${JSON.stringify(state, null, 2)}\n`);
+    await writeFile(path.join(projectDir, 'project.md'), renderProjectSummary(state));
+    const inputPath = path.join(projectDir, 'add-case-collision.json');
+    await writeFile(inputPath, JSON.stringify({
+      sku: 'sku-12x16', variation_values: {size_name: '8 x 12 in'},
+      facts: {material: fact('aluminum'), size_name: fact('8 x 12 in')}, now: later
+    }));
+    const before = await readFile(statePath, 'utf8');
+
+    const result = await runCli(['add-child', '--project-dir', projectDir, '--input', inputPath]);
+
+    assert.equal(result.ok, false);
+    assert.equal(result.code, 'BLOCKING_INPUT');
+    assert.match(result.message, /collision|exists/i);
+    assert.equal(await readFile(statePath, 'utf8'), before);
+    await assert.rejects(access(path.join(projectDir, 'children', 'sku-12x16')));
   });
 });

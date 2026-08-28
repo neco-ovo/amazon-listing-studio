@@ -1,5 +1,6 @@
 const VARIATION_SCHEMA_VERSION = 1;
 const SKU_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
+const WINDOWS_DEVICE_PATTERN = /^(?:con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\.|$)/i;
 const CONFIRMED_FACT_STATUSES = new Set(['user_confirmed']);
 
 function normalizedText(value) {
@@ -42,6 +43,11 @@ function blockingInput(message) {
 
 function validSku(value) {
   return typeof value === 'string' && value === value.trim() && SKU_PATTERN.test(value);
+}
+
+export function childSkuDirectoryKey(value) {
+  if (!validSku(value) || /[. ]$/.test(value) || WINDOWS_DEVICE_PATTERN.test(value)) return null;
+  return value.toLocaleLowerCase('en-US');
 }
 
 export function variationTupleKey(dimensions, values) {
@@ -214,9 +220,15 @@ export function validateVariationExtension(variation) {
     errors.push('variation.children must contain at least one child');
   } else {
     const tupleKeys = new Set();
+    const childDirectoryKeys = new Map();
     for (const [childSku, child] of Object.entries(variation.children)) {
-      if (!validSku(childSku) || !validSku(child?.sku) || childSku !== child?.sku) {
+      const directoryKey = childSkuDirectoryKey(childSku);
+      if (!directoryKey || !childSkuDirectoryKey(child?.sku) || childSku !== child?.sku) {
         errors.push(`variation child SKU is unsafe or invalid: ${childSku}`);
+      } else if (childDirectoryKeys.has(directoryKey)) {
+        errors.push(`variation child SKU has a case-insensitive directory collision: ${childSku}`);
+      } else {
+        childDirectoryKeys.set(directoryKey, childSku);
       }
       if (!child || Array.isArray(child) || typeof child !== 'object') {
         errors.push(`variation child must be an object: ${childSku}`);

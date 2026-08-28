@@ -74,3 +74,41 @@ The official validator required `PyYAML`, which was installed only in a temporar
 ## Concerns
 
 None blocking. The E2E intentionally stops at prepared scoped outputs rather than reconstructing Task 7 approval fixtures through private APIs; immutable approval and Family/Child delivery behavior remain covered by their dedicated public-routing, unit, and workflow suites.
+
+## Fix Round 1 — Transaction Ordering and Portable Child Directories
+
+### Review findings addressed
+
+- `add-child` now reads the current state and runs the pure Child mutation validation before any filesystem work, then preflights/creates the scoped Child workspace before calling the atomic state transaction. An occupied file or directory-permission failure therefore occurs before state persistence; existing state remains byte-for-byte unchanged and the same command can be retried after the filesystem issue is corrected.
+- Child SKU validation now exposes one portable directory-key contract shared by stored Variation validation and incremental operations. It rejects Windows reserved device basenames (including names with extensions), trailing dot/space, separators and traversal forms, and case-insensitive collisions with every preserved sibling key, including inactive Children.
+- Existing safe ASCII SKU syntax with letters, digits, dot, underscore, and hyphen remains available when it maps to a unique portable directory.
+
+### TDD evidence
+
+The first RED test placed a file at `children/SKU-8X12/assets`. The old CLI returned `EEXIST` after it had already persisted the new Child. After moving workspace validation before `updateProject`, the test received `BLOCKING_INPUT`, confirmed identical saved state, removed the file, and successfully retried.
+
+The second RED cycle showed that stored validation and `addVariationChild` accepted `CON`, `SKU.`, and sibling keys differing only by case (`SKU-12X16` versus `sku-12x16`). Unit, direct workflow, and public CLI tests all failed before the shared directory-key contract was added and passed afterward.
+
+### Verification evidence
+
+```text
+node --test tests/unit/variations.test.js tests/unit/project-state.test.js tests/workflow/variation-project.test.js tests/workflow/variation-operations.test.js tests/workflow/variation-end-to-end.test.js tests/workflow/studio-cli.test.js
+npm test -- --test-reporter=tap
+node --check scripts/lib/variations.js
+node --check scripts/lib/variation-project.js
+node --check scripts/studio.js
+node --check tests/unit/variations.test.js
+node --check tests/workflow/variation-operations.test.js
+git diff --check
+```
+
+Fresh results: focused Variation/project/CLI regression 54/54 passed; full suite 353/353 passed; all syntax and diff checks exited 0. No Skill entrypoint or reference file changed in Fix Round 1, so `quick_validate.py` was not repeated; the official Skill validation from the Task 9 commit remains applicable.
+
+### Self-review
+
+- Failure ordering: filesystem preflight is complete before atomic state replacement begins.
+- Retryability: pre-existing safe directories are accepted, partial empty directories are harmless, and occupied paths do not consume a Child SKU or tuple.
+- Portability: persisted Variation state itself rejects ambiguous Child directory keys, preventing later commands from operating on a non-portable family.
+- Scope: no Listing, image, approval, delivery, single-product, or Skill guidance behavior changed.
+
+No blocking concerns.

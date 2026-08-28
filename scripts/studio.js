@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { access, mkdir, readFile, readdir, rename, writeFile } from 'node:fs/promises';
+import { access, mkdir, readFile, readdir, rename, stat, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import sharp from 'sharp';
@@ -299,7 +299,21 @@ async function defaultLoadState(projectDir) {
 
 async function ensureChildWorkspace(projectDir, childSku) {
   for (const relative of [`children/${childSku}/assets`, `children/${childSku}/listing`]) {
-    await mkdir(path.join(projectDir, ...relative.split('/')), {recursive: true});
+    const target = path.join(projectDir, ...relative.split('/'));
+    try {
+      const entry = await stat(target);
+      if (!entry.isDirectory()) throw blocking('Child workspace path is occupied by a file', {path: relative});
+    } catch (error) {
+      if (error.code !== 'ENOENT') throw error;
+      try {
+        await mkdir(target, {recursive: true});
+      } catch (mkdirError) {
+        if (['EEXIST', 'ENOTDIR'].includes(mkdirError.code)) {
+          throw blocking('Child workspace path is occupied by a file', {path: relative});
+        }
+        throw mkdirError;
+      }
+    }
   }
 }
 
@@ -392,8 +406,12 @@ export async function runCli(argv, {
         : command === 'revise-child'
           ? reviseVariationChild
           : removeVariationChild;
+      if (command === 'add-child') {
+        const current = await defaultLoadState(projectDir);
+        mutate(current, operationInput);
+        await ensureChildWorkspace(projectDir, operationInput.sku);
+      }
       result = await updateProject(projectDir, state => mutate(state, operationInput));
-      if (command === 'add-child') await ensureChildWorkspace(projectDir, operationInput.sku);
     }
     else if (command === 'record-candidate') {
       const projectDir = path.resolve(requireOption(options, 'project-dir'));
