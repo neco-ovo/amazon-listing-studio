@@ -15,6 +15,7 @@ import {
 } from '../../scripts/lib/variation-approvals.js';
 import {buildVariationDelivery, verifyVariationDelivery} from '../../scripts/lib/variation-bundle.js';
 import {materializeChildListing} from '../../scripts/lib/variation-listing.js';
+import {reviseVariationChild} from '../../scripts/lib/variation-project.js';
 import {sha256File} from '../../scripts/lib/bundle.js';
 import {withTempWorkspace} from '../helpers/temp-workspace.js';
 
@@ -388,6 +389,69 @@ test('build rejects stale approval, unsafe paths, and incomplete selections', as
         );
       }
     });
+  });
+});
+
+test('build rejects an old final approval after a Child revision leaves versions unchanged', async () => {
+  await withTempWorkspace(async root => {
+    const project = await approvedProject(root);
+    const revised = reviseVariationChild(project.state, {
+      sku: 'HORSE-12X16',
+      factPatch: {finish: fact('matte')},
+      now: '2026-08-27T09:00:00.000Z'
+    });
+    assert.equal(revised.variation.children['HORSE-12X16'].product_master.version, 1);
+    assert.equal(revised.variation.children['HORSE-12X16'].listing.approved.at(-1).version, 1);
+    await writeFile(path.join(project.projectDir, 'state.json'), `${JSON.stringify(revised, null, 2)}\n`);
+
+    await assert.rejects(
+      buildVariationDelivery({
+        projectDir: project.projectDir,
+        outputDir: path.join(project.projectDir, 'delivery', 'stale-after-revision'),
+        finalApproval: project.finalApproval
+      }),
+      error => error.code === 'BUNDLE_INVALID'
+        && error.details?.reason === 'APPROVAL_SCOPE_MISMATCH'
+    );
+  });
+});
+
+test('Child-only build still accepts an unaffected selected Child after a sibling-only revision', async () => {
+  await withTempWorkspace(async root => {
+    const project = await approvedProject(root);
+    const revised = reviseVariationChild(project.state, {
+      sku: 'HORSE-12X16',
+      factPatch: {finish: fact('matte')},
+      now: '2026-08-27T09:00:00.000Z'
+    });
+    await writeFile(path.join(project.projectDir, 'state.json'), `${JSON.stringify(revised, null, 2)}\n`);
+
+    const result = await buildVariationDelivery({
+      projectDir: project.projectDir,
+      outputDir: path.join(project.projectDir, 'delivery', 'unaffected-kids'),
+      finalApproval: project.finalApproval,
+      childSkus: ['KIDS-12X16']
+    });
+    assert.equal(result.verification.ok, true);
+    assert.deepEqual(result.manifest.delivery_scope.child_skus, ['KIDS-12X16']);
+  });
+});
+
+test('build rejects drift in a currently approved shared asset dependency binding', async () => {
+  await withTempWorkspace(async root => {
+    const project = await approvedProject(root);
+    project.state.variation.shared_assets['material-v1'].fact_dependencies = {material: 'steel'};
+    await writeFile(path.join(project.projectDir, 'state.json'), `${JSON.stringify(project.state, null, 2)}\n`);
+
+    await assert.rejects(
+      buildVariationDelivery({
+        projectDir: project.projectDir,
+        outputDir: path.join(project.projectDir, 'delivery', 'stale-shared-dependency'),
+        finalApproval: project.finalApproval
+      }),
+      error => error.code === 'BUNDLE_INVALID'
+        && error.details?.reason === 'APPROVAL_SCOPE_MISMATCH'
+    );
   });
 });
 

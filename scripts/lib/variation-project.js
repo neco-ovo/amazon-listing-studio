@@ -331,6 +331,18 @@ export function reviseVariationChild(state, input = {}) {
       fail('BLOCKING_INPUT', 'revise-child cannot modify the Variation theme or tuple', {field});
     }
   }
+  for (const field of state.variation.theme.dimensions) {
+    if (Object.hasOwn(factPatch ?? {}, field)
+        && normalizedSemanticValue(factPatch[field]) !== normalizedSemanticValue(existing.variation_values[field])) {
+      fail('BLOCKING_INPUT', 'A theme-dimension fact requires an explicit tuple-changing full operation', {
+        field,
+        child_sku: sku,
+        variation_value: existing.variation_values[field],
+        requested_fact: factValue(factPatch[field]),
+        required_operation: 'change_variation_tuple'
+      });
+    }
+  }
 
   const rawListingPatch = record(listingPatch?.fields) ? listingPatch.fields : listingPatch;
   assertListingPatchAllowed(listingPatch);
@@ -481,6 +493,32 @@ function assertApprovalComplete(state) {
   }
 }
 
+function assertPromotionTupleMatchesSourceFacts(state, variation) {
+  const child = variation.children[firstChildSku(variation)];
+  const mismatched = [];
+  for (const dimension of variation.theme.dimensions) {
+    const sourceFacts = [];
+    if (supportedFact(state.facts?.[dimension])) sourceFacts.push(state.facts[dimension]);
+    if (state.product_master?.status === 'locked') {
+      for (const source of [
+        state.product_master?.facts?.[dimension],
+        state.product_master?.variation_values?.[dimension],
+        state.product_master?.identity?.[dimension]
+      ]) {
+        if (normalizedSemanticValue(source)) sourceFacts.push(source);
+      }
+    }
+    if (sourceFacts.some(source => (
+      normalizedSemanticValue(source) !== normalizedSemanticValue(child.variation_values[dimension])
+    ))) mismatched.push(dimension);
+  }
+  if (mismatched.length > 0) {
+    fail('BLOCKING_INPUT', 'Promotion Variation tuple conflicts with confirmed or locked source facts', {
+      fields: mismatched
+    });
+  }
+}
+
 function firstChildSku(variation) {
   return Object.keys(variation.children ?? {})[0] ?? null;
 }
@@ -571,7 +609,10 @@ export async function promoteToVariation({
   }
 
   if (current.variation) assertMatchingPromotion(current.variation, desired);
-  else assertApprovalComplete(current);
+  else {
+    assertApprovalComplete(current);
+    assertPromotionTupleMatchesSourceFacts(current, desired);
+  }
   const created = await ensureDirectories(root, childSku);
 
   if (current.variation && current.project.mode === 'variation_family') {

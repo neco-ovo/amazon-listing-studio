@@ -25,6 +25,7 @@ function normalizedText(value) {
     .normalize('NFKC')
     .toLocaleLowerCase('en-US')
     .replace(/[×✕]/gu, ' x ')
+    .replace(/(\d)\s*x\s*(\d)/g, '$1 x $2')
     .replace(/\b(?:inches|inch|in)\b/g, 'in')
     .match(/[\p{L}\p{N}]+/gu)?.join(' ') ?? '';
 }
@@ -115,22 +116,39 @@ function phraseTokens(value) {
   return String(value ?? '')
     .normalize('NFKC')
     .replace(/[×✕]/gu, ' x ')
+    .replace(/(\d)\s*x\s*(\d)/gi, '$1 x $2')
     .match(/[\p{L}\p{N}]+/gu) ?? [];
 }
 
 function residualForeignPhrase(value, protectedValues) {
+  const candidateText = normalizedText(value);
+  if (protectedValues.some(own => normalizedText(own).includes(candidateText))) return null;
+
   const originalTokens = phraseTokens(value);
-  const candidate = originalTokens.map(normalizedText);
-  for (const protectedValue of protectedValues) {
-    const protectedTokens = phraseTokens(protectedValue).map(normalizedText);
-    if (protectedTokens.length === 0 || protectedTokens.length >= candidate.length) continue;
-    for (let start = 0; start <= candidate.length - protectedTokens.length; start += 1) {
-      if (!protectedTokens.every((token, index) => candidate[start + index] === token)) continue;
-      const residual = [...originalTokens.slice(0, start), ...originalTokens.slice(start + protectedTokens.length)].join(' ');
-      if (normalizedText(residual) && !protectedValues.some(own => phraseOverlaps(residual, own))) return residual;
+  const normalizedTokens = originalTokens.map(normalizedText);
+  const protectedPhrases = protectedValues.flatMap(protectedValue => {
+    const tokens = phraseTokens(protectedValue).map(normalizedText);
+    if (tokens.at(-1) === 'in') return [tokens, tokens.slice(0, -1)];
+    return [tokens];
+  }).filter(tokens => tokens.length > 0)
+    .sort((left, right) => right.length - left.length);
+
+  let removed = true;
+  while (removed) {
+    removed = false;
+    for (const protectedTokens of protectedPhrases) {
+      for (let start = 0; start <= normalizedTokens.length - protectedTokens.length; start += 1) {
+        if (!protectedTokens.every((token, index) => normalizedTokens[start + index] === token)) continue;
+        originalTokens.splice(start, protectedTokens.length);
+        normalizedTokens.splice(start, protectedTokens.length);
+        removed = true;
+        break;
+      }
+      if (removed) break;
     }
   }
-  return null;
+  const residual = originalTokens.join(' ');
+  return normalizedText(residual) ? residual : null;
 }
 
 function forbiddenSiblingVisible(family, child, required) {

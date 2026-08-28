@@ -193,6 +193,32 @@ function latestApprovedListing(owner) {
   return owner?.listing?.approved?.at(-1);
 }
 
+function currentChildAsset(state, child, artifactId) {
+  const candidates = [
+    child.assets?.[artifactId],
+    child.gallery?.assets?.[artifactId],
+    state.variation.child_assets?.[child.sku]?.[artifactId]
+  ];
+  const legacy = state.gallery?.assets?.[artifactId];
+  if (legacy && (child.legacy_refs?.gallery_asset_ids?.includes(artifactId)
+      || child.product_master?.approved_main_id === artifactId)) candidates.push(legacy);
+  return candidates.find(Boolean) ?? null;
+}
+
+function assertCurrentAssetBinding(state, child, frozen, scopeType = null) {
+  const current = currentChildAsset(state, child, frozen.artifact_id);
+  const approval = approvalById(state, frozen.approval_id, scopeType);
+  if (current?.status !== 'approved' || current.path !== frozen.path || current.sha256 !== frozen.sha256
+      || current.approval_id !== frozen.approval_id
+      || approval.artifact_id !== frozen.artifact_id || approval.path !== frozen.path
+      || approval.sha256 !== frozen.sha256) {
+    throw invalid('APPROVAL_SCOPE_MISMATCH', 'A current Child asset binding is stale or unapproved.', {
+      child_sku: child.sku,
+      artifact_id: frozen.artifact_id
+    });
+  }
+}
+
 function validateListingSnapshot({
   state, snapshot, approvalId, version, scopeType, expectedContentHash, child = null
 }) {
@@ -231,7 +257,7 @@ function validateListingSnapshot({
   return snapshot;
 }
 
-function validateCurrentScope(state, approval) {
+function validateCurrentScope(state, approval, selectedSkus) {
   const dimensions = approval.theme_dimensions;
   if (!Array.isArray(dimensions) || dimensions.length === 0
       || !isDeepStrictEqual(dimensions, state.variation.theme?.dimensions)
@@ -252,6 +278,10 @@ function validateCurrentScope(state, approval) {
   assertUniqueTuples(dimensions, approval.child_variations);
 
   const parentSnapshot = latestApprovedListing(state.variation.parent);
+  if (state.variation.parent?.status !== 'approved'
+      || state.variation.parent?.listing?.status !== 'approved') {
+    throw invalid('APPROVAL_SCOPE_MISMATCH', 'Parent Listing is not currently approved.');
+  }
   validateListingSnapshot({
     state, snapshot: parentSnapshot, approvalId: approval.parent_listing_approval_id,
     version: approval.parent_version, scopeType: 'parent_listing',
@@ -271,6 +301,12 @@ function validateCurrentScope(state, approval) {
         || version.product_master_version !== child.product_master?.version) {
       throw invalid('APPROVAL_SCOPE_MISMATCH', 'A Child scope changed after final approval.', {child_sku: child.sku});
     }
+    if (!selectedSkus.has(child.sku)) continue;
+    if (child.product_master?.status !== 'locked' || child.listing?.status !== 'approved') {
+      throw invalid('APPROVAL_SCOPE_MISMATCH', 'A Child Product Master or Listing is not currently approved.', {
+        child_sku: child.sku
+      });
+    }
     validateListingSnapshot({
       state, snapshot: latestApprovedListing(child), approvalId: version.listing_approval_id,
       version: version.listing_version, scopeType: 'child_listing',
@@ -283,12 +319,31 @@ function validateCurrentScope(state, approval) {
       throw invalid('APPROVAL_SCOPE_MISMATCH', 'A Child main-image mapping is stale.', {child_sku: child.sku});
     }
     approvalById(state, main.approval_id, 'child_main');
+    assertCurrentAssetBinding(state, child, main, 'child_main');
     if (!Array.isArray(approval.asset_map?.child_secondary?.[child.sku])) {
       throw invalid('APPROVAL_SCOPE_MISMATCH', 'A Child secondary-image mapping is missing.', {child_sku: child.sku});
+    }
+    for (const secondary of approval.asset_map.child_secondary[child.sku]) {
+      assertCurrentAssetBinding(state, child, secondary);
     }
   }
   if (!record(approval.asset_map?.shared)) {
     throw invalid('APPROVAL_SCOPE_MISMATCH', 'Final approval has no shared-asset map.');
+  }
+  for (const [artifactId, frozen] of Object.entries(approval.asset_map.shared)) {
+    if (!frozen.child_skus?.some(sku => selectedSkus.has(sku))) continue;
+    const current = state.variation.shared_assets?.[artifactId];
+    const scopedApproval = approvalById(state, frozen.approval_id, 'shared_image');
+    if (current?.status !== 'approved' || current.path !== frozen.path || current.sha256 !== frozen.sha256
+        || current.approval_id !== frozen.approval_id
+        || !isDeepStrictEqual(current.fact_dependencies, frozen.fact_dependencies)
+        || scopedApproval.artifact_id !== artifactId || scopedApproval.path !== frozen.path
+        || scopedApproval.sha256 !== frozen.sha256
+        || !isDeepStrictEqual(scopedApproval.fact_dependencies, frozen.fact_dependencies)) {
+      throw invalid('APPROVAL_SCOPE_MISMATCH', 'A current shared-asset binding is stale or unapproved.', {
+        artifact_id: artifactId
+      });
+    }
   }
   return {children, parentSnapshot};
 }
@@ -576,9 +631,10 @@ export async function buildVariationDelivery({
     throw error;
   }
   const approval = requireFinalApproval(state, finalApproval);
-  const {children, parentSnapshot} = validateCurrentScope(state, approval);
-  const selected = selectChildren(approval, children, childSkus);
+  validateFrozenScopePaths(approval);
+  const selected = selectChildren(approval, activeChildren(state.variation), childSkus);
   const selectedSkus = selected.map(child => child.sku);
+  const {parentSnapshot} = validateCurrentScope(state, approval, new Set(selectedSkus));
   const deliveryScope = projectDeliveryScope(approval, selectedSkus);
   const layout = deriveAssetLayout(deliveryScope, selectedSkus);
   const artifacts = listingArtifacts('parent', parentSnapshot);

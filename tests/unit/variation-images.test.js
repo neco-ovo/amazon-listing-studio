@@ -257,6 +257,45 @@ test('does not treat a wholly contained sibling phrase as foreign wording', () =
   }).ok, true);
 });
 
+test('removes every protected target phrase before retaining foreign sibling wording', () => {
+  const sibling = {
+    sku: 'KIDS-12X16',
+    active: true,
+    variation_values: {},
+    product_master: {
+      printed_copy: [
+        'HORSE CROSSING + 12x16 + KIDS AT PLAY',
+        'HORSE CROSSING + 12x16'
+      ]
+    }
+  };
+  const brief = compileVariationImageBrief({
+    scope: {type: 'child_specific', child_skus: ['HORSE-12X16']},
+    child: horseChild,
+    family: {...family, children: {'HORSE-12X16': horseChild, 'KIDS-12X16': sibling}},
+    master,
+    layoutSeed: null,
+    userRequest: {},
+    claims: {}
+  });
+
+  const result = validateVariationImageObservation({
+    brief,
+    observation: {
+      visible_text: ['HORSE CROSSING', '12 x 16 in', 'KIDS AT PLAY'],
+      pattern_name: 'Horse Crossing',
+      size_name: '12 x 16 in',
+      orientation: 'landscape'
+    }
+  });
+
+  assert.equal(result.ok, false);
+  assert.ok(result.failures.some(item => (
+    item.code === 'CROSS_CHILD_CONTAMINATION' && item.actual === 'KIDS AT PLAY'
+  )));
+  assert.equal(brief.variation_binding.forbidden_sibling_visible.printed_wording.includes('HORSE CROSSING 12x16'), false);
+});
+
 test('reuses a rigid-aluminum merchant layout without requiring a new family image', () => {
   const result = evaluateSharedAssetApplicability({
     asset: {scope: 'shared_asset', fact_dependencies: {material: 'aluminum'}},

@@ -12,6 +12,11 @@ import { renderListing, reviseDraft } from './lib/listing-drafts.js';
 import { buildV2Delivery, verifyDelivery } from './lib/bundle.js';
 import {buildVariationDelivery, verifyVariationDelivery} from './lib/variation-bundle.js';
 import {
+  approveVariationArtifact,
+  approveVariationListing,
+  approveVariationVersion
+} from './lib/variation-approvals.js';
+import {
   addVariationChild,
   promoteToVariation,
   removeVariationChild,
@@ -297,6 +302,141 @@ async function defaultLoadState(projectDir) {
   return JSON.parse(await readFile(path.join(path.resolve(projectDir), 'state.json'), 'utf8'));
 }
 
+function variationCandidateKind(candidate) {
+  if (candidate.scopeType === 'child_main') return 'main';
+  return candidate.kind ?? 'secondary';
+}
+
+function assertVariationCandidateScope(state, candidate) {
+  if (state?.project?.mode !== 'variation_family' || !state.variation) {
+    throw blocking('A Variation Family project is required');
+  }
+  if (!['child_main', 'shared_image'].includes(candidate?.scopeType)
+      || !candidate.artifactId || !candidate.path) {
+    throw blocking('Variation candidate requires an explicit supported scope, artifact ID, and path');
+  }
+  const normalizedPath = candidate.path.replaceAll('\\', '/');
+  if (candidate.scopeType === 'child_main') {
+    const child = state.variation.children?.[candidate.childSku];
+    if (!child || child.active === false) throw blocking('Variation candidate requires an active exact Child SKU');
+    if (candidate.childSkus !== undefined || candidate.factDependencies !== undefined || candidate.scope !== undefined
+        || (candidate.kind !== undefined && candidate.kind !== 'main')) {
+      throw blocking('Variation candidate fields do not match the Child main scope');
+    }
+    const canonical = normalizedPath.startsWith(`children/${candidate.childSku}/assets/`);
+    const preserved = child.legacy_refs?.main_image === candidate.path
+      || child.product_master?.approved_main_path === candidate.path;
+    if (!canonical && !preserved) {
+      throw blocking('Child main candidate path does not belong to the exact Child scope');
+    }
+  } else {
+    if (candidate.childSku !== undefined || variationCandidateKind(candidate) === 'main'
+        || !normalizedPath.startsWith('family/shared-assets/')
+        || !candidate.scope || !candidate.factDependencies) {
+      throw blocking('Shared image candidate fields do not match the shared scope');
+    }
+  }
+}
+
+function variationArtifactExists(state, artifactId) {
+  if (state.variation.shared_assets?.[artifactId]) return true;
+  return Object.values(state.variation.children ?? {}).some(child => (
+    child.assets?.[artifactId] || child.gallery?.assets?.[artifactId]
+  ));
+}
+
+export async function runRecordVariationCandidate({projectDir, candidate}, {
+  decode = defaultDecode,
+  check = defaultCheck,
+  inspect = defaultInspect
+} = {}) {
+  const current = await defaultLoadState(projectDir);
+  assertVariationCandidateScope(current, candidate);
+  if (variationArtifactExists(current, candidate.artifactId)) {
+    throw blocking('Variation artifact ID already exists', {artifact_id: candidate.artifactId});
+  }
+  const filePath = candidatePath(projectDir, candidate.path);
+  const normalizedCandidate = {...candidate, kind: variationCandidateKind(candidate)};
+  const decoded = await decode(filePath, normalizedCandidate);
+  const deterministic = await check({filePath, candidate: normalizedCandidate, decoded});
+  const inspection = await inspect({filePath, candidate: normalizedCandidate, decoded, deterministic});
+  const passed = deterministic?.ok === true && inspection?.status === 'pass';
+  const reasonCodes = [...new Set([
+    ...(deterministic?.failures ?? []).map(failure => failure.code).filter(Boolean),
+    ...(inspection?.reason_codes ?? []),
+    ...(!passed && inspection?.status !== 'pass' ? ['SAVED_FILE_INSPECTION_FAILED'] : [])
+  ])];
+
+  const transaction = await updateProject(projectDir, state => {
+    assertVariationCandidateScope(state, candidate);
+    if (variationArtifactExists(state, candidate.artifactId)) {
+      throw blocking('Variation artifact ID already exists', {artifact_id: candidate.artifactId});
+    }
+    const next = structuredClone(state);
+    const saved = passed ? {
+      id: candidate.artifactId,
+      kind: normalizedCandidate.kind,
+      status: 'candidate',
+      path: candidate.path,
+      dimensions: {width: decoded.width, height: decoded.height},
+      format: decoded.format ?? null,
+      media_type: decoded.format ? `image/${decoded.format === 'jpg' ? 'jpeg' : decoded.format}` : null,
+      inspection_status: 'pass',
+      inspection_findings: inspection.findings ?? [],
+      automatic_attempts: Number(candidate.automatic_attempts ?? 0),
+      ...(candidate.scopeType === 'child_main' ? {child_sku: candidate.childSku} : {
+        scope: structuredClone(candidate.scope),
+        fact_dependencies: structuredClone(candidate.factDependencies)
+      })
+    } : {
+      id: candidate.artifactId,
+      kind: normalizedCandidate.kind,
+      status: 'rejected',
+      reason_codes: reasonCodes,
+      automatic_attempts: Number(candidate.automatic_attempts ?? 0)
+    };
+    if (candidate.scopeType === 'child_main') {
+      const child = next.variation.children[candidate.childSku];
+      child.assets = {...(child.assets ?? {}), [candidate.artifactId]: saved};
+    } else {
+      next.variation.shared_assets = {...(next.variation.shared_assets ?? {}), [candidate.artifactId]: saved};
+    }
+    const now = candidate.now ?? new Date().toISOString();
+    next.variation.updated_at = now;
+    next.project.updated_at = now;
+    return next;
+  });
+  return {...transaction, candidate: candidate.scopeType === 'child_main'
+    ? transaction.state.variation.children[candidate.childSku].assets[candidate.artifactId]
+    : transaction.state.variation.shared_assets[candidate.artifactId]};
+}
+
+export async function runApproveVariation({projectDir, approval}, {hashFile} = {}) {
+  const scopeType = approval?.scopeType;
+  if (!['child_main', 'shared_image', 'parent_listing', 'child_listing', 'variation_final'].includes(scopeType)) {
+    throw blocking('Variation approval requires an explicit supported scope');
+  }
+  if (scopeType === 'variation_final' && [
+    'artifactId', 'childSku', 'childSkus', 'content', 'path', 'factDependencies'
+  ].some(field => approval[field] !== undefined)) {
+    throw blocking('Final Variation approval fields cannot substitute for another scope');
+  }
+  return updateProject(projectDir, async state => {
+    let next;
+    if (scopeType === 'child_main' || scopeType === 'shared_image') {
+      next = await approveVariationArtifact(state, {
+        ...approval,
+        artifactType: scopeType
+      }, {projectDir, hashFile});
+    } else if (scopeType === 'parent_listing' || scopeType === 'child_listing') {
+      next = approveVariationListing(state, approval);
+    } else {
+      next = approveVariationVersion(state, approval);
+    }
+    return {state: next, approval: next.approvals.at(-1)};
+  });
+}
+
 async function ensureChildWorkspace(projectDir, childSku) {
   for (const relative of [`children/${childSku}/assets`, `children/${childSku}/listing`]) {
     const target = path.join(projectDir, ...relative.split('/'));
@@ -353,8 +493,10 @@ function operationFor(command, input = null) {
     init: 'new_project',
     'learn-category': 'learn_category',
     'record-candidate': 'record_candidate',
+    'record-variation-candidate': 'record_candidate',
     'revise-listing': 'listing_field_edit',
     approve: 'approve_asset',
+    'approve-variation': 'approve_asset',
     validate: 'knowledge_lookup',
     migrate: 'migrate',
     'promote-variation': 'product_identity_change',
@@ -418,6 +560,11 @@ export async function runCli(argv, {
       const candidate = JSON.parse(await readFile(path.resolve(requireOption(options, 'input')), 'utf8'));
       result = await runRecordCandidate({projectDir, candidate}, candidateDependencies);
     }
+    else if (command === 'record-variation-candidate') {
+      const projectDir = path.resolve(requireOption(options, 'project-dir'));
+      const candidate = JSON.parse(await readFile(path.resolve(requireOption(options, 'input')), 'utf8'));
+      result = await runRecordVariationCandidate({projectDir, candidate}, candidateDependencies);
+    }
     else if (command === 'approve') {
       const projectDir = path.resolve(requireOption(options, 'project-dir'));
       const artifactType = options.type ?? 'image';
@@ -428,6 +575,10 @@ export async function runCli(argv, {
         path: artifactType === 'listing' ? null : requireOption(options, 'path'),
         now: options.now
       }, {hashFile});
+    } else if (command === 'approve-variation') {
+      const projectDir = path.resolve(requireOption(options, 'project-dir'));
+      const approval = JSON.parse(await readFile(path.resolve(requireOption(options, 'input')), 'utf8'));
+      result = await runApproveVariation({projectDir, approval}, {hashFile});
     } else if (command === 'revise-listing') {
       const projectDir = path.resolve(requireOption(options, 'project-dir'));
       const patch = JSON.parse(await readFile(path.resolve(requireOption(options, 'patch')), 'utf8'));

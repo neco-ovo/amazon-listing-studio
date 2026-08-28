@@ -149,7 +149,8 @@ async function approveChildMain(state, input, options) {
     fail('BLOCKING_INPUT', 'Child main approval requires an active exact Child SKU', {child_sku: input.childSku ?? null});
   }
   if (!canonicalChildAssetPath(input.childSku, input.path)
-      && child.product_master?.approved_main_path !== input.path) {
+      && child.product_master?.approved_main_path !== input.path
+      && child.legacy_refs?.main_image !== input.path) {
     fail('BLOCKING_INPUT', 'Child main path does not belong to the approved Child scope', {
       child_sku: input.childSku,
       path: input.path ?? null
@@ -162,9 +163,17 @@ async function approveChildMain(state, input, options) {
     fail('BLOCKING_INPUT', 'Artifact cannot substitute for the requested Child main scope');
   }
 
+  const currentMaster = child.product_master;
+  if (currentMaster !== null && currentMaster !== undefined
+      && (currentMaster.status !== 'locked' || !(Number(currentMaster.version) > 0)
+        || currentMaster.approved_main_id !== input.artifactId)) {
+    fail('BLOCKING_INPUT', 'Child main approval cannot replace a stale or different Product Master binding');
+  }
+
   const sha256 = await hashApprovalFile(input.path, options);
-  const masterPath = child.product_master?.approved_main_path;
-  const masterHash = child.product_master?.approved_main_sha256?.toLowerCase();
+  const masterVersion = Number(currentMaster?.version ?? 1);
+  const masterPath = currentMaster?.approved_main_path;
+  const masterHash = currentMaster?.approved_main_sha256?.toLowerCase();
   if ((masterPath && masterPath !== input.path) || (masterHash && masterHash !== sha256)) {
     fail('BLOCKING_INPUT', 'Child main does not match the locked Product Master binding');
   }
@@ -179,7 +188,7 @@ async function approveChildMain(state, input, options) {
     artifact_id: input.artifactId,
     child_sku: child.sku,
     variation_values: structuredClone(child.variation_values),
-    product_master_version: Number(child.product_master?.version ?? 0),
+    product_master_version: masterVersion,
     path: input.path,
     sha256,
     approved_main_path: masterPath ?? input.path,
@@ -196,6 +205,14 @@ async function approveChildMain(state, input, options) {
   };
   nextChild.main_image = {
     artifact_id: input.artifactId, path: input.path, sha256, approval_id: id, approved_at: now
+  };
+  nextChild.product_master = {
+    ...(record(currentMaster) ? structuredClone(currentMaster) : {}),
+    version: masterVersion,
+    status: 'locked',
+    approved_main_id: input.artifactId,
+    approved_main_path: masterPath ?? input.path,
+    approved_main_sha256: masterHash ?? sha256
   };
   next.approvals.push(approval);
   next.variation.updated_at = now;

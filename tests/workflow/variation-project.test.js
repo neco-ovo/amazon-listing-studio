@@ -209,3 +209,23 @@ test('promotion rejects a requested compound theme absent from allowed themes', 
     await assert.rejects(stat(path.join(projectDir, 'family')), error => error.code === 'ENOENT');
   });
 });
+
+test('promotion rejects a tuple that conflicts with confirmed source facts before creating directories', async () => {
+  await withTempWorkspace(async projectDir => {
+    await createCompletedProject(projectDir);
+    const input = promotionInput(projectDir);
+
+    await assert.rejects(
+      promoteToVariation({
+        ...input,
+        theme: {dimensions: ['size_name'], values: {size_name: '8 x 12 in'}}
+      }),
+      error => error.code === 'BLOCKING_INPUT'
+        && /source fact|variation tuple/i.test(error.message)
+        && error.details?.fields?.includes('size_name')
+    );
+    await assert.rejects(stat(path.join(projectDir, 'family')), error => error.code === 'ENOENT');
+    const saved = JSON.parse(await readFile(path.join(projectDir, 'state.json'), 'utf8'));
+    assert.equal(saved.project.mode, undefined);
+  });
+});

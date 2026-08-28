@@ -325,6 +325,23 @@ test('Child Listing patches reject system-owned Variation scope fields', () => {
   }
 });
 
+test('Child fact revisions reject theme-dimension drift without changing state', () => {
+  const state = variationState();
+  const before = structuredClone(state);
+
+  assert.throws(
+    () => reviseVariationChild(state, {
+      sku: 'SKU-12X16',
+      factPatch: {size_name: fact('8 x 12 in')},
+      now: later
+    }),
+    error => error.code === 'BLOCKING_INPUT'
+      && /tuple-changing|full operation/i.test(error.message)
+      && error.details?.field === 'size_name'
+  );
+  assert.deepEqual(state, before);
+});
+
 test('removing a Child retains its record and history while recalculating applicability', () => {
   const state = variationState();
   state.variation.children['SKU-8X12'] = child({
