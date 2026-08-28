@@ -111,6 +111,16 @@ function assertCandidate(candidate, input, kind) {
   }
 }
 
+function assertInspectedCandidate(candidate, input, sha256, expectedBinding) {
+  if (!/^[a-f0-9]{64}$/.test(candidate.candidate_sha256 ?? '')
+      || candidate.candidate_sha256 !== sha256
+      || !isDeepStrictEqual(candidate.inspection_binding, expectedBinding)) {
+    fail('BLOCKING_INPUT', 'Artifact bytes or role changed after the inspected candidate was recorded', {
+      artifact_id: input.artifactId ?? null
+    });
+  }
+}
+
 function commonFacts(variation) {
   const common = computeCommonFacts(activeChildren(variation)).common;
   for (const [field, fact] of Object.entries(variation.family_identity?.facts ?? {})) {
@@ -171,6 +181,9 @@ async function approveChildMain(state, input, options) {
   }
 
   const sha256 = await hashApprovalFile(input.path, options);
+  assertInspectedCandidate(candidate, input, sha256, {
+    scope_type: 'child_main', kind: 'main', path: input.path, child_sku: child.sku
+  });
   const masterVersion = Number(currentMaster?.version ?? 1);
   const masterPath = currentMaster?.approved_main_path;
   const masterHash = currentMaster?.approved_main_sha256?.toLowerCase();
@@ -191,6 +204,8 @@ async function approveChildMain(state, input, options) {
     product_master_version: masterVersion,
     path: input.path,
     sha256,
+    candidate_sha256: candidate.candidate_sha256,
+    inspection_binding: structuredClone(candidate.inspection_binding),
     approved_main_path: masterPath ?? input.path,
     approved_main_sha256: masterHash ?? sha256,
     approved_at: now,
@@ -241,6 +256,10 @@ async function approveSharedImage(state, input, options) {
   }
 
   const sha256 = await hashApprovalFile(input.path, options);
+  assertInspectedCandidate(candidate, input, sha256, {
+    scope_type: 'shared_image', kind: candidate.kind, path: input.path,
+    asset_scope: structuredClone(candidate.scope)
+  });
   const now = input.now ?? new Date().toISOString();
   const id = approvalId('shared-image', input.artifactId, now);
   assertNewApprovalId(state, id);
@@ -252,6 +271,8 @@ async function approveSharedImage(state, input, options) {
     artifact_id: input.artifactId,
     path: input.path,
     sha256,
+    candidate_sha256: candidate.candidate_sha256,
+    inspection_binding: structuredClone(candidate.inspection_binding),
     ...scope,
     fact_dependencies: structuredClone(input.factDependencies),
     applicable_child_skus: [...applicable],

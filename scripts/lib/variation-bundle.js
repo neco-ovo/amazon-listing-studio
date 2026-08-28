@@ -205,13 +205,25 @@ function currentChildAsset(state, child, artifactId) {
   return candidates.find(Boolean) ?? null;
 }
 
-function assertCurrentAssetBinding(state, child, frozen, scopeType = null) {
+function assertCurrentAssetBinding(state, child, frozen, scopeType, version) {
   const current = currentChildAsset(state, child, frozen.artifact_id);
   const approval = approvalById(state, frozen.approval_id, scopeType);
   if (current?.status !== 'approved' || current.path !== frozen.path || current.sha256 !== frozen.sha256
       || current.approval_id !== frozen.approval_id
+      || approval.type !== 'image'
+      || (scopeType === 'child_main' && approval.scope_version !== 1)
       || approval.artifact_id !== frozen.artifact_id || approval.path !== frozen.path
-      || approval.sha256 !== frozen.sha256) {
+      || approval.sha256 !== frozen.sha256
+      || approval.child_sku !== child.sku
+      || approval.product_master_version !== version.product_master_version
+      || (current.child_sku !== undefined && current.child_sku !== child.sku)
+      || (current.product_master_version !== undefined
+        && current.product_master_version !== version.product_master_version)
+      || (scopeType === 'child_main' && (
+        !isDeepStrictEqual(approval.variation_values, version.variation_values)
+        || approval.approved_main_path !== version.approved_main_path
+        || approval.approved_main_sha256 !== version.approved_main_sha256
+      ))) {
     throw invalid('APPROVAL_SCOPE_MISMATCH', 'A current Child asset binding is stale or unapproved.', {
       child_sku: child.sku,
       artifact_id: frozen.artifact_id
@@ -319,12 +331,12 @@ function validateCurrentScope(state, approval, selectedSkus) {
       throw invalid('APPROVAL_SCOPE_MISMATCH', 'A Child main-image mapping is stale.', {child_sku: child.sku});
     }
     approvalById(state, main.approval_id, 'child_main');
-    assertCurrentAssetBinding(state, child, main, 'child_main');
+    assertCurrentAssetBinding(state, child, main, 'child_main', version);
     if (!Array.isArray(approval.asset_map?.child_secondary?.[child.sku])) {
       throw invalid('APPROVAL_SCOPE_MISMATCH', 'A Child secondary-image mapping is missing.', {child_sku: child.sku});
     }
     for (const secondary of approval.asset_map.child_secondary[child.sku]) {
-      assertCurrentAssetBinding(state, child, secondary);
+      assertCurrentAssetBinding(state, child, secondary, null, version);
     }
   }
   if (!record(approval.asset_map?.shared)) {
@@ -334,12 +346,28 @@ function validateCurrentScope(state, approval, selectedSkus) {
     if (!frozen.child_skus?.some(sku => selectedSkus.has(sku))) continue;
     const current = state.variation.shared_assets?.[artifactId];
     const scopedApproval = approvalById(state, frozen.approval_id, 'shared_image');
+    const currentScope = typeof current?.scope === 'string' ? current.scope : current?.scope?.type;
+    const currentDeclared = currentScope === 'subset_shared'
+      ? (record(current.scope) ? current.scope.child_skus : current.child_skus)
+      : [];
+    const mapped = new Set(scopedApproval.applicable_child_skus ?? []);
+    for (const mapping of state.variation.shared_asset_mappings ?? []) {
+      if (mapping.approval_id === scopedApproval.id && mapping.artifact_id === artifactId) {
+        for (const sku of mapping.child_skus ?? []) mapped.add(sku);
+      }
+    }
+    const currentMembers = activeChildren(state.variation).map(child => child.sku).filter(sku => mapped.has(sku));
     if (current?.status !== 'approved' || current.path !== frozen.path || current.sha256 !== frozen.sha256
         || current.approval_id !== frozen.approval_id
         || !isDeepStrictEqual(current.fact_dependencies, frozen.fact_dependencies)
         || scopedApproval.artifact_id !== artifactId || scopedApproval.path !== frozen.path
         || scopedApproval.sha256 !== frozen.sha256
-        || !isDeepStrictEqual(scopedApproval.fact_dependencies, frozen.fact_dependencies)) {
+        || !isDeepStrictEqual(scopedApproval.fact_dependencies, frozen.fact_dependencies)
+        || scopedApproval.type !== 'image' || scopedApproval.scope_version !== 1
+        || scopedApproval.asset_scope !== currentScope
+        || !isDeepStrictEqual(scopedApproval.declared_child_skus, currentDeclared)
+        || !isDeepStrictEqual(current.applicable_child_skus, scopedApproval.applicable_child_skus)
+        || !isDeepStrictEqual(currentMembers, frozen.child_skus)) {
       throw invalid('APPROVAL_SCOPE_MISMATCH', 'A current shared-asset binding is stale or unapproved.', {
         artifact_id: artifactId
       });

@@ -60,7 +60,11 @@ function child(sku, color) {
         child_sku: sku,
         status: 'candidate',
         inspection_status: 'pass',
-        path: `children/${sku}/assets/main.png`
+        path: `children/${sku}/assets/main.png`,
+        candidate_sha256: mainHash,
+        inspection_binding: {
+          scope_type: 'child_main', kind: 'main', path: `children/${sku}/assets/main.png`, child_sku: sku
+        }
       }
     },
     listing: {status: 'draft', draft: null, approved: []},
@@ -100,7 +104,12 @@ function variationState() {
       shared_assets: {
         'material-v1': {
           id: 'material-v1', kind: 'secondary', status: 'candidate', inspection_status: 'pass',
-          scope: 'shared_asset', path: 'family/shared-assets/material.png', fact_dependencies: {material: 'aluminum'}
+          scope: 'shared_asset', path: 'family/shared-assets/material.png', fact_dependencies: {material: 'aluminum'},
+          candidate_sha256: hash('c'),
+          inspection_binding: {
+            scope_type: 'shared_image', kind: 'secondary', path: 'family/shared-assets/material.png',
+            asset_scope: 'shared_asset'
+          }
         }
       },
       versions: [],
@@ -187,6 +196,11 @@ test('Child main approval hashes and freezes the exact Child scope', async () =>
   assert.equal(next.approvals.at(-1).scope_version, 1);
   assert.equal(next.approvals.at(-1).child_sku, 'HORSE-12X16');
   assert.equal(next.approvals.at(-1).sha256, hash('a'));
+  assert.equal(next.approvals.at(-1).candidate_sha256, hash('a'));
+  assert.deepEqual(next.approvals.at(-1).inspection_binding, {
+    scope_type: 'child_main', kind: 'main',
+    path: 'children/HORSE-12X16/assets/main.png', child_sku: 'HORSE-12X16'
+  });
   assert.equal(next.variation.children['HORSE-12X16'].assets['horse-12x16-main'].approval_id, next.approvals.at(-1).id);
   assert.equal(state.variation.children['HORSE-12X16'].assets['horse-12x16-main'].status, 'candidate');
 });
@@ -203,6 +217,11 @@ test('shared approval freezes dependencies and applicable Children', async () =>
   assert.deepEqual(next.approvals.at(-1).applicable_child_skus, ['HORSE-12X16', 'KIDS-12X16']);
   assert.equal(next.approvals.at(-1).asset_scope, 'shared_asset');
   assert.deepEqual(next.approvals.at(-1).declared_child_skus, []);
+  assert.equal(next.approvals.at(-1).candidate_sha256, hash('c'));
+  assert.deepEqual(next.approvals.at(-1).inspection_binding, {
+    scope_type: 'shared_image', kind: 'secondary',
+    path: 'family/shared-assets/material.png', asset_scope: 'shared_asset'
+  });
 
   next.variation.shared_assets['material-v1'].applicable_child_skus.push('FUTURE-CHILD');
   assert.deepEqual(next.approvals.at(-1).applicable_child_skus, ['HORSE-12X16', 'KIDS-12X16']);
@@ -211,6 +230,9 @@ test('shared approval freezes dependencies and applicable Children', async () =>
 test('subset shared approval freezes its declared subset and mappings ignore mutable live scope', async () => {
   let state = variationState();
   state.variation.shared_assets['material-v1'].scope = {
+    type: 'subset_shared', child_skus: ['HORSE-12X16']
+  };
+  state.variation.shared_assets['material-v1'].inspection_binding.asset_scope = {
     type: 'subset_shared', child_skus: ['HORSE-12X16']
   };
   state = await approveVariationArtifact(state, {

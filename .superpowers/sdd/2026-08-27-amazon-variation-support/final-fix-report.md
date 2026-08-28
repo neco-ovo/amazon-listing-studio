@@ -58,3 +58,40 @@ An additional delivery-binding RED proved that changing a live shared asset's fa
 ## Concerns
 
 None blocking.
+
+## Fix Round 2
+
+### Approval integrity changes
+
+1. **Inspected bytes are bound to approval**
+   - `record-variation-candidate` now stores the deterministic SHA-256 of the exact inspected file plus immutable inspection-role metadata.
+   - `approve-variation` rehashes the current file and compares both the hash and role binding before any state change.
+   - Child-main and shared-image approvals freeze those inspection bindings, so replacing a recorded file or changing its intended role is rejected with `BLOCKING_INPUT`.
+   - Regression coverage overwrites a recorded valid image with different bytes and confirms approval rejects it without changing saved state for both scopes.
+
+2. **Delivery validates the complete immutable approval identity**
+   - Child main-image checks now include approval type/scope, Child SKU ownership, Product Master version, exact ordered variation tuple, and the approved-main path/hash frozen in the Product Master.
+   - Child secondary-image checks now include Child ownership and Product Master binding in addition to the immutable path/hash/approval identity.
+   - Shared-image checks now include approval type/scope, immutable asset scope, declared and applicable Child membership, factual dependencies, artifact path/hash, approval identity, and the current final-delivery scope.
+   - Adversarial tests mutate stored approval identity while retaining IDs, paths, and hashes and confirm delivery rejects changed Child ownership, Product Master binding, shared scope, shared membership, and approval type.
+
+### Round 2 TDD evidence
+
+- Initial focused RED: 8 failures established missing recorded candidate hashes and acceptance of mutated identity.
+- Additional focused RED: 5 failures established that approval records did not freeze inspection bindings and that shared current membership/type mutations were accepted.
+- Focused GREEN: 140/140 passed.
+- Full GREEN: 371/371 passed.
+- Official `quick_validate.py`: `Skill is valid!`.
+- All changed JavaScript files passed `node --check`; `git diff --check` passed.
+- PyYAML was installed only into `.tmp-quick-validate` for the official validator and the verified absolute temporary directory was removed afterward; project dependencies were unchanged.
+
+### Round 2 self-review
+
+- Approval remains an explicit user action; candidate recording alone never approves or locks a Product Master.
+- Hash and role checks run before any approval-state mutation.
+- Approval records and delivery compare exact ordered tuples and exact scope membership; no cross-Child or cross-scope substitution is permitted.
+- Legacy single-product CLI behavior remains unchanged.
+
+### Round 2 concerns
+
+None blocking.

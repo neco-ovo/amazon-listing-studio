@@ -181,6 +181,10 @@ async function approvedProject(root) {
     const mainPath = `children/${sku}/assets/main.png`;
     const mainHash = await hashRelative(mainPath);
     state.variation.children[sku].product_master.approved_main_sha256 = mainHash;
+    state.variation.children[sku].assets[`${sku.toLowerCase()}-main`].candidate_sha256 = mainHash;
+    state.variation.children[sku].assets[`${sku.toLowerCase()}-main`].inspection_binding = {
+      scope_type: 'child_main', kind: 'main', path: mainPath, child_sku: sku
+    };
     state = await approveVariationArtifact(state, {
       artifactId: `${sku.toLowerCase()}-main`, artifactType: 'child_main', childSku: sku,
       path: mainPath, userAction: 'approved', now
@@ -200,6 +204,15 @@ async function approvedProject(root) {
       path: secondaryPath, sha256: secondaryHash, product_master_version: 1,
       approved_at: now, user_action: 'approved'
     });
+  }
+
+  for (const artifactId of ['material-v1', 'material-copy-v1', 'kids-scene-v1']) {
+    const asset = state.variation.shared_assets[artifactId];
+    asset.candidate_sha256 = await hashRelative(asset.path);
+    asset.inspection_binding = {
+      scope_type: 'shared_image', kind: asset.kind, path: asset.path,
+      asset_scope: structuredClone(asset.scope)
+    };
   }
 
   state = await approveVariationArtifact(state, {
@@ -453,6 +466,53 @@ test('build rejects drift in a currently approved shared asset dependency bindin
         && error.details?.reason === 'APPROVAL_SCOPE_MISMATCH'
     );
   });
+});
+
+test('build rejects mutated scoped approval identity with unchanged IDs, paths, and hashes', async t => {
+  const cases = [
+    ['Child main owner', state => {
+      state.approvals.find(item => item.scope_type === 'child_main' && item.child_sku === 'HORSE-12X16').child_sku
+        = 'KIDS-12X16';
+    }],
+    ['Child secondary Product Master binding', state => {
+      state.approvals.find(item => item.id === 'approval-horse-12x16-size').product_master_version = 99;
+    }],
+    ['shared immutable scope', state => {
+      state.approvals.find(item => item.scope_type === 'shared_image' && item.artifact_id === 'material-v1').asset_scope
+        = 'subset_shared';
+    }],
+    ['shared applicable Child members', state => {
+      state.approvals.find(item => item.scope_type === 'shared_image' && item.artifact_id === 'material-v1')
+        .applicable_child_skus = ['HORSE-12X16'];
+    }],
+    ['shared current applicable Child members', state => {
+      state.variation.shared_assets['material-v1'].applicable_child_skus = ['HORSE-12X16'];
+    }],
+    ['shared approval type', state => {
+      state.approvals.find(item => item.scope_type === 'shared_image' && item.artifact_id === 'material-v1').type
+        = 'listing';
+    }]
+  ];
+
+  for (const [name, mutate] of cases) {
+    await t.test(name, async () => {
+      await withTempWorkspace(async root => {
+        const project = await approvedProject(root);
+        mutate(project.state);
+        await writeFile(path.join(project.projectDir, 'state.json'), `${JSON.stringify(project.state, null, 2)}\n`);
+
+        await assert.rejects(
+          buildVariationDelivery({
+            projectDir: project.projectDir,
+            outputDir: path.join(project.projectDir, 'delivery', name.replaceAll(' ', '-')),
+            finalApproval: project.finalApproval
+          }),
+          error => error.code === 'BUNDLE_INVALID'
+            && error.details?.reason === 'APPROVAL_SCOPE_MISMATCH'
+        );
+      });
+    });
+  }
 });
 
 test('verification rejects incomplete, stale, conflicting, or changed Variation packages', async t => {

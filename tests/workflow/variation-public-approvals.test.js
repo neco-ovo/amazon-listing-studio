@@ -176,3 +176,67 @@ test('public Variation candidate routing rejects a sibling Child path without mu
     assert.deepEqual(await readFile(path.join(projectDir, 'state.json')), before);
   });
 });
+
+test('Variation approval rejects files changed after scoped candidate inspection without mutating state', async t => {
+  for (const scopeType of ['child_main', 'shared_image']) {
+    await t.test(scopeType, async () => {
+      await withTempWorkspace(async root => {
+        const projectDir = path.join(root, 'family');
+        await mkdir(projectDir, {recursive: true});
+        const state = createProjectState({projectId: 'sign-family', productType: 'METAL_SIGN', now: firstNow});
+        state.project.mode = 'variation_family';
+        state.variation = createVariationExtension({
+          parentSku: 'SIGN-PARENT', dimensions: ['size_name'], firstChildSku: 'SKU-12X16',
+          firstChildFacts: {size_name: '12 x 16 in'}, now: firstNow
+        });
+        state.variation.theme.source = {
+          kind: 'category_schema', id: 'METAL_SIGN', allowed_themes: [['size_name']]
+        };
+        state.variation.theme.verification_status = 'verified';
+        state.variation.family_identity = {
+          version: 1, status: 'locked', facts: {material: fact('aluminum')}, non_merge_boundaries: []
+        };
+        state.variation.children['SKU-12X16'].facts = {
+          material: fact('aluminum'), size_name: fact('12 x 16 in')
+        };
+        await writeFile(path.join(projectDir, 'state.json'), `${JSON.stringify(state, null, 2)}\n`);
+        await writeFile(path.join(projectDir, 'project.md'), renderProjectSummary(state));
+
+        const fixtures = await createMainImageFixtures(path.join(root, 'fixtures'));
+        const relative = scopeType === 'child_main'
+          ? 'children/SKU-12X16/assets/main.png'
+          : 'family/shared-assets/material.png';
+        const target = path.join(projectDir, ...relative.split('/'));
+        await mkdir(path.dirname(target), {recursive: true});
+        await copyFile(fixtures.valid, target);
+        const artifactId = scopeType === 'child_main' ? 'sku-12x16-main' : 'material-v1';
+        const scopedFields = scopeType === 'child_main'
+          ? {childSku: 'SKU-12X16'}
+          : {kind: 'secondary', scope: 'shared_asset', factDependencies: {material: 'aluminum'}};
+        const recorded = await runInput(root, 'record-variation-candidate', projectDir, `${scopeType}-candidate.json`, {
+          scopeType, artifactId, path: relative, inspection_status: 'pass', ...scopedFields
+        });
+        assert.equal(recorded.ok, true, recorded.message);
+        assert.match(recorded.result.candidate.candidate_sha256, /^[a-f0-9]{64}$/);
+
+        await writeFile(target, Buffer.from(`changed-after-inspection-${scopeType}`));
+        const statePath = path.join(projectDir, 'state.json');
+        const beforeApproval = await readFile(statePath);
+        const approvalFields = scopeType === 'child_main'
+          ? {childSku: 'SKU-12X16'}
+          : {
+              childSkus: ['SKU-12X16'],
+              factDependencies: {material: 'aluminum'}
+            };
+        const approved = await runInput(root, 'approve-variation', projectDir, `${scopeType}-approval.json`, {
+          scopeType, artifactId, path: relative, userAction: 'approved', ...approvalFields
+        });
+
+        assert.equal(approved.ok, false);
+        assert.equal(approved.code, 'BLOCKING_INPUT');
+        assert.match(approved.message, /inspected candidate|changed/i);
+        assert.deepEqual(await readFile(statePath), beforeApproval);
+      });
+    });
+  }
+});

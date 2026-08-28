@@ -5,7 +5,7 @@ import { pathToFileURL } from 'node:url';
 import sharp from 'sharp';
 import { classifyOperation, validateChangedListing } from './lib/operations.js';
 import { createProjectState, renderProjectSummary, validateProjectState } from './lib/project-state.js';
-import { approveArtifact, approveListingDraft, updateProject } from './lib/transactions.js';
+import { approveArtifact, approveListingDraft, hashApprovalFile, updateProject } from './lib/transactions.js';
 import { migrateLegacyProject } from './lib/migration.js';
 import { validateMainImage } from './lib/images.js';
 import { renderListing, reviseDraft } from './lib/listing-drafts.js';
@@ -348,7 +348,8 @@ function variationArtifactExists(state, artifactId) {
 export async function runRecordVariationCandidate({projectDir, candidate}, {
   decode = defaultDecode,
   check = defaultCheck,
-  inspect = defaultInspect
+  inspect = defaultInspect,
+  hashFile
 } = {}) {
   const current = await defaultLoadState(projectDir);
   assertVariationCandidateScope(current, candidate);
@@ -361,6 +362,9 @@ export async function runRecordVariationCandidate({projectDir, candidate}, {
   const deterministic = await check({filePath, candidate: normalizedCandidate, decoded});
   const inspection = await inspect({filePath, candidate: normalizedCandidate, decoded, deterministic});
   const passed = deterministic?.ok === true && inspection?.status === 'pass';
+  const candidateSha256 = passed
+    ? await hashApprovalFile(candidate.path, {projectDir, hashFile})
+    : null;
   const reasonCodes = [...new Set([
     ...(deterministic?.failures ?? []).map(failure => failure.code).filter(Boolean),
     ...(inspection?.reason_codes ?? []),
@@ -383,6 +387,15 @@ export async function runRecordVariationCandidate({projectDir, candidate}, {
       media_type: decoded.format ? `image/${decoded.format === 'jpg' ? 'jpeg' : decoded.format}` : null,
       inspection_status: 'pass',
       inspection_findings: inspection.findings ?? [],
+      candidate_sha256: candidateSha256,
+      inspection_binding: {
+        scope_type: candidate.scopeType,
+        kind: normalizedCandidate.kind,
+        path: candidate.path,
+        ...(candidate.scopeType === 'child_main'
+          ? {child_sku: candidate.childSku}
+          : {asset_scope: structuredClone(candidate.scope)})
+      },
       automatic_attempts: Number(candidate.automatic_attempts ?? 0),
       ...(candidate.scopeType === 'child_main' ? {child_sku: candidate.childSku} : {
         scope: structuredClone(candidate.scope),
@@ -563,7 +576,9 @@ export async function runCli(argv, {
     else if (command === 'record-variation-candidate') {
       const projectDir = path.resolve(requireOption(options, 'project-dir'));
       const candidate = JSON.parse(await readFile(path.resolve(requireOption(options, 'input')), 'utf8'));
-      result = await runRecordVariationCandidate({projectDir, candidate}, candidateDependencies);
+      result = await runRecordVariationCandidate({projectDir, candidate}, {
+        ...(candidateDependencies ?? {}), hashFile
+      });
     }
     else if (command === 'approve') {
       const projectDir = path.resolve(requireOption(options, 'project-dir'));
