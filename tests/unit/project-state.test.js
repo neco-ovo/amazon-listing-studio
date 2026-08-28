@@ -33,3 +33,10 @@ test('validates the required v2 project identity and top-level collections', () 
   assert.equal(result.valid, false);
   assert.ok(result.errors.includes('project.product_id is required'));
 });
+
+test('single-product state stays free of Variation overhead', () => {
+  const state = createProjectState({projectId: 'single', productType: 'METAL_SIGN'});
+
+  assert.equal(Object.hasOwn(state, 'variation'), false);
+  assert.equal(validateProjectState(state).valid, true);
+});

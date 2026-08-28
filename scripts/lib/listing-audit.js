@@ -10,7 +10,11 @@ export const SYSTEM_LISTING_FIELDS = Object.freeze([
   'upload_ready',
   'schema_status',
   'rule_status',
-  'schema_authorization'
+  'schema_authorization',
+  'parent_sku',
+  'child_sku',
+  'variation_theme',
+  'variation_values'
 ]);
 
 const SYSTEM_LISTING_FIELD_SET = new Set(SYSTEM_LISTING_FIELDS);

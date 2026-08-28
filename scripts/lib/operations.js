@@ -4,6 +4,9 @@ import { auditListing } from './listing-audit.js';
 
 const ROUTES = Object.freeze({
   listing_field_edit: {mode: 'fast', reason: 'LOCAL_LISTING_CHANGE'},
+  add_child: {mode: 'fast', reason: 'LOCAL_CHILD_ADDITION'},
+  child_listing_field_edit: {mode: 'fast', reason: 'LOCAL_CHILD_CHANGE'},
+  remove_child: {mode: 'fast', reason: 'LOCAL_CHILD_REMOVAL'},
   image_presentation_edit: {mode: 'fast', reason: 'PRESENTATION_ONLY_CHANGE'},
   next_gallery_item: {mode: 'fast', reason: 'APPROVED_GALLERY_PLAN'},
   record_candidate: {mode: 'fast', reason: 'CURRENT_IMAGE_CANDIDATE'},
@@ -12,9 +15,11 @@ const ROUTES = Object.freeze({
   learn_category: {mode: 'full', reason: 'SHARED_KNOWLEDGE_CHANGE'},
   new_project: {mode: 'full', reason: 'NEW_PROJECT'},
   first_product_master: {mode: 'full', reason: 'PRODUCT_MASTER_LOCK'},
+  child_fact_change: {mode: 'full', reason: 'CHILD_FACT_DEPENDENCIES'},
   product_identity_change: {mode: 'full', reason: 'IDENTITY_DEPENDENCIES'},
   marketplace_change: {mode: 'full', reason: 'MARKETPLACE_RULE_SCOPE'},
   product_type_change: {mode: 'full', reason: 'PRODUCT_TYPE_RULE_SCOPE'},
+  variation_theme_change: {mode: 'full', reason: 'VARIATION_THEME_DEPENDENCIES'},
   first_listing_draft: {mode: 'full', reason: 'COMPLETE_LISTING_DRAFT'},
   migrate: {mode: 'full', reason: 'STATE_SCHEMA_CHANGE'},
   finalize: {mode: 'full', reason: 'FINAL_INTEGRITY'}

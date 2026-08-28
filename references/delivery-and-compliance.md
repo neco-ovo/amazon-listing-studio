@@ -19,3 +19,5 @@ Use `scripts/build-delivery.js` only as a deprecated v1 compatibility entrypoint
 Finalization verifies the ZIP member set, byte lengths, hashes, image decoding, Listing JSON, and approval scope before reporting success. Manifest artifact paths are archive-relative and explicitly declare `container: delivery.zip`. Repeat the same check without extraction with `scripts/studio.js verify-delivery --delivery-dir <delivery-dir>`; do not create a second manual verification directory.
 
 The Skill packages files for manual Seller Central use; it does not publish automatically.
+
+For a full Family or exact-Child package, add `references/variation-workflow.md`; trusted Variation verification also requires the saved project scope.

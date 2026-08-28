@@ -21,6 +21,7 @@ Before writing a design or artifact, select a portable `projects-root` and a saf
 - Facts, missing information, conflicts, reusable category language, or seller-family claims: `references/knowledge-and-facts.md`.
 - Main image, Product Master, gallery, fonts, image QA, or repairs: `references/image-workflow.md`.
 - Listing drafting, conversion hierarchy, rule cache, keywords, or revisions: `references/listing-workflow.md`.
+- Parent/Child identity, compound themes, single-product promotion, scoped Variation assets, or Family/Child delivery: `references/variation-workflow.md`, only when the request or saved state actually involves Variation work. The ordinary single-product path does not load it.
 - Read `references/delivery-and-compliance.md` only when finalizing, verifying current upload rules, or packaging delivery.
 
 Use at most one domain reference for ordinary work. Add the delivery reference only for finalization. Do not read every capability or workflow document at startup.

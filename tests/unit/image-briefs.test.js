@@ -77,6 +77,19 @@ test('merchant seed reuse keeps its approved fixed layout without anti-copy chan
   assert.deepEqual(brief.difference_requirements, []);
 });
 
+test('copies a merchant layout seed so callers can safely bind it to a specific Child', () => {
+  const layoutSeed = {
+    id: 'merchant-sign-front-back',
+    reference_role: 'MERCHANT_LAYOUT_SEED',
+    reuse_policy: 'FIXED_LAYOUT_ALLOWED'
+  };
+  const brief = compileImageBrief({...fixtureInput, layoutSeed});
+  layoutSeed.id = 'mutated-after-compilation';
+
+  assert.equal(brief.layout_seed.id, 'merchant-sign-front-back');
+  assert.deepEqual(brief.difference_requirements, []);
+});
+
 test('third-party product design reference keeps differentiation requirements', () => {
   const brief = compileImageBrief({
     ...fixtureInput,
