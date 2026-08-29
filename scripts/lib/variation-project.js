@@ -250,6 +250,106 @@ function changedPatch(current, patch) {
   return changed;
 }
 
+function semanticValuesEqual(left, right) {
+  if (typeof factValue(left) === 'string' || typeof factValue(right) === 'string') {
+    return normalizedSemanticValue(left) === normalizedSemanticValue(right);
+  }
+  return isDeepStrictEqual(factValue(left), factValue(right));
+}
+
+export function resolveVariationFactConflicts(state, input = {}) {
+  assertVariationState(state);
+  if (input.userAction !== 'approved') {
+    fail('BLOCKING_INPUT', 'Explicit approved user action is required for fact resolution');
+  }
+  if (!Array.isArray(input.resolutions) || input.resolutions.length === 0) {
+    fail('BLOCKING_INPUT', 'At least one fact resolution is required');
+  }
+  const fields = input.resolutions.map(item => typeof item?.field === 'string' ? item.field.trim() : '');
+  if (fields.some(field => !field) || new Set(fields).size !== fields.length) {
+    fail('BLOCKING_INPUT', 'Fact resolutions require unique non-empty fields');
+  }
+  const themeFields = new Set(state.variation.theme.dimensions ?? []);
+  if (fields.some(field => themeFields.has(field))) {
+    fail('BLOCKING_INPUT', 'Variation theme facts require an explicit tuple-changing operation');
+  }
+
+  const now = operationNow(input.now);
+  const next = structuredClone(state);
+  const variation = next.variation;
+  const children = activeChildren(variation);
+  const historyFields = [];
+
+  for (const resolution of input.resolutions) {
+    const field = resolution.field.trim();
+    if (!['retain', 'exclude'].includes(resolution.action)) {
+      fail('BLOCKING_INPUT', 'Fact resolution action must be retain or exclude', {field});
+    }
+    const facts = children.map(child => ({child, fact: child.facts?.[field]}));
+    if (facts.every(item => item.fact === undefined)) {
+      fail('BLOCKING_INPUT', 'Fact resolution field does not exist on an active Child', {field});
+    }
+
+    if (resolution.action === 'retain') {
+      if (resolution.value === null || resolution.value === undefined || normalizedSemanticValue(resolution.value) === '') {
+        fail('BLOCKING_INPUT', 'Retained fact resolution requires a non-empty value', {field});
+      }
+      for (const {child, fact} of facts) {
+        if (!record(fact) || !Object.hasOwn(fact, 'value') || !semanticValuesEqual(fact, resolution.value)) {
+          fail('BLOCKING_INPUT', 'Retained fact value does not match every active Child', {
+            field, child_sku: child.sku, expected: resolution.value, actual: factValue(fact)
+          });
+        }
+      }
+      for (const {child, fact} of facts) {
+        child.facts[field] = {
+          ...fact,
+          value: structuredClone(resolution.value),
+          status: 'user_confirmed',
+          publishable: true,
+          sources: [...new Set([...(Array.isArray(fact.sources) ? fact.sources : []), 'user_variation_resolution'])],
+          conflicts: []
+        };
+      }
+      variation.family_identity.facts[field] = structuredClone(children[0].facts[field]);
+    } else {
+      const supported = facts.filter(item => item.fact !== undefined && supportedFact(item.fact));
+      if (supported.length > 0) {
+        fail('BLOCKING_INPUT', 'Exclude is limited to unresolved or non-publishable facts', {
+          field, child_skus: supported.map(item => item.child.sku)
+        });
+      }
+      for (const {child} of facts) delete child.facts[field];
+      delete variation.family_identity.facts[field];
+    }
+    historyFields.push({field, action: resolution.action});
+  }
+
+  const beforeCommon = structuredClone(variation.parent.common_facts ?? {});
+  const computed = computeCommonFacts(children);
+  variation.parent.common_facts = commonFacts(variation);
+  if (!isDeepStrictEqual(beforeCommon, variation.parent.common_facts) && variation.parent.status === 'approved') {
+    variation.parent = markStale(variation.parent, {
+      reason: 'FAMILY_FACTS_RESOLVED', affectedIds: [variation.parent.sku], now
+    });
+  }
+  recomputeSharedApplicability(variation, now);
+  const resolutionRecord = {kind: 'fact_conflicts_resolved', at: now, fields: historyFields};
+  variation.fact_resolution_history = [
+    ...(Array.isArray(variation.fact_resolution_history) ? variation.fact_resolution_history : []),
+    resolutionRecord
+  ];
+  recordOperation(variation, {
+    kind: 'resolve_fact_conflicts',
+    reasons: ['FAMILY_FACTS_RESOLVED'],
+    affectedIds: [variation.parent.sku],
+    now
+  });
+  variation.remaining_fact_conflicts = structuredClone(computed.conflicts);
+  updateProjectTimestamp(next, now);
+  return next;
+}
+
 function currentListingContent(listing) {
   if (record(listing?.draft?.content)) return listing.draft.content;
   if (record(listing?.overrides)) return listing.overrides;

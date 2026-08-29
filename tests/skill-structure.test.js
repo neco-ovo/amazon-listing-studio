@@ -52,6 +52,9 @@ test('Skill routes optional Variation work to one focused reference', async () =
     'shared secondary',
     'direct dependents'
   ]) assert.match(reference, new RegExp(phrase, 'i'));
+  assert.match(reference, /resolve-variation-facts/);
+  assert.match(reference, /retain.+exclude|exclude.+retain/is);
+  assert.match(reference, /array.+object.+(?:semantic|deep)|(?:semantic|deep).+array.+object/is);
 });
 
 test('frequently loaded guidance stays within the approved token budget', async () => {

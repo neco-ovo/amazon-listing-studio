@@ -307,6 +307,42 @@ test('reuses a rigid-aluminum merchant layout without requiring a new family ima
   assert.deepEqual(result.reasons, []);
 });
 
+test('matches array and object shared-image dependencies by semantic value', () => {
+  const holes = {count: 4, placement: 'one in each corner'};
+  const copy = ['SLOW DOWN', 'KIDS AND PETS', 'AT PLAY'];
+  const result = evaluateSharedAssetApplicability({
+    asset: {
+      scope: {type: 'subset_shared', child_skus: ['KIDS-8X12']},
+      fact_dependencies: {'mounting-holes': holes, 'front-copy': copy}
+    },
+    child: {
+      sku: 'KIDS-8X12',
+      facts: {
+        'mounting-holes': {value: structuredClone(holes), status: 'user_confirmed', publishable: true, conflicts: []},
+        'front-copy': {value: structuredClone(copy), status: 'user_confirmed', publishable: true, conflicts: []}
+      }
+    },
+    commonFacts: {'mounting-holes': structuredClone(holes), 'front-copy': structuredClone(copy)}
+  });
+
+  assert.deepEqual(result, {applicable: true, reasons: []});
+});
+
+test('rejects a structured shared-image dependency with a different semantic value', () => {
+  const result = evaluateSharedAssetApplicability({
+    asset: {
+      scope: 'shared_asset',
+      fact_dependencies: {'mounting-holes': {count: 4, placement: 'one in each corner'}}
+    },
+    child: {facts: {'mounting-holes': {value: {count: 2, placement: 'top corners'}}}},
+    commonFacts: {'mounting-holes': {count: 2, placement: 'top corners'}}
+  });
+
+  assert.equal(result.applicable, false);
+  assert.ok(result.reasons.includes('COMMON_FACT_MISMATCH:mounting-holes'));
+  assert.ok(result.reasons.includes('CHILD_FACT_MISMATCH:mounting-holes'));
+});
+
 test('requires factual dependencies before a shared or subset asset is applicable', () => {
   for (const asset of [{scope: 'shared_asset'}, {scope: 'subset_shared', child_skus: ['HORSE-12X16']}]) {
     const result = evaluateSharedAssetApplicability({

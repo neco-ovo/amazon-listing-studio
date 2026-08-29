@@ -7,6 +7,7 @@ import {createProjectState, renderProjectSummary} from '../../scripts/lib/projec
 import {
   addVariationChild,
   removeVariationChild,
+  resolveVariationFactConflicts,
   reviseVariationChild
 } from '../../scripts/lib/variation-project.js';
 import {createVariationExtension} from '../../scripts/lib/variations.js';
@@ -289,6 +290,57 @@ test('revising a Child fact invalidates direct dependents and Parent only when c
   assert.deepEqual(next.variation.parent.common_facts, {});
 });
 
+test('resolves Family fact conflicts without a project-specific transaction script', () => {
+  const state = variationState();
+  state.variation.children['SKU-8X12'] = child({
+    sku: 'SKU-8X12', size: '8 x 12 in', title: 'Safety Sign 8 x 12 in'
+  });
+  const construction = {material: 'aluminum', printing: 'none'};
+  for (const target of Object.values(state.variation.children)) {
+    target.facts['back-construction'] = {
+      ...fact(structuredClone(construction)), conflicts: [{value: {material: 'steel'}}]
+    };
+    target.facts['product-weight'] = {
+      value: null, status: 'unknown', publishable: false, sources: ['legacy'], conflicts: [{value: '0.5 lb'}]
+    };
+  }
+
+  const next = resolveVariationFactConflicts(state, {
+    userAction: 'approved',
+    resolutions: [
+      {field: 'back-construction', action: 'retain', value: construction},
+      {field: 'product-weight', action: 'exclude'}
+    ],
+    now: later
+  });
+
+  for (const target of Object.values(next.variation.children)) {
+    assert.deepEqual(target.facts['back-construction'].value, construction);
+    assert.deepEqual(target.facts['back-construction'].conflicts, []);
+    assert.equal(Object.hasOwn(target.facts, 'product-weight'), false);
+  }
+  assert.deepEqual(next.variation.parent.common_facts['back-construction'], construction);
+  assert.equal(Object.hasOwn(next.variation.parent.common_facts, 'product-weight'), false);
+  assert.deepEqual(next.variation.family_identity.facts['back-construction'].value, construction);
+  assert.equal(next.variation.fact_resolution_history.at(-1).fields.length, 2);
+});
+
+test('fact resolution rejects a retained value that differs from an active Child', () => {
+  const state = variationState();
+  state.variation.children['SKU-12X16'].facts.material = {
+    ...fact('aluminum'), conflicts: [{value: 'steel'}]
+  };
+
+  assert.throws(
+    () => resolveVariationFactConflicts(state, {
+      userAction: 'approved',
+      resolutions: [{field: 'material', action: 'retain', value: 'steel'}],
+      now: later
+    }),
+    error => error.code === 'BLOCKING_INPUT' && /does not match/i.test(error.message)
+  );
+});
+
 test('combined Child fact and Listing patches retain fact-dependency staleness', () => {
   const state = variationState();
   state.variation.children['SKU-8X12'] = child({
@@ -419,6 +471,33 @@ test('JSON-file Child CLI commands persist add, revise, and soft removal', async
     const saved = JSON.parse(await readFile(path.join(projectDir, 'state.json'), 'utf8'));
     assert.equal(saved.variation.children['SKU-8X12'].active, false);
     assert.equal(saved.variation.children['SKU-8X12'].listing.draft.content.title, 'Updated Child Title');
+  });
+});
+
+test('resolve-variation-facts persists an approved resolution transaction', async () => {
+  await withTempWorkspace(async projectDir => {
+    const state = variationState();
+    state.variation.children['SKU-12X16'].facts.material = {
+      ...fact('aluminum'), conflicts: [{value: 'steel'}]
+    };
+    await writeFile(path.join(projectDir, 'state.json'), `${JSON.stringify(state, null, 2)}\n`);
+    await writeFile(path.join(projectDir, 'project.md'), renderProjectSummary(state));
+    const inputPath = path.join(projectDir, 'resolve.json');
+    await writeFile(inputPath, JSON.stringify({
+      userAction: 'approved',
+      resolutions: [{field: 'material', action: 'retain', value: 'aluminum'}],
+      now: later
+    }));
+
+    const result = await runCli([
+      'resolve-variation-facts', '--project-dir', projectDir, '--input', inputPath
+    ]);
+
+    assert.equal(result.ok, true);
+    assert.equal(result.mode, 'dependency');
+    const saved = JSON.parse(await readFile(path.join(projectDir, 'state.json'), 'utf8'));
+    assert.deepEqual(saved.variation.children['SKU-12X16'].facts.material.conflicts, []);
+    assert.equal(saved.variation.fact_resolution_history.at(-1).fields[0].field, 'material');
   });
 });
 

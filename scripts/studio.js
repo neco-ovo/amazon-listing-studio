@@ -21,6 +21,7 @@ import {
   addVariationChild,
   promoteToVariation,
   removeVariationChild,
+  resolveVariationFactConflicts,
   reviseVariationChild
 } from './lib/variation-project.js';
 
@@ -551,6 +552,7 @@ function operationFor(command, input = null) {
     'add-child': 'add_child',
     'revise-child': 'child_listing_field_edit',
     'remove-child': 'remove_child',
+    'resolve-variation-facts': 'resolve_fact_conflicts',
     'verify-delivery': 'finalize'
   };
   return classifyOperation({kind: kinds[command] ?? command});
@@ -586,7 +588,7 @@ export async function runCli(argv, {
         now: options.now
       });
     }
-    else if (['add-child', 'revise-child', 'remove-child'].includes(command)) {
+    else if (['add-child', 'revise-child', 'remove-child', 'resolve-variation-facts'].includes(command)) {
       const projectDir = path.resolve(requireOption(options, 'project-dir'));
       const input = JSON.parse(await readFile(path.resolve(requireOption(options, 'input')), 'utf8'));
       const operationInput = {...input, ...(options.now ? {now: options.now} : {})};
@@ -595,7 +597,9 @@ export async function runCli(argv, {
         ? addVariationChild
         : command === 'revise-child'
           ? reviseVariationChild
-          : removeVariationChild;
+          : command === 'remove-child'
+            ? removeVariationChild
+            : resolveVariationFactConflicts;
       if (command === 'add-child') {
         const current = await defaultLoadState(projectDir);
         mutate(current, operationInput);

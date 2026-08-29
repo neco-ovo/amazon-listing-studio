@@ -1,5 +1,6 @@
 import {fail} from './errors.js';
 import {compileImageBrief} from './image-briefs.js';
+import {isDeepStrictEqual} from 'node:util';
 
 const VALID_SCOPE_TYPES = new Set([
   'child_specific',
@@ -216,10 +217,20 @@ function factValue(value) {
   return value;
 }
 
+function normalizedSemanticValue(value) {
+  const semantic = factValue(value);
+  if (Array.isArray(semantic)) return semantic.map(normalizedSemanticValue);
+  if (semantic && typeof semantic === 'object') {
+    return Object.fromEntries(Object.keys(semantic).sort().map(key => [key, normalizedSemanticValue(semantic[key])]));
+  }
+  if (typeof semantic === 'string') return normalizedText(semantic);
+  return semantic;
+}
+
 function valuesMatch(expected, actual) {
-  const expectedValues = Array.isArray(expected) ? expected : [expected];
-  const actualValue = normalizedText(factValue(actual));
-  return Boolean(actualValue) && expectedValues.some(value => normalizedText(value) === actualValue);
+  const actualValue = normalizedSemanticValue(actual);
+  return actualValue !== null && actualValue !== undefined && actualValue !== ''
+    && isDeepStrictEqual(normalizedSemanticValue(expected), actualValue);
 }
 
 function assetScope(asset) {
