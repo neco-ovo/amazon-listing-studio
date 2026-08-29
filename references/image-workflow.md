@@ -32,11 +32,13 @@ Keep physical product ratio independent from canvas ratio. Follow an explicit us
 
 For an Amazon main image, use the applicable white-background, complete-product, count, prohibited-element, and occupancy rules. Amazon.com's dated fallback occupancy is 85%; a stricter value such as 95% applies only when the category or user requests it.
 
-Approve the exact inspected main raster before locking Product Master. Secondary images use the current locked Product Master as the first identity reference. Generate and approve the first secondary separately to establish the visual system. After it passes, generate two to three low-risk planned secondary candidates before one consolidated batch review. Keep dimension, structure, claim-sensitive, or visibly inconsistent cards individual.
+Approve the exact inspected main raster before locking Product Master. Secondary images use the current locked Product Master as the first identity reference. During intake or interview, approve the gallery plan, shared layout system, copy direction, and permitted claims once. Then generate all approved planned secondary images before one consolidated review. Repair or regenerate only the rejected or directly affected images.
 
 ## Gallery execution
 
 Plan the gallery once after Product Master lock. The default roles remain three distinct application scenes, one size/spec card, one material/detail card, and one back/structure card; replace unsupported roles rather than fabricating evidence.
+
+Pause before generation only when a required product fact is missing, confirmed facts conflict, or a planned image would imply an unconfirmed included component or certification. Ordinary differences between dimension, structure, scene, and claim cards do not create separate pre-generation approval rounds after the gallery plan is approved.
 
 Before writing a new layout, select at most one matching seller-owned merchant layout seed from `assets/merchant-layouts/rigid-aluminum-signs.json`. A merchant seed may keep its fixed layout, hierarchy, icon system, typography direction, and information positions across the seller's brands. Adapt only what the current Product Master, product ratio, approved copy, facts, and scene suitability require. Do not reopen or reanalyze the source product project. Third-party product designs still require coherent presentation differences.
 
