@@ -8,6 +8,7 @@ const ROUTES = Object.freeze({
   child_listing_field_edit: {mode: 'fast', reason: 'LOCAL_CHILD_CHANGE'},
   child_fact_local: {mode: 'fast', reason: 'LOCAL_CHILD_FACT'},
   child_fact_common: {mode: 'dependency', reason: 'FAMILY_COMMON_FACT_DEPENDENCIES'},
+  resolve_fact_conflicts: {mode: 'dependency', reason: 'FAMILY_FACT_RESOLUTION'},
   child_fact_identity: {mode: 'full', reason: 'CHILD_IDENTITY_DEPENDENCIES'},
   remove_child: {mode: 'fast', reason: 'LOCAL_CHILD_REMOVAL'},
   image_presentation_edit: {mode: 'fast', reason: 'PRESENTATION_ONLY_CHANGE'},

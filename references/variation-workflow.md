@@ -16,9 +16,13 @@ Each Child main is independently scoped and approved. Light-difference Children 
 
 Shared secondary images are reusable asset records with factual dependencies and applicable Child mappings, not a Family gallery. Reuse merchant layouts when facts and visible meaning match. Dimensions are Child-specific unless identical; scenes must show the target Child and exclude sibling wording, graphics, tuples, and unconfirmed contents. Rigid-aluminum layouts use the local reviewed seed in `assets/merchant-layouts/rigid-aluminum-signs.json`, derived from task `01a03541-aca1-7572-8ee5-1b6444353559`; the local reviewed seed is authoritative and runtime never requires task access.
 
+Keep every fact visibly used by a shared image in `factDependencies`. Scalar values use normalized comparison; arrays and objects use semantic deep comparison. Do not delete structured dependencies merely to make applicability approval pass.
+
 ## Efficient revision and approval
 
 Direct dependents of Child-local copy/facts, presentation edits, approvals, and lookups use the fast local path without a full rerun. A changed common fact recalculates Parent intersection and affected shared mappings only. Identity or theme changes and finalization are full.
+
+When unresolved Family facts block Parent approval, use `scripts/studio.js resolve-variation-facts --project-dir <dir> --input <resolution.json>`. An explicitly approved resolution may `retain` one value already present on every active Child and clear its conflicts, or `exclude` an unresolved/non-publishable field. It cannot change a Child value, remove a supported fact, or modify a Variation Theme field. The transaction records history and recomputes Parent common facts plus shared applicability; do not write a project-specific mutation script.
 
 Parent Listing, Child Listing, Child main, and shared-image approvals remain separate immutable records. One explicit batch action may create several records atomically; each item still passes its own scope checks, and final approval is last. New compatible Children use new shared mappings without mutating old approvals.
 
