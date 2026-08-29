@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { classifyOperation, validationPlan } from '../../scripts/lib/operations.js';
+import { classifyChildFactImpact, classifyOperation, validationPlan } from '../../scripts/lib/operations.js';
 
 for (const [kind, mode] of [
   ['listing_field_edit', 'fast'],
@@ -30,10 +30,18 @@ test('routes local Child changes without widening the workflow', () => {
   for (const kind of ['add_child', 'child_listing_field_edit', 'remove_child']) {
     assert.equal(classifyOperation({kind}).mode, 'fast');
   }
-  assert.deepEqual(classifyOperation({kind: 'child_fact_change'}), {
-    mode: 'full', reasons: ['CHILD_FACT_DEPENDENCIES']
-  });
+  assert.equal(classifyOperation({kind: 'child_fact_local'}).mode, 'fast');
+  assert.equal(classifyOperation({kind: 'child_fact_common'}).mode, 'dependency');
+  assert.equal(classifyOperation({kind: 'child_fact_identity'}).mode, 'full');
   assert.equal(classifyOperation({kind: 'variation_theme_change'}).mode, 'full');
+});
+
+test('classifies Child fact impact from current Family state', () => {
+  const state = {variation: {theme: {dimensions: ['size_name']}, family_identity: {facts: {finish: {value: 'matte'}}}}};
+  assert.equal(classifyChildFactImpact(state, {mounting_surface: 'wall'}), 'child_fact_local');
+  assert.equal(classifyChildFactImpact(state, {finish: 'gloss'}), 'child_fact_common');
+  assert.equal(classifyChildFactImpact(state, {purpose: 'different use'}), 'child_fact_identity');
+  assert.equal(classifyChildFactImpact(state, {size_name: '8 x 12 in'}), 'child_fact_identity');
 });
 
 test('micro copy validation excludes network, image, and repository checks', () => {

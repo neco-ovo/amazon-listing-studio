@@ -16,7 +16,7 @@ The lock records identity, physical dimensions/proportions, color/variant, count
 
 ## Secondary images
 
-Default to three distinct application scenes, one size/spec image, one material/detail image, and one back/structure/installation image. Replace any unsupported card. Generate, inspect, and approve one image before starting the next. Every asset records its Product Master version and fact dependencies.
+Default to three distinct application scenes, one size/spec image, one material/detail image, and one back/structure/installation image. Replace any unsupported card. Approve the gallery plan and layout direction once, generate the full planned set, and review it together; revise only affected images. Every approved asset records its Product Master version and fact dependencies.
 
 ## Listing
 
@@ -30,4 +30,4 @@ Never overwrite a rejected or approved asset. Create a child version with one ta
 
 Require one consolidated approval bound to the current Product Master, image set, Listing, marketplace, product type, and Schema status. Reject missing, corrupt, stale, or unapproved artifacts. Produce relative paths, media types, byte sizes, and SHA-256 hashes.
 
-Sunk cost, product ownership, and urgency do not bypass saved-file inspection, sequential secondary approval, Schema warnings, or version-bound final approval. Resume from recorded evidence rather than assuming existing files were approved.
+Sunk cost, product ownership, and urgency do not bypass saved-file inspection, consolidated secondary approval, Schema warnings, or version-bound final approval. Resume from recorded evidence rather than assuming existing files were approved.

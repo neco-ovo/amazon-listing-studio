@@ -4,7 +4,7 @@ import { access, mkdir, readFile, readdir, rename, stat, writeFile } from 'node:
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import sharp from 'sharp';
-import { classifyOperation, validateChangedListing } from './lib/operations.js';
+import { classifyChildFactImpact, classifyOperation, validateChangedListing } from './lib/operations.js';
 import { createProjectState, renderProjectSummary, validateProjectState } from './lib/project-state.js';
 import { approveArtifact, approveListingDraft, updateProject } from './lib/transactions.js';
 import { migrateLegacyProject } from './lib/migration.js';
@@ -428,7 +428,7 @@ export async function runRecordVariationCandidate({projectDir, candidate}, {
     : transaction.state.variation.shared_assets[candidate.artifactId]};
 }
 
-export async function runApproveVariation({projectDir, approval}, {hashFile} = {}) {
+function validateVariationApprovalInput(approval) {
   const scopeType = approval?.scopeType;
   if (!['child_main', 'shared_image', 'parent_listing', 'child_listing', 'variation_final'].includes(scopeType)) {
     throw blocking('Variation approval requires an explicit supported scope');
@@ -438,19 +438,49 @@ export async function runApproveVariation({projectDir, approval}, {hashFile} = {
   ].some(field => approval[field] !== undefined)) {
     throw blocking('Final Variation approval fields cannot substitute for another scope');
   }
+  return scopeType;
+}
+
+async function applyVariationApproval(state, approval, {projectDir, hashFile} = {}) {
+  const scopeType = validateVariationApprovalInput(approval);
+  if (scopeType === 'child_main' || scopeType === 'shared_image') {
+    return approveVariationArtifact(state, {...approval, artifactType: scopeType}, {projectDir, hashFile});
+  }
+  if (scopeType === 'parent_listing' || scopeType === 'child_listing') {
+    return approveVariationListing(state, approval);
+  }
+  return approveVariationVersion(state, approval);
+}
+
+export async function runApproveVariation({projectDir, approval}, {hashFile} = {}) {
   return updateProject(projectDir, async state => {
-    let next;
-    if (scopeType === 'child_main' || scopeType === 'shared_image') {
-      next = await approveVariationArtifact(state, {
-        ...approval,
-        artifactType: scopeType
-      }, {projectDir, hashFile});
-    } else if (scopeType === 'parent_listing' || scopeType === 'child_listing') {
-      next = approveVariationListing(state, approval);
-    } else {
-      next = approveVariationVersion(state, approval);
-    }
+    const next = await applyVariationApproval(state, approval, {projectDir, hashFile});
     return {state: next, approval: next.approvals.at(-1)};
+  });
+}
+
+export async function runApproveVariationBatch({projectDir, approvals}, {hashFile} = {}) {
+  if (!Array.isArray(approvals) || approvals.length < 2) {
+    throw blocking('Variation batch approval requires at least two approvals');
+  }
+  approvals.forEach(validateVariationApprovalInput);
+  if (approvals.some(item => item.userAction !== 'approved')) {
+    throw blocking('Every batch item requires the same explicit approved user action');
+  }
+  const finalIndexes = approvals.map((item, index) => item.scopeType === 'variation_final' ? index : -1)
+    .filter(index => index >= 0);
+  if (finalIndexes.length > 1 || (finalIndexes.length === 1 && finalIndexes[0] !== approvals.length - 1)) {
+    throw blocking('Variation final approval may appear only once and last');
+  }
+  return updateProject(projectDir, async state => {
+    let next = state;
+    const created = [];
+    for (const approval of approvals) {
+      const before = next.approvals.length;
+      next = await applyVariationApproval(next, approval, {projectDir, hashFile});
+      created.push(...next.approvals.slice(before));
+    }
+    return {state: next, approvals: created};
   });
 }
 
@@ -504,7 +534,7 @@ export async function runListingRevision(input, dependencies = {}) {
 
 function operationFor(command, input = null) {
   if (command === 'revise-child' && Object.keys(input?.factPatch ?? {}).length > 0) {
-    return classifyOperation({kind: 'child_fact_change'});
+    return classifyOperation({kind: input.factImpact ?? 'child_fact_identity'});
   }
   const kinds = {
     init: 'new_project',
@@ -514,6 +544,7 @@ function operationFor(command, input = null) {
     'revise-listing': 'listing_field_edit',
     approve: 'approve_asset',
     'approve-variation': 'approve_asset',
+    'approve-variation-batch': 'approve_asset',
     validate: 'knowledge_lookup',
     migrate: 'migrate',
     'promote-variation': 'product_identity_change',
@@ -569,6 +600,9 @@ export async function runCli(argv, {
         const current = await defaultLoadState(projectDir);
         mutate(current, operationInput);
         await ensureChildWorkspace(projectDir, operationInput.sku);
+      } else if (command === 'revise-child' && Object.keys(operationInput.factPatch ?? {}).length > 0) {
+        const current = await defaultLoadState(projectDir);
+        routeInput.factImpact = classifyChildFactImpact(current, operationInput.factPatch);
       }
       result = await updateProject(projectDir, state => mutate(state, operationInput));
     }
@@ -598,6 +632,10 @@ export async function runCli(argv, {
       const projectDir = path.resolve(requireOption(options, 'project-dir'));
       const approval = JSON.parse(await readFile(path.resolve(requireOption(options, 'input')), 'utf8'));
       result = await runApproveVariation({projectDir, approval}, {hashFile});
+    } else if (command === 'approve-variation-batch') {
+      const projectDir = path.resolve(requireOption(options, 'project-dir'));
+      const batch = JSON.parse(await readFile(path.resolve(requireOption(options, 'input')), 'utf8'));
+      result = await runApproveVariationBatch({projectDir, approvals: batch.approvals}, {hashFile});
     } else if (command === 'revise-listing') {
       const projectDir = path.resolve(requireOption(options, 'project-dir'));
       const patch = JSON.parse(await readFile(path.resolve(requireOption(options, 'patch')), 'utf8'));

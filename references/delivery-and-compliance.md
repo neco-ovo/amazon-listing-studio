@@ -16,7 +16,7 @@ Reject missing files, hash mismatches, stale Product Master bindings, invalid ap
 
 Use `scripts/build-delivery.js` only as a deprecated v1 compatibility entrypoint. Finalize v2 projects with `scripts/studio.js finalize --project-dir <dir> --output <new-dir> --approval <final-approval.json>`. A relative output path resolves from the product directory and must remain inside it.
 
-Finalization verifies the ZIP member set, byte lengths, hashes, image decoding, Listing JSON, and approval scope before reporting success. Manifest artifact paths are archive-relative and explicitly declare `container: delivery.zip`. Repeat the same check without extraction with `scripts/studio.js verify-delivery --delivery-dir <delivery-dir>`; do not create a second manual verification directory.
+Finalization verifies the ZIP member set, byte lengths, hashes, image decoding, Listing JSON, and approval scope before reporting success. Manifest artifact paths are archive-relative and explicitly declare `container: delivery.zip`. Do not immediately repeat `verify-delivery` for that newly finalized package. Use `scripts/studio.js verify-delivery --delivery-dir <delivery-dir>` only for a later, copied, downloaded, moved, or explicitly requested recheck without extraction; do not create a manual verification directory.
 
 The Skill packages files for manual Seller Central use; it does not publish automatically.
 
