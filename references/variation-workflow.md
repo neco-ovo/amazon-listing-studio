@@ -1,43 +1,27 @@
 # Variation workflow
 
-Read this reference only when the request or saved project state involves Parent/Child work. Ordinary single-product work stays on its existing route and does not load Variation detail.
+Read only for Parent/Child work. Parent is the common product identity; each Child is one purchasable SKU with one exact ordered tuple. Keep shared secondary records and invalidate direct dependents only.
 
-## Activate and select the theme
+## Family and theme
 
-A Parent expresses the common product identity. Each active Child expresses one exact purchasable SKU and its complete ordered variation tuple. Start with stable identity, purpose, product form, and real Child offers; category differences alone are not a hard rejection criterion or family boundary.
+Use a current category Schema or user template for an ordered, category-permitted single or compound theme. Sparse real combinations are valid; never invent a Cartesian product or infer a compound theme from differences. Category differences are not a hard rejection boundary—compare stable identity, purpose, product form, and real offer relationships.
 
-Select an ordered, category-permitted one- or compound-dimension theme from a current category Schema or user-provided current template. Never synthesize a compound theme from observed differences. Preserve its dimension order, require every Child to supply every dimension, reject duplicate complete tuples, and support sparse real combinations without inventing a Cartesian product.
+Promotion is non-destructive: preserve an approval-complete single product's files, hashes, approvals, and deliveries in place while adding Family/Parent/Child records with `scripts/studio.js promote-variation`. Existing Families use `add-child`, `revise-child`, and `remove-child`. New Children receive scoped asset and Listing directories.
 
-## Promote or extend a project
+Family Identity contains supported common facts. Parent copy uses only those facts. Child drafts store real differences, while approval and delivery materialize complete copy with Parent SKU, Child SKU, ordered theme, and exact values. Standard Size/Color/Pattern/Style/Pack differences may reuse Parent copy; different graphics, warning meaning, buyer intent, product form, purpose, or core function require suitable Child copy or block the Family.
 
-For an approval-complete single-product project, use `scripts/studio.js promote-variation --project-dir <dir> --parent-sku <sku> --child-sku <sku> --theme <theme.json>`. Promotion is non-destructive: supplement `family`, `parent`, and `children/<sku>` directories while preserving approved legacy images, Listings, approvals, hashes, and deliveries in place. The first Child references those artifacts; never move or overwrite them for layout normalization. Resume only a matching partial promotion.
+## Images
 
-For an existing Family, use `add-child`, `revise-child`, or `remove-child` with a JSON input file. A new Child creates its own `children/<sku>/assets` and `children/<sku>/listing` directories. Do not create possible Color × Size combinations that the merchant does not actually offer.
+Each Child main is independently scoped and approved. Light-difference Children may reuse the merchant composition with necessary attribute changes; never stretch a different ratio or use a family composite as a Child main.
 
-## Lock identity and write copy
+Shared secondary images are reusable asset records with factual dependencies and applicable Child mappings, not a Family gallery. Reuse merchant layouts when facts and visible meaning match. Dimensions are Child-specific unless identical; scenes must show the target Child and exclude sibling wording, graphics, tuples, and unconfirmed contents. Rigid-aluminum layouts use the local reviewed seed in `assets/merchant-layouts/rigid-aluminum-signs.json`, derived from task `01a03541-aca1-7572-8ee5-1b6444353559`; the local reviewed seed is authoritative and runtime never requires task access.
 
-Family Identity contains supported facts common to every active Child and explicit non-merge boundaries. Each Child Product Master binds the exact approved main raster and real variation values for that purchasable SKU; Family Identity never substitutes for Child approval.
+## Efficient revision and approval
 
-The Parent Listing is the series baseline and may use only common facts. Child drafts store real differences, but approval and delivery materialize complete effective Child copy with `parent_sku`, `child_sku`, ordered `variation_theme`, and the exact `variation_values`. Small standard-attribute differences may reuse Parent copy with limited overrides. Different graphics, warning meaning, buyer intent, product form, purpose, or core function require independently suitable Child copy or block the Family when identity is incompatible.
+Direct dependents of Child-local copy/facts, presentation edits, approvals, and lookups use the fast local path without a full rerun. A changed common fact recalculates Parent intersection and affected shared mappings only. Identity or theme changes and finalization are full.
 
-## Scope images and reuse layouts
+Parent Listing, Child Listing, Child main, and shared-image approvals remain separate immutable records. One explicit batch action may create several records atomically; each item still passes its own scope checks, and final approval is last. New compatible Children use new shared mappings without mutating old approvals.
 
-Every image brief declares `child_specific`, `shared_asset`, `subset_shared`, `family_range_asset`, or `parent_asset`. Each Child main is independently scoped and approved against that Child Product Master. Light-difference Children may reuse the merchant composition with only necessary Size, Color, Pattern, Style, or Pack Count changes; never use a family-range composite as a Child main.
+Record scoped images with `record-variation-candidate`; inspection and hash bind one byte snapshot. Approve one item with `approve-variation` or an approved set with `approve-variation-batch`. Final approval freezes identity, Parent, ordered theme, active tuples, Product Masters, complete Listings, asset maps, marketplace, product type, and rule status.
 
-Shared secondary images are reusable asset records with explicit factual dependencies and applicable Child mappings, not a separate Family gallery. Reuse approved merchant secondary-image layouts when their facts and visible meaning match. Dimension cards remain Child-specific unless the dimensions match; scenario imagery must show the target Child and must not import another Child's wording, graphics, tuple, or unconfirmed package contents.
-
-For rigid aluminum signs, use the local reviewed seed metadata and previews in `assets/merchant-layouts/rigid-aluminum-signs.json`. They were derived from approved smoke-test deliverables associated with task `01a03541-aca1-7572-8ee5-1b6444353559`; the local reviewed seed is the portable source of truth, and runtime does not require task access.
-
-## Revise only direct dependents
-
-Local Child copy edits, presentation-only image edits, approvals, and knowledge lookups are fast operations. Invalidate the changed artifact and its direct dependents only, without a full workflow rerun. A Child fact formerly treated as common also invalidates the Parent intersection and affected shared-asset mappings; unrelated Children and immutable approvals remain unchanged. Promotion, identity or theme changes, and finalization use full mode.
-
-## Approve and deliver
-
-Parent Listing, Child Listing, Child main, and shared-image approvals are separate and immutable. A shared approval freezes its dependency facts and current applicable Child set; later compatible Children reuse it through new mapping records rather than mutating the approval.
-
-Use `scripts/studio.js record-variation-candidate --project-dir <dir> --input <candidate.json>` for an explicitly scoped `child_main` or `shared_image` candidate. Recording reads one immutable byte snapshot for decoding, deterministic checks, saved-file inspection, and hashing, then freezes that inspected hash and exact role; approval rehashes the live saved path and rejects any byte or role change. Then use `scripts/studio.js approve-variation --project-dir <dir> --input <approval.json>` with exactly one of `child_main`, `shared_image`, `parent_listing`, `child_listing`, or `variation_final` as `scopeType` and `userAction: "approved"`. Child paths and IDs are never interchangeable, and fields belonging to one scope must not be reused for another. The legacy `record-candidate` and `approve` commands remain the single-product route.
-
-Final approval freezes Family Identity and Parent versions, ordered theme dimensions, exact active Child tuples, every Child Product Master and effective Listing version, scoped image maps, marketplace, product type, and rule status. Shared image entries include their immutable asset-scope declaration, while Child secondary entries include their approval scope, exact Child owner, and Product Master version. A promoted legacy secondary may retain an unscoped legacy approval only through the Child's preserved legacy reference; final approval normalizes its current Child and Product Master identity, and any present conflicting legacy field blocks approval or delivery. Finalize either a full Family or one exact Child. A Family package contains Parent copy, complete Child copy, one physical copy per shared asset, and the Variation Matrix; exact-Child delivery excludes unrelated siblings while retaining Parent identity and applicable shared assets.
-
-Use `scripts/studio.js finalize --project-dir <dir> --output <new-dir> --approval <approval.json> [--child-sku <exact-sku>]`. Then use `scripts/studio.js verify-delivery --delivery-dir <delivery-dir> --project-dir <dir>`: Variation verification must use trusted project approval verification and must not downgrade to the single-product verifier. Do not create a Seller Central spreadsheet without a current category field Schema or user-provided template.
+`finalize` delivers the full Family or one exact Child under trusted project approval, verifies the newly built package, and stores shared bytes once. An exact-Child package excludes siblings while retaining Parent identity and applicable shared assets. Run `verify-delivery --project-dir <dir>` only for a later, copied, moved, downloaded, or explicitly requested recheck. Do not create an upload spreadsheet without a current category template.

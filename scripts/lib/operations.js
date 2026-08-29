@@ -6,6 +6,9 @@ const ROUTES = Object.freeze({
   listing_field_edit: {mode: 'fast', reason: 'LOCAL_LISTING_CHANGE'},
   add_child: {mode: 'fast', reason: 'LOCAL_CHILD_ADDITION'},
   child_listing_field_edit: {mode: 'fast', reason: 'LOCAL_CHILD_CHANGE'},
+  child_fact_local: {mode: 'fast', reason: 'LOCAL_CHILD_FACT'},
+  child_fact_common: {mode: 'dependency', reason: 'FAMILY_COMMON_FACT_DEPENDENCIES'},
+  child_fact_identity: {mode: 'full', reason: 'CHILD_IDENTITY_DEPENDENCIES'},
   remove_child: {mode: 'fast', reason: 'LOCAL_CHILD_REMOVAL'},
   image_presentation_edit: {mode: 'fast', reason: 'PRESENTATION_ONLY_CHANGE'},
   next_gallery_item: {mode: 'fast', reason: 'APPROVED_GALLERY_PLAN'},
@@ -15,7 +18,6 @@ const ROUTES = Object.freeze({
   learn_category: {mode: 'full', reason: 'SHARED_KNOWLEDGE_CHANGE'},
   new_project: {mode: 'full', reason: 'NEW_PROJECT'},
   first_product_master: {mode: 'full', reason: 'PRODUCT_MASTER_LOCK'},
-  child_fact_change: {mode: 'full', reason: 'CHILD_FACT_DEPENDENCIES'},
   product_identity_change: {mode: 'full', reason: 'IDENTITY_DEPENDENCIES'},
   marketplace_change: {mode: 'full', reason: 'MARKETPLACE_RULE_SCOPE'},
   product_type_change: {mode: 'full', reason: 'PRODUCT_TYPE_RULE_SCOPE'},
@@ -30,6 +32,17 @@ export function classifyOperation(change) {
   return route
     ? {mode: route.mode, reasons: [route.reason]}
     : {mode: 'full', reasons: ['UNKNOWN_OPERATION']};
+}
+
+export function classifyChildFactImpact(state, factPatch = {}) {
+  const fields = Object.keys(factPatch);
+  const identity = new Set([
+    'purpose', 'core_function', 'product_form', 'warning_semantics', 'product_identity', 'material'
+  ]);
+  const theme = new Set(state?.variation?.theme?.dimensions ?? []);
+  if (fields.some(field => identity.has(field) || theme.has(field))) return 'child_fact_identity';
+  const common = new Set(Object.keys(state?.variation?.family_identity?.facts ?? {}));
+  return fields.some(field => common.has(field)) ? 'child_fact_common' : 'child_fact_local';
 }
 
 const CHECKS = Object.freeze({

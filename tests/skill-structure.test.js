@@ -54,6 +54,26 @@ test('Skill routes optional Variation work to one focused reference', async () =
   ]) assert.match(reference, new RegExp(phrase, 'i'));
 });
 
+test('frequently loaded guidance stays within the approved token budget', async () => {
+  const skill = await readFile(path.join(root, 'SKILL.md'), 'utf8');
+  const variation = await readFile(path.join(root, 'references', 'variation-workflow.md'), 'utf8');
+  const words = text => text.trim().split(/\s+/).length;
+  assert.ok(words(skill) <= 650, `SKILL.md has ${words(skill)} words`);
+  assert.ok(words(variation) <= 700, `variation-workflow.md has ${words(variation)} words`);
+});
+
+test('secondary work uses one calibration image then bounded batch review', async () => {
+  const image = await readFile(path.join(root, 'references', 'image-workflow.md'), 'utf8');
+  assert.match(image, /first secondary.+(?:separate|individually).+(?:visual system|style)/is);
+  assert.match(image, /(?:two|2).+(?:three|3).+(?:candidate|secondary).+(?:consolidated|batch).+review/is);
+  assert.match(image, /dimension|structure|claim-sensitive/i);
+});
+
+test('delivery does not immediately repeat verification of a newly finalized package', async () => {
+  const delivery = await readFile(path.join(root, 'references', 'delivery-and-compliance.md'), 'utf8');
+  assert.match(delivery, /do not.+immediately.+verify-delivery|verify-delivery.+later.+recheck/is);
+});
+
 test('entrypoint confines each product to a portable collection-root child directory', async () => {
   const skill = await readFile(path.join(root, 'SKILL.md'), 'utf8');
   assert.match(skill, /projects-root/i);
@@ -75,7 +95,7 @@ test('skill routes every hard workflow requirement without bloating frontmatter'
     /inspect.+exact saved (?:path|file)/i,
     /explicit user facts.+authoritative/i,
     /lock Product Master only after/i,
-    /secondary images one at a time/i,
+    /first secondary.+(?:separate|individually)/i,
     /one consolidated Listing review/i,
     /rules_unverified.+upload_ready=false/i,
     /final approval.+current Product Master/i

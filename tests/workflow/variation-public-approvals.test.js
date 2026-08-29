@@ -116,26 +116,27 @@ test('public CLI adds a Child, records scoped candidates, approves every Variati
     });
     assert.equal(sharedApproved.ok, true, sharedApproved.message);
 
-    const parentApproved = await runInput(root, 'approve-variation', projectDir, 'parent-approval.json', {
-      scopeType: 'parent_listing', content: listing('Aluminum Safety Sign'),
-      userAction: 'approved', now: '2026-08-28T01:08:00.000Z'
+    const statePathBeforeBatch = path.join(projectDir, 'state.json');
+    const beforeRejectedBatch = await readFile(statePathBeforeBatch);
+    const rejectedBatch = await runInput(root, 'approve-variation-batch', projectDir, 'rejected-batch.json', {
+      approvals: [
+        {scopeType: 'parent_listing', content: listing('Aluminum Safety Sign'), userAction: 'approved', now: '2026-08-28T01:07:30.000Z'},
+        {scopeType: 'child_listing', childSku: 'MISSING-SKU', content: listing('Missing Child'), userAction: 'approved', now: '2026-08-28T01:07:31.000Z'}
+      ]
     });
-    assert.equal(parentApproved.ok, true, parentApproved.message);
-    for (const [sku, size, minute] of [
-      ['SKU-12X16', '12 x 16 in', '09'],
-      ['SKU-8X12', '8 x 12 in', '10']
-    ]) {
-      const childApproved = await runInput(root, 'approve-variation', projectDir, `${sku}-listing.json`, {
-        scopeType: 'child_listing', childSku: sku,
-        content: listing(`Aluminum Safety Sign ${size}`, size),
-        userAction: 'approved', now: `2026-08-28T01:${minute}:00.000Z`
-      });
-      assert.equal(childApproved.ok, true, childApproved.message);
-    }
-    const finalApproved = await runInput(root, 'approve-variation', projectDir, 'final-approval-input.json', {
-      scopeType: 'variation_final', userAction: 'approved', now: '2026-08-28T01:11:00.000Z'
+    assert.equal(rejectedBatch.ok, false);
+    assert.deepEqual(await readFile(statePathBeforeBatch), beforeRejectedBatch);
+
+    const batchApproved = await runInput(root, 'approve-variation-batch', projectDir, 'listing-batch.json', {
+      approvals: [
+        {scopeType: 'parent_listing', content: listing('Aluminum Safety Sign'), userAction: 'approved', now: '2026-08-28T01:08:00.000Z'},
+        {scopeType: 'child_listing', childSku: 'SKU-12X16', content: listing('Aluminum Safety Sign 12 x 16 in', '12 x 16 in'), userAction: 'approved', now: '2026-08-28T01:09:00.000Z'},
+        {scopeType: 'child_listing', childSku: 'SKU-8X12', content: listing('Aluminum Safety Sign 8 x 12 in', '8 x 12 in'), userAction: 'approved', now: '2026-08-28T01:10:00.000Z'},
+        {scopeType: 'variation_final', userAction: 'approved', now: '2026-08-28T01:11:00.000Z'}
+      ]
     });
-    assert.equal(finalApproved.ok, true, finalApproved.message);
+    assert.equal(batchApproved.ok, true, batchApproved.message);
+    assert.equal(batchApproved.result.approvals.length, 4);
 
     const saved = JSON.parse(await readFile(path.join(projectDir, 'state.json'), 'utf8'));
     const finalApproval = saved.approvals.at(-1);

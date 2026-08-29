@@ -413,7 +413,7 @@ test('JSON-file Child CLI commands persist add, revise, and soft removal', async
     assert.equal(protectedRevision.ok, false);
     assert.equal(protectedRevision.code, 'BLOCKING_INPUT');
     assert.equal(factRevised.ok, true);
-    assert.equal(factRevised.mode, 'full');
+    assert.equal(factRevised.mode, 'fast');
     assert.equal(removed.ok, true);
     assert.equal(removed.mode, 'fast');
     const saved = JSON.parse(await readFile(path.join(projectDir, 'state.json'), 'utf8'));
