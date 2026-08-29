@@ -266,6 +266,29 @@ function reopenWithPromotedLegacySecondary(project) {
   return {state, child, asset, approval};
 }
 
+function reopenWithPromotedLegacyMain(project) {
+  const state = structuredClone(project.state);
+  state.approvals = state.approvals.filter(item => item.scope_type !== 'variation_final');
+  state.variation.versions = [];
+  const child = state.variation.children['HORSE-12X16'];
+  const artifactId = child.product_master.approved_main_id;
+  const asset = child.assets[artifactId];
+  const approval = state.approvals.find(item => item.id === asset.approval_id);
+  child.legacy_refs = {
+    ...child.legacy_refs,
+    main_image: asset.path,
+    product_master_version: child.product_master.version,
+    gallery_asset_ids: [artifactId],
+    approval_ids: [approval.id]
+  };
+  for (const field of [
+    'scope_version', 'scope_type', 'child_sku', 'product_master_version',
+    'approved_main_path', 'approved_main_sha256', 'variation_values'
+  ]) delete approval[field];
+  approval.product_master_version = 0;
+  return {state, child, asset, approval};
+}
+
 function textEntry(archive, name) {
   return Buffer.from(archive[name]).toString('utf8');
 }
@@ -370,6 +393,66 @@ test('promoted legacy secondary finalizes and delivers with normalized immutable
     });
     assert.equal(result.verification.ok, true);
   });
+});
+
+test('promoted legacy Child main finalizes and delivers without duplicate approval', async () => {
+  await withTempWorkspace(async root => {
+    const project = await approvedProject(root);
+    const legacy = reopenWithPromotedLegacyMain(project);
+    const state = approveVariationVersion(legacy.state, {
+      userAction: 'approved', now: '2026-08-27T08:01:00.000Z'
+    });
+    const finalApproval = state.approvals.at(-1);
+    await writeFile(
+      path.join(project.projectDir, 'state.json'),
+      `${JSON.stringify(state, null, 2)}\n`
+    );
+
+    const result = await buildVariationDelivery({
+      projectDir: project.projectDir,
+      outputDir: path.join(project.projectDir, 'delivery', 'promoted-legacy-main'),
+      finalApproval
+    });
+
+    assert.equal(result.verification.ok, true);
+    assert.equal(finalApproval.asset_map.child_main['HORSE-12X16'].approval_scope_type, 'legacy_image');
+    assert.equal(legacy.approval.scope_type, undefined);
+  });
+});
+
+test('promoted legacy Child main rejects post-final legacy-binding drift', async t => {
+  for (const [name, mutate] of [
+    ['legacy Product Master reference', legacy => { legacy.child.legacy_refs.product_master_version = 99; }],
+    ['legacy approval reference', legacy => { legacy.child.legacy_refs.approval_ids = []; }],
+    ['legacy approval Product Master version', legacy => { legacy.approval.product_master_version = 99; }]
+  ]) {
+    await t.test(name, async () => {
+      await withTempWorkspace(async root => {
+        const project = await approvedProject(root);
+        const legacy = reopenWithPromotedLegacyMain(project);
+        const state = approveVariationVersion(legacy.state, {
+          userAction: 'approved', now: '2026-08-27T08:01:00.000Z'
+        });
+        mutate({
+          child: state.variation.children['HORSE-12X16'],
+          approval: state.approvals.find(item => item.id === legacy.approval.id)
+        });
+        await writeFile(
+          path.join(project.projectDir, 'state.json'),
+          `${JSON.stringify(state, null, 2)}\n`
+        );
+
+        await assert.rejects(
+          buildVariationDelivery({
+            projectDir: project.projectDir,
+            outputDir: path.join(project.projectDir, 'delivery', `drift-${name.replaceAll(' ', '-')}`),
+            finalApproval: state.approvals.at(-1)
+          }),
+          error => error.code === 'BUNDLE_INVALID'
+        );
+      });
+    });
+  }
 });
 
 test('promoted legacy secondary rejects any present mismatched ownership binding', async t => {
