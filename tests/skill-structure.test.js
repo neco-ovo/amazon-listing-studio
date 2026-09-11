@@ -199,6 +199,20 @@ test('skill routes merchant layouts and one-pass commerce quality checks', async
   assert.match(listingWorkflow, /do not recursively polish/i);
 });
 
+test('portable font assets are discoverable without hashes or local source paths', async () => {
+  const imageWorkflow = await readFile(path.join(root, 'references', 'image-workflow.md'), 'utf8');
+  const catalog = JSON.parse(await readFile(path.join(root, 'assets', 'fonts', 'catalog.json'), 'utf8'));
+
+  assert.ok(catalog.fonts.length >= 20, 'expected a useful deduplicated portable font set');
+  assert.equal(new Set(catalog.fonts.map(item => item.family.toLowerCase())).size, catalog.fonts.length);
+  assert.ok(catalog.fonts.every(item => !('sha256' in item)));
+  assert.ok(catalog.fonts.every(item => !/^(?:[a-z]:|\\|\/)/i.test(item.path)));
+  assert.ok(catalog.fonts.every(item => !/\.(?:zip|7z|rar)$/i.test(item.path)));
+  for (const item of catalog.fonts) await access(path.join(root, item.path));
+  assert.match(imageWorkflow, /assets\/fonts\/catalog\.json/);
+  assert.match(imageWorkflow, /bundled.+before.+system.+Google Fonts/is);
+});
+
 test('approval and delivery guidance expose shared preflight and direct ZIP verification', async () => {
   const skill = await readFile(path.join(root, 'SKILL.md'), 'utf8');
   const delivery = await readFile(path.join(root, 'references', 'delivery-and-compliance.md'), 'utf8');

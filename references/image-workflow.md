@@ -22,7 +22,7 @@ Without a more specific request, adapt at least two coherent presentation elemen
 
 For a portrait product, plan the hierarchy around its tall face and redistribute negative space instead of copying a horizontal reference and leaving the lower area empty.
 
-Use local fonts or Google Fonts as visual style references in speed-first mode. Do not claim exact font embedding. Switch to deterministic, traceable typography only when the user requests it or an otherwise accepted image has a localized exact-text failure.
+Use the portable bundled set in `assets/fonts/catalog.json` before system fonts and Google Fonts when it suits the product and card role. Treat bundled, other local, or network fonts as visual style references in speed-first mode; do not claim exact font embedding. Switch to deterministic, traceable typography only when the user requests it or an otherwise accepted image has a localized exact-text failure.
 
 When typography needs contrast, choose a display font for the emphasis field and a body font for supporting copy only when their weight, width, and industrial or retail mood preserve style coherence.
 
