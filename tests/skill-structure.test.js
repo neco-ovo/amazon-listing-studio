@@ -213,6 +213,27 @@ test('portable font assets are discoverable without hashes or local source paths
   assert.match(imageWorkflow, /bundled.+before.+system.+Google Fonts/is);
 });
 
+test('SIGNAGE upload seed separates reusable defaults from account and product facts', async () => {
+  const listingWorkflow = await readFile(path.join(root, 'references', 'listing-workflow.md'), 'utf8');
+  const seed = JSON.parse(await readFile(
+    path.join(root, 'assets', 'rule-seeds', 'amazon-us-signage-upload-fields.json'),
+    'utf8'
+  ));
+
+  assert.equal(seed.marketplace, 'amazon.com');
+  assert.equal(seed.product_type, 'SIGNAGE');
+  assert.deepEqual(Object.keys(seed.reusable_defaults).sort(), [
+    'batteries_required', 'condition_type', 'part_number', 'supplier_declared_dg_hz_regulation'
+  ]);
+  assert.deepEqual(Object.keys(seed.conditional_values).sort(), [
+    'gtin_exemption', 'manufacturer', 'merchant_shipping_group'
+  ]);
+  assert.deepEqual(seed.never_inherit, ['list_price', 'standard_price']);
+  assert.doesNotMatch(JSON.stringify(seed), /8\.99|11\.99/);
+  assert.match(listingWorkflow, /amazon-us-signage-upload-fields\.json/);
+  assert.match(listingWorkflow, /(?:do not|never).+price.+inherit/is);
+});
+
 test('approval and delivery guidance expose shared preflight and direct ZIP verification', async () => {
   const skill = await readFile(path.join(root, 'SKILL.md'), 'utf8');
   const delivery = await readFile(path.join(root, 'references', 'delivery-and-compliance.md'), 'utf8');
