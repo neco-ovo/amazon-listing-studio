@@ -141,10 +141,10 @@ function variationState() {
   };
 }
 
-function childContent(state, sku) {
+function childContent(state, sku, sharedContent = parentContent) {
   const record = state.variation.children[sku];
   return materializeChildListing({
-    parentContent,
+    parentContent: sharedContent,
     childOverrides: {
       title: `Aluminum Safety Sign ${record.variation_values.color_name} 12 x 16 Inch`,
       attributes: structuredClone(record.variation_values)
@@ -159,9 +159,16 @@ async function png(filePath, color) {
   await sharp({create: {width: 32, height: 32, channels: 3, background: color}}).png().toFile(filePath);
 }
 
-async function approvedProject(root) {
+async function approvedProject(root, {legacyRuleField = false} = {}) {
   const projectDir = path.join(root, 'project');
   let state = variationState();
+  const approvedParentContent = structuredClone(parentContent);
+  if (legacyRuleField) {
+    approvedParentContent.rules_status = 'rules_partially_verified';
+    approvedParentContent.rules_unverified = ['attributes', 'special_features'];
+    approvedParentContent.upload_ready = false;
+    delete approvedParentContent.rule_status;
+  }
   const images = [
     ['children/HORSE-12X16/assets/main.png', '#ff0000'],
     ['children/HORSE-12X16/assets/size.png', '#00ff00'],
@@ -232,11 +239,11 @@ async function approvedProject(root) {
     path: 'family/shared-assets/kids-scene.png', userAction: 'approved', now
   }, {hashFile: hashRelative});
   state = approveVariationListing(state, {
-    scopeType: 'parent_listing', content: parentContent, userAction: 'approved', now
+    scopeType: 'parent_listing', content: approvedParentContent, userAction: 'approved', now
   });
   for (const sku of ['HORSE-12X16', 'KIDS-12X16']) {
     state = approveVariationListing(state, {
-      scopeType: 'child_listing', childSku: sku, content: childContent(state, sku),
+      scopeType: 'child_listing', childSku: sku, content: childContent(state, sku, approvedParentContent),
       userAction: 'approved', now
     });
   }
@@ -245,6 +252,20 @@ async function approvedProject(root) {
   await writeFile(path.join(projectDir, 'state.json'), `${JSON.stringify(state, null, 2)}\n`);
   return {projectDir, state, finalApproval};
 }
+
+test('finalizes legacy Variation Listings whose approved content predates rule_status', async () => {
+  await withTempWorkspace(async root => {
+    const project = await approvedProject(root, {legacyRuleField: true});
+
+    const result = await buildVariationDelivery({
+      projectDir: project.projectDir,
+      outputDir: path.join(project.projectDir, 'delivery', 'legacy-rule-field'),
+      finalApproval: project.finalApproval
+    });
+
+    assert.equal(result.verification.ok, true);
+  });
+});
 
 function reopenWithPromotedLegacySecondary(project) {
   const state = structuredClone(project.state);
