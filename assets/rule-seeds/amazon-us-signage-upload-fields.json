@@ -1,0 +1,58 @@
+{
+  "schema_version": 1,
+  "record_type": "category_template_fill_guidance",
+  "marketplace": "amazon.com",
+  "language": "en-US",
+  "product_type": "SIGNAGE",
+  "verified_on": "2026-09-11",
+  "evidence": [
+    "Amazon upload-template required markers and data definitions",
+    "user-confirmed product and account facts",
+    "successful Seller Central upload-page test"
+  ],
+  "reusable_defaults": {
+    "batteries_required": {
+      "value": "No",
+      "scope": "parent",
+      "applies_when": "the sign has no battery or powered component"
+    },
+    "supplier_declared_dg_hz_regulation": {
+      "value": "Not Applicable",
+      "scope": "parent_and_children",
+      "applies_when": "the sign is an ordinary non-dangerous good"
+    },
+    "condition_type": {
+      "value": "New",
+      "scope": "children",
+      "applies_when": "the offered item is new"
+    },
+    "part_number": {
+      "value_source": "child_sku",
+      "scope": "children",
+      "requirements": ["one value per Child", "unique within the Variation Family"]
+    }
+  },
+  "conditional_values": {
+    "gtin_exemption": {
+      "product_id_type": "GTIN Exempt",
+      "product_id": "",
+      "applies_when": ["same seller account", "amazon.com", "SIGNAGE", "unbranded", "GTIN exemption remains valid"]
+    },
+    "manufacturer": {
+      "observed_value": "MOLACAI",
+      "scope": "children",
+      "applies_when": "current product facts confirm the same manufacturer"
+    },
+    "merchant_shipping_group": {
+      "observed_value": "Migrated Template",
+      "scope": "children",
+      "applies_when": "the same Seller Central account still contains and uses this shipping template"
+    }
+  },
+  "never_inherit": ["list_price", "standard_price"],
+  "template_handling": {
+    "inspect": ["required markers", "parent rows", "every Child row", "conditionally required fields"],
+    "preserve_macro_workbook_structure": true,
+    "refresh_when": ["marketplace changes", "product type changes", "template columns or definitions change"]
+  }
+}

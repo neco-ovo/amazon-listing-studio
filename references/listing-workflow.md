@@ -24,6 +24,8 @@ Resolve dated marketplace/product-type rules with `resolveRules`. The default fr
 
 The bundled fallback is `assets/rule-seeds/amazon-us-defaults.json`. Current verified product-type Schema overrides it. If only some fields cannot be verified, mark those fields `rules_unverified`, keep supported copy, and set `upload_ready=false`.
 
+When filling an Amazon.com `SIGNAGE` upload template, load the dated field seed at `assets/rule-seeds/amazon-us-signage-upload-fields.json`. Apply its reusable defaults only when their stated conditions match, and ask once for unresolved account or product conditions. Do not load this seed for ordinary copy drafting. Never allow price fields to inherit across products; use the current Child's confirmed `list_price` and `standard_price`.
+
 ## Review and revision
 
 Present one consolidated Listing review. A small requested change uses `scripts/studio.js revise-listing --project-dir <dir> --patch <patch.json>` and validates only changed paths plus direct fact/keyword dependencies. Do not repeat market research, rule refresh, image generation, or repository tests.
