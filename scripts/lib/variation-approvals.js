@@ -532,6 +532,25 @@ function approvalFor(state, id, scopeType) {
   return approval;
 }
 
+function finalChildMainApproval(state, child, master, asset) {
+  const approval = state.approvals.find(item => item.id === asset?.approval_id);
+  const modern = approval?.scope_version === 1 && approval?.scope_type === 'child_main'
+    && approval?.user_action === 'approved';
+  if (modern) return {approval, approvalScopeType: 'child_main'};
+
+  const legacy = approval?.type === 'image'
+    && approval?.scope_version === undefined
+    && approval?.scope_type === undefined
+    && approval?.user_action === 'approved'
+    && child.legacy_refs?.main_image === asset?.path
+    && child.legacy_refs?.product_master_version === master.version
+    && child.legacy_refs?.approval_ids?.includes(approval.id) === true;
+  if (!legacy) {
+    fail('BLOCKING_INPUT', 'A current child_main approval is required', {approval_id: asset?.approval_id ?? null});
+  }
+  return {approval, approvalScopeType: 'legacy_image'};
+}
+
 function childSpecificAssets(state, child) {
   const assets = new Map();
   for (const container of [child.assets, child.gallery?.assets, state.variation.child_assets?.[child.sku]]) {
@@ -595,15 +614,27 @@ function finalChildScope(state, child, parentScope) {
   if (location && asset?.status !== 'approved') {
     fail('BLOCKING_INPUT', 'Final Variation approval requires the current approved Child main', {child_sku: child.sku});
   }
-  const mainApproval = approvalFor(state, asset?.approval_id, 'child_main');
+  const {approval: mainApproval, approvalScopeType} = finalChildMainApproval(state, child, master, asset);
   const masterPath = master.approved_main_path;
   const masterHash = master.approved_main_sha256?.toLowerCase();
-  if (mainApproval.child_sku !== child.sku || mainApproval.artifact_id !== master.approved_main_id
+  const explicitMainScope = approvalScopeType === 'child_main';
+  if ((explicitMainScope ? mainApproval.child_sku !== child.sku
+    : (mainApproval.child_sku !== undefined && mainApproval.child_sku !== child.sku))
+      || mainApproval.artifact_id !== master.approved_main_id
       || mainApproval.sha256 !== asset.sha256 || mainApproval.path !== asset.path
-      || mainApproval.product_master_version !== master.version
-      || (masterPath && (masterPath !== asset.path || masterPath !== mainApproval.approved_main_path))
-      || (masterHash && (masterHash !== asset.sha256 || masterHash !== mainApproval.approved_main_sha256))
-      || !isDeepStrictEqual(mainApproval.variation_values, child.variation_values)) {
+      || (explicitMainScope ? mainApproval.product_master_version !== master.version
+        : (mainApproval.product_master_version !== undefined
+          && mainApproval.product_master_version !== 0))
+      || (masterPath && (masterPath !== asset.path
+        || (explicitMainScope ? masterPath !== mainApproval.approved_main_path
+          : (mainApproval.approved_main_path !== undefined && masterPath !== mainApproval.approved_main_path))))
+      || (masterHash && (masterHash !== asset.sha256
+        || (explicitMainScope ? masterHash !== mainApproval.approved_main_sha256
+          : (mainApproval.approved_main_sha256 !== undefined
+            && masterHash !== mainApproval.approved_main_sha256))))
+      || (explicitMainScope ? !isDeepStrictEqual(mainApproval.variation_values, child.variation_values)
+        : (mainApproval.variation_values !== undefined
+          && !isDeepStrictEqual(mainApproval.variation_values, child.variation_values)))) {
     fail('BLOCKING_INPUT', 'Child main approval does not match its exact current Child scope', {child_sku: child.sku});
   }
   const listing = child.listing?.approved?.at(-1);
@@ -641,7 +672,10 @@ function finalChildScope(state, child, parentScope) {
       artifact_id: mainApproval.artifact_id,
       path: mainApproval.path,
       sha256: mainApproval.sha256,
-      approval_id: mainApproval.id
+      approval_id: mainApproval.id,
+      approval_scope_type: approvalScopeType,
+      child_sku: child.sku,
+      product_master_version: master.version
     },
     secondary: finalChildSecondaries(state, child),
     listingApproval

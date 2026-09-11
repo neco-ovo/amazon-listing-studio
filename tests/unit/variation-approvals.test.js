@@ -171,6 +171,26 @@ async function fullyApprovedState() {
   return state;
 }
 
+function reopenMainAsPromotedLegacy(state, sku) {
+  const childRecord = state.variation.children[sku];
+  const artifactId = childRecord.product_master.approved_main_id;
+  const asset = childRecord.assets[artifactId];
+  const approval = state.approvals.find(item => item.id === asset.approval_id);
+  childRecord.legacy_refs = {
+    ...childRecord.legacy_refs,
+    main_image: asset.path,
+    product_master_version: childRecord.product_master.version,
+    gallery_asset_ids: [artifactId],
+    approval_ids: [approval.id]
+  };
+  for (const field of [
+    'scope_version', 'scope_type', 'child_sku', 'product_master_version',
+    'approved_main_path', 'approved_main_sha256', 'variation_values'
+  ]) delete approval[field];
+  approval.product_master_version = 0;
+  return {state, childRecord, asset, approval};
+}
+
 test('Child main approval cannot approve another Child', async () => {
   const state = variationState();
   await assert.rejects(
@@ -369,6 +389,43 @@ test('final approval rejects cross-scope substitution for a Child main', async (
     () => approveVariationVersion(state, {userAction: 'approved', now}),
     error => error.code === 'BLOCKING_INPUT'
   );
+});
+
+test('final approval accepts an unchanged promoted legacy Child main without reapproval', async () => {
+  const reopened = reopenMainAsPromotedLegacy(await fullyApprovedState(), 'HORSE-12X16');
+
+  const next = approveVariationVersion(reopened.state, {userAction: 'approved', now});
+  const frozen = next.approvals.at(-1).asset_map.child_main['HORSE-12X16'];
+
+  assert.deepEqual(frozen, {
+    artifact_id: reopened.asset.id,
+    path: reopened.asset.path,
+    sha256: reopened.asset.sha256,
+    approval_id: reopened.approval.id,
+    approval_scope_type: 'legacy_image',
+    child_sku: 'HORSE-12X16',
+    product_master_version: 1
+  });
+  assert.equal(reopened.approval.scope_type, undefined);
+  assert.equal(reopened.approval.scope_version, undefined);
+});
+
+test('final approval rejects mismatched promoted legacy Child-main bindings', async t => {
+  for (const [name, mutate] of [
+    ['Child owner', reopened => { reopened.approval.child_sku = 'KIDS-12X16'; }],
+    ['nonzero Product Master version', reopened => { reopened.approval.product_master_version = 99; }],
+    ['approval path', reopened => { reopened.approval.path = 'images/candidates/other.png'; }],
+    ['legacy main reference', reopened => { reopened.childRecord.legacy_refs.main_image = 'images/candidates/other.png'; }]
+  ]) {
+    await t.test(name, async () => {
+      const reopened = reopenMainAsPromotedLegacy(await fullyApprovedState(), 'HORSE-12X16');
+      mutate(reopened);
+      assert.throws(
+        () => approveVariationVersion(reopened.state, {userAction: 'approved', now}),
+        error => error.code === 'BLOCKING_INPUT'
+      );
+    });
+  }
 });
 
 test('final approval rejects Listing content changed after its scoped approval', async () => {

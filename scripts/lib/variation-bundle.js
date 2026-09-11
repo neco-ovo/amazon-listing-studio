@@ -207,34 +207,49 @@ function currentChildAsset(state, child, artifactId) {
 
 function assertCurrentAssetBinding(state, child, frozen, scopeType, version) {
   const current = currentChildAsset(state, child, frozen.artifact_id);
-  const approval = approvalById(state, frozen.approval_id, scopeType === 'child_secondary' ? null : scopeType);
+  const legacyMain = scopeType === 'child_main' && frozen.approval_scope_type === 'legacy_image';
+  const approval = approvalById(
+    state, frozen.approval_id, scopeType === 'child_secondary' || legacyMain ? null : scopeType
+  );
   const approvalScope = approval.scope_type ?? null;
   const isSecondary = scopeType === 'child_secondary';
   const legacySecondary = isSecondary && frozen.approval_scope_type === null;
+  const legacyAsset = legacySecondary || legacyMain;
   const isLegacyAsset = child.legacy_refs?.gallery_asset_ids?.includes(frozen.artifact_id) === true;
   if (current?.status !== 'approved' || current.path !== frozen.path || current.sha256 !== frozen.sha256
       || current.approval_id !== frozen.approval_id
       || approval.type !== 'image'
-      || (legacySecondary ? approval.scope_version !== undefined : approval.scope_version !== 1)
+      || (legacyAsset ? approval.scope_version !== undefined : approval.scope_version !== 1)
       || approval.artifact_id !== frozen.artifact_id || approval.path !== frozen.path
       || approval.sha256 !== frozen.sha256
       || (isSecondary && ![null, 'child_secondary'].includes(frozen.approval_scope_type))
       || (legacySecondary && !isLegacyAsset)
       || (isSecondary && approvalScope !== frozen.approval_scope_type)
-      || (isSecondary && frozen.child_sku !== child.sku)
-      || (isSecondary && frozen.product_master_version !== version.product_master_version)
-      || (!legacySecondary && approval.child_sku !== child.sku)
-      || (legacySecondary && approval.child_sku !== undefined && approval.child_sku !== child.sku)
-      || (!legacySecondary && approval.product_master_version !== version.product_master_version)
+      || (legacyMain && (approvalScope !== null
+        || child.legacy_refs?.main_image !== frozen.path
+        || child.legacy_refs?.product_master_version !== version.product_master_version
+        || child.legacy_refs?.approval_ids?.includes(frozen.approval_id) !== true
+        || (approval.product_master_version !== undefined && approval.product_master_version !== 0)))
+      || (frozen.child_sku !== child.sku)
+      || (frozen.product_master_version !== version.product_master_version)
+      || (!legacyAsset && approval.child_sku !== child.sku)
+      || (legacyAsset && approval.child_sku !== undefined && approval.child_sku !== child.sku)
+      || (!legacyAsset && approval.product_master_version !== version.product_master_version)
       || (legacySecondary && approval.product_master_version !== undefined
         && approval.product_master_version !== version.product_master_version)
       || (current.child_sku !== undefined && current.child_sku !== child.sku)
       || (current.product_master_version !== undefined
         && current.product_master_version !== version.product_master_version)
       || (scopeType === 'child_main' && (
-        !isDeepStrictEqual(approval.variation_values, version.variation_values)
-        || approval.approved_main_path !== version.approved_main_path
-        || approval.approved_main_sha256 !== version.approved_main_sha256
+        (legacyMain ? (approval.variation_values !== undefined
+          && !isDeepStrictEqual(approval.variation_values, version.variation_values))
+          : !isDeepStrictEqual(approval.variation_values, version.variation_values))
+        || (legacyMain ? (approval.approved_main_path !== undefined
+          && approval.approved_main_path !== version.approved_main_path)
+          : approval.approved_main_path !== version.approved_main_path)
+        || (legacyMain ? (approval.approved_main_sha256 !== undefined
+          && approval.approved_main_sha256 !== version.approved_main_sha256)
+          : approval.approved_main_sha256 !== version.approved_main_sha256)
       ))) {
     throw invalid('APPROVAL_SCOPE_MISMATCH', 'A current Child asset binding is stale or unapproved.', {
       child_sku: child.sku,
@@ -342,7 +357,6 @@ function validateCurrentScope(state, approval, selectedSkus) {
         || main.path !== version.approved_main_path || main.sha256 !== version.approved_main_sha256) {
       throw invalid('APPROVAL_SCOPE_MISMATCH', 'A Child main-image mapping is stale.', {child_sku: child.sku});
     }
-    approvalById(state, main.approval_id, 'child_main');
     assertCurrentAssetBinding(state, child, main, 'child_main', version);
     if (!Array.isArray(approval.asset_map?.child_secondary?.[child.sku])) {
       throw invalid('APPROVAL_SCOPE_MISMATCH', 'A Child secondary-image mapping is missing.', {child_sku: child.sku});
@@ -691,7 +705,8 @@ export async function buildVariationDelivery({
     approvalById(state, asset.approval_id, 'shared_image');
   }
   for (const sku of selectedSkus) {
-    approvalById(state, deliveryScope.asset_map.child_main[sku].approval_id, 'child_main');
+    const main = deliveryScope.asset_map.child_main[sku];
+    approvalById(state, main.approval_id, main.approval_scope_type === 'legacy_image' ? null : 'child_main');
     for (const secondary of deliveryScope.asset_map.child_secondary[sku]) {
       approvalById(state, secondary.approval_id);
     }
