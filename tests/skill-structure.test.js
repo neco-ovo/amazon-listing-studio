@@ -78,6 +78,17 @@ test('delivery does not immediately repeat verification of a newly finalized pac
   assert.match(delivery, /do not.+immediately.+verify-delivery|verify-delivery.+later.+recheck/is);
 });
 
+test('external image uploads use project-scoped names and explicit collision approval', async () => {
+  const delivery = await readFile(path.join(root, 'references', 'delivery-and-compliance.md'), 'utf8');
+
+  assert.match(delivery, /Read this reference only for [^\r\n]*external image uploads/i);
+  assert.match(delivery, /2.+4.+distinctive.+project.+keywords/is);
+  assert.match(delivery, /<upload_slug>-<size>-<purpose>\.png/);
+  assert.match(delivery, /check.+exact object.+before upload/is);
+  assert.match(delivery, /exists.+stop.+ask.+overwrit/is);
+  assert.match(delivery, /does not.+(?:rename|change).+delivery.+(?:files|paths)|delivery.+(?:files|paths).+unchanged/is);
+});
+
 test('entrypoint confines each product to a portable collection-root child directory', async () => {
   const skill = await readFile(path.join(root, 'SKILL.md'), 'utf8');
   assert.match(skill, /projects-root/i);
