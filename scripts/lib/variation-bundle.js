@@ -11,6 +11,7 @@ import {DomainError} from './errors.js';
 import {renderListing} from './listing-drafts.js';
 import {
   hashVariationFinalScope,
+  normalizeVariationRuleScope,
   variationFinalScopePayload
 } from './variation-approvals.js';
 import {validateVariationExtension} from './variations.js';
@@ -817,9 +818,7 @@ function listingRuleScopeMatches(content, scope) {
     rules_unverified: scope.rules_unverified,
     upload_ready: scope.upload_ready
   };
-  return content.rule_status === expected.rule_status
-    && isDeepStrictEqual(content.rules_unverified ?? [], expected.rules_unverified ?? [])
-    && content.upload_ready === expected.upload_ready;
+  return isDeepStrictEqual(normalizeVariationRuleScope(content), expected);
 }
 
 function validManifestScope(manifest) {

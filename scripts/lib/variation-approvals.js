@@ -356,15 +356,21 @@ function listingSnapshot({content, version, approvalId: id, now}) {
   };
 }
 
-function ruleScope(content) {
+export function normalizeVariationRuleScope(content) {
   const rulesUnverified = Array.isArray(content.rules_unverified) ? [...new Set(content.rules_unverified)] : [];
   const ruleStatus = content.rule_status ?? (content.upload_ready === true ? 'verified' : 'rules_unverified');
   const uploadReady = content.upload_ready === true;
+  return {rule_status: ruleStatus, rules_unverified: rulesUnverified, upload_ready: uploadReady};
+}
+
+function ruleScope(content) {
+  const scope = normalizeVariationRuleScope(content);
+  const {rule_status: ruleStatus, rules_unverified: rulesUnverified, upload_ready: uploadReady} = scope;
   if ((ruleStatus === 'verified' && rulesUnverified.length > 0)
       || (uploadReady && (ruleStatus !== 'verified' || rulesUnverified.length > 0))) {
     fail('BLOCKING_INPUT', 'Variation Listing rule status, unverified fields, and upload readiness are incoherent');
   }
-  return {rule_status: ruleStatus, rules_unverified: rulesUnverified, upload_ready: uploadReady};
+  return scope;
 }
 
 function assertCallerBinding(content, expected, forbidden = []) {
