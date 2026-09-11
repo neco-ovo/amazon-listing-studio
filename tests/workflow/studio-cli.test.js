@@ -164,6 +164,60 @@ test('finalize routes v2 delivery through the unified CLI', async () => {
   });
 });
 
+test('finalize uses the current stored single-product final approval when --approval is omitted', async () => {
+  await withTempWorkspace(async root => {
+    const finalApproval = {
+      id: 'final-current', type: 'final', finalized: true, project_id: 'sign-1',
+      product_master_version: 2, listing_version: 3, artifact_ids: ['main-v2', 'scene-v2'],
+      marketplace: 'amazon.com', product_type: 'METAL_SIGN'
+    };
+    await writeFile(path.join(root, 'state.json'), JSON.stringify({
+      schema_version: 2,
+      project: {product_id: 'sign-1', marketplace: 'amazon.com', product_type: 'METAL_SIGN'},
+      product_master: {version: 2, status: 'locked'},
+      gallery: {selected: ['main-v2', 'scene-v2']},
+      listing: {approved: [{version: 3, status: 'approved'}]},
+      approvals: [
+        {...finalApproval, id: 'final-stale', product_master_version: 1},
+        finalApproval
+      ]
+    }));
+    let received;
+
+    const result = await runCli([
+      'finalize', '--project-dir', root, '--output', path.join(root, 'delivery')
+    ], {buildV2: async input => { received = input; return {zipPath: 'delivery.zip'}; }});
+
+    assert.equal(result.ok, true, result.message);
+    assert.deepEqual(received.finalApproval, finalApproval);
+  });
+});
+
+test('finalize rejects ambiguous current single-product final approvals', async () => {
+  await withTempWorkspace(async root => {
+    const scope = {
+      type: 'final', finalized: true, project_id: 'sign-1', product_master_version: 1,
+      listing_version: 1, artifact_ids: ['main-v1'], marketplace: 'amazon.com', product_type: 'METAL_SIGN'
+    };
+    await writeFile(path.join(root, 'state.json'), JSON.stringify({
+      schema_version: 2,
+      project: {product_id: 'sign-1', marketplace: 'amazon.com', product_type: 'METAL_SIGN'},
+      product_master: {version: 1, status: 'locked'},
+      gallery: {selected: ['main-v1']},
+      listing: {approved: [{version: 1, status: 'approved'}]},
+      approvals: [{...scope, id: 'final-a'}, {...scope, id: 'final-b'}]
+    }));
+
+    const result = await runCli([
+      'finalize', '--project-dir', root, '--output', path.join(root, 'delivery')
+    ], {buildV2: async () => ({zipPath: 'must-not-run.zip'})});
+
+    assert.equal(result.ok, false);
+    assert.equal(result.code, 'BLOCKING_INPUT');
+    assert.match(result.message, /single current immutable final approval/i);
+  });
+});
+
 test('relative finalize output resolves from the product directory', async () => {
   await withTempWorkspace(async root => {
     const projectDir = path.join(root, 'product');

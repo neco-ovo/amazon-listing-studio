@@ -78,6 +78,41 @@ function currentVariationFinalApproval(state) {
   return approval;
 }
 
+function currentSingleFinalApproval(state) {
+  if (state?.schema_version !== 2 || state?.project?.mode === 'variation_family'
+      || !Array.isArray(state?.approvals) || !Array.isArray(state?.gallery?.selected)) {
+    throw blocking('Finalization requires a single current immutable final approval');
+  }
+  const listing = state.listing?.approved?.at(-1);
+  const selected = state.gallery.selected;
+  const matches = state.approvals.filter(approval => {
+    const artifactIds = approval?.artifact_ids;
+    return approval?.type === 'final'
+      && approval.finalized === true
+      && approval.status !== 'stale'
+      && approval.project_id === state.project?.product_id
+      && approval.marketplace === state.project?.marketplace
+      && approval.product_type === state.project?.product_type
+      && approval.product_master_version === state.product_master?.version
+      && approval.listing_version === listing?.version
+      && Array.isArray(artifactIds)
+      && artifactIds.length === selected.length
+      && artifactIds.every(id => selected.includes(id));
+  });
+  if (matches.length !== 1) {
+    throw blocking('Finalization requires a single current immutable final approval', {
+      matching_approval_ids: matches.map(item => item.id)
+    });
+  }
+  return matches[0];
+}
+
+function currentFinalApproval(state) {
+  return state?.project?.mode === 'variation_family'
+    ? currentVariationFinalApproval(state)
+    : currentSingleFinalApproval(state);
+}
+
 function hasVariationDeliveryShape(manifest) {
   return manifest && (
     ['family', 'child'].includes(manifest.delivery_type)
@@ -655,8 +690,10 @@ export async function runCli(argv, {
     } else if (command === 'finalize') {
       const projectDir = path.resolve(requireOption(options, 'project-dir'));
       const outputDir = projectOutputPath(projectDir, requireOption(options, 'output'), 'Delivery output');
-      const finalApproval = JSON.parse(await readFile(path.resolve(requireOption(options, 'approval')), 'utf8'));
       const state = await readJsonIfExists(path.join(projectDir, 'state.json'));
+      const finalApproval = options.approval
+        ? JSON.parse(await readFile(path.resolve(options.approval), 'utf8'))
+        : currentFinalApproval(state);
       if (state?.project?.mode === 'variation_family') {
         result = await buildVariation({
           projectDir,

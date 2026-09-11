@@ -141,9 +141,8 @@ test('public CLI adds a Child, records scoped candidates, approves every Variati
     const saved = JSON.parse(await readFile(path.join(projectDir, 'state.json'), 'utf8'));
     const finalApproval = saved.approvals.at(-1);
     assert.equal(finalApproval.scope_type, 'variation_final');
-    const approvalPath = await writeInput(root, 'final-approval.json', finalApproval);
     const finalized = await runCli([
-      'finalize', '--project-dir', projectDir, '--output', 'delivery/family-v1', '--approval', approvalPath
+      'finalize', '--project-dir', projectDir, '--output', 'delivery/family-v1'
     ]);
     assert.equal(finalized.ok, true, finalized.message);
     await access(path.join(projectDir, 'delivery', 'family-v1', 'delivery.zip'));
