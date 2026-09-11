@@ -48,11 +48,13 @@ Audit props and visible fasteners as possible included-package claims. Omit scre
 
 Inspect the saved candidate once for applicable commerce quality: identity and required text, product prominence at thumbnail size, claim-to-visual correspondence, misleading components, and whether a scene is a real use environment rather than only a mounting surface. Run design-differentiation checks only for a source role that requires them. Small precision icons should use deterministic vector/icon composition when available rather than spending another full generation call.
 
+Judge visual deviations by their result: product facts and buyer understanding first, then readability and major composition, and only then fidelity to the prompt or planned layout. A small spacing, line-length, type-size, decoration, or divider-angle difference that does not affect those outcomes remains a passing candidate; record `minor_visual_deviation` in `inspection_findings` when useful. Prompt deviation or an exceeded layout guideline alone does not trigger automatic rejection or regeneration. Before any correction, compare the expected visual benefit with its generation or editing cost and the risk of introducing a new defect. Exact user constraints still take priority.
+
 ## Repair ladder
 
 Use deterministic repair for a localized geometry or typography defect before spending another generation call.
 
-For dimension infographics, anchor every repaired dimension line to the measured product bounds rather than an isolated canvas coordinate. Unless the user or a reviewed template specifies a supported alternative, keep the line gap within 2%–6% of the canvas short side. Check regional visual balance as well as in-canvas bounds so a sparse corridor cannot pass merely because its label is technically visible.
+For dimension infographics, anchor every repaired dimension line to the measured product bounds rather than an isolated canvas coordinate. Unless the user or a reviewed template specifies a supported alternative, use a line gap within 2%–6% of the canvas short side as default layout guidance, not a standalone pass/fail threshold. Check regional visual balance as well as in-canvas bounds so a sparse corridor cannot pass merely because its label is technically visible.
 
 Choose the cheapest valid action from diagnosed defects:
 

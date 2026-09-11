@@ -174,6 +174,16 @@ test('infographic repair anchors dimensions and checks regional balance', async 
   assert.match(skill, /regional visual balance/i);
 });
 
+test('image QA treats minor layout deviations as reviewable findings instead of automatic failures', async () => {
+  const imageWorkflow = await readFile(path.join(root, 'references', 'image-workflow.md'), 'utf8');
+
+  assert.match(imageWorkflow, /2%.+6%.+(?:guidance|reference)/is);
+  assert.match(imageWorkflow, /minor_visual_deviation/);
+  assert.match(imageWorkflow, /(?:do not|does not).+automatic.+(?:reject|regenerat)/is);
+  assert.match(imageWorkflow, /facts?.+buyer understanding.+readability.+composition/is);
+  assert.match(imageWorkflow, /benefit.+cost.+(?:new|introducing).+defect/is);
+});
+
 test('skill routes merchant layouts and one-pass commerce quality checks', async () => {
   const skill = await readFile(path.join(root, 'SKILL.md'), 'utf8');
   const imageWorkflow = await readFile(path.join(root, 'references', 'image-workflow.md'), 'utf8');
