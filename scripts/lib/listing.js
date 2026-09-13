@@ -45,6 +45,24 @@ export function findFrontBackDuplicates(listing = {}) {
   return [...new Set(searchTokens(listing.backend_search_terms))].filter(token => frontend.has(token));
 }
 
+export function selectBackendSearchPhrases({listing = {}, candidates = [], byteLimit = 250} = {}) {
+  const frontend = new Set(searchTokens(frontText(listing)));
+  const seen = new Set();
+  const selected = [];
+  for (const value of candidates) {
+    const phrase = String(value ?? '').trim().replace(/\s+/g, ' ');
+    const normalized = searchTokens(phrase).join(' ');
+    if (!normalized || seen.has(normalized)) continue;
+    seen.add(normalized);
+    const tokens = searchTokens(phrase);
+    if (tokens.every(token => frontend.has(token))) continue;
+    const next = [...selected, phrase].join(' ');
+    if (utf8Bytes(next) > byteLimit) break;
+    selected.push(phrase);
+  }
+  return selected.join(' ');
+}
+
 const EMPTY_BENEFIT = /^(?:supports?|provides?|offers?)\s+(?:a\s+|an\s+)?(?:(?:various|different|exposed|general|everyday|straightforward|versatile)\s+)*(?:settings?|applications?|uses?|needs?|placement|contexts?)\.?$/i;
 
 export function findEmptyBenefitPhrases(listing = {}) {

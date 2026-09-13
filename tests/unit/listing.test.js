@@ -2,7 +2,9 @@ import assert from 'node:assert/strict';
 import {readFile} from 'node:fs/promises';
 import test from 'node:test';
 
-import {createSchemaAuthorization, normalizeListing, utf8Bytes, validateListing} from '../../scripts/lib/listing.js';
+import {
+  createSchemaAuthorization, normalizeListing, selectBackendSearchPhrases, utf8Bytes, validateListing
+} from '../../scripts/lib/listing.js';
 
 const limits = {
   title_chars: 75,
@@ -43,6 +45,23 @@ test('normalizeListing keeps stable arrays and optional product-detail fields', 
   assert.deepEqual(listing.special_features, ['one']);
   assert.deepEqual(listing.attributes, {});
   assert.deepEqual(listing.rules_unverified, []);
+});
+
+test('drops a fully covered backend phrase after conservative normalization', () => {
+  const listing = {title: 'Slow-Down Kids at Play Sign'};
+  assert.equal(selectBackendSearchPhrases({listing, candidates: ['slow down kids at play sign']}), '');
+});
+
+test('keeps a useful partially uncovered backend phrase intact', () => {
+  const listing = {title: 'Kids at Play Sign'};
+  assert.equal(selectBackendSearchPhrases({listing, candidates: ['residential street warning']}), 'residential street warning');
+});
+
+test('never fragments a backend phrase to fit the UTF-8 byte limit', () => {
+  const result = selectBackendSearchPhrases({
+    listing: {}, candidates: ['jobsite warning', 'residential street warning'], byteLimit: 20
+  });
+  assert.equal(result, 'jobsite warning');
 });
 
 test('enforces title, Item Highlights, Bullet, Description, and search limits', async t => {

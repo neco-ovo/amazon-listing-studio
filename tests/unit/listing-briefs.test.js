@@ -29,6 +29,34 @@ test('brief requires benefit-led Bullet headings and natural fact synthesis', ()
   assert.ok(brief.language_rules.includes('avoid_empty_conservative_phrasing'));
 });
 
+test('keyword profile supplies bounded Listing and advertising candidates', () => {
+  const keywordProfile = {
+    groups: {
+      core: [{phrase: 'slow down kids at play sign'}, {phrase: 'kids at play sign'}],
+      supporting: [{phrase: 'children playing sign'}],
+      backend: [{phrase: 'slow down signs'}],
+      excluded: [{phrase: 'vinyl kids decal'}]
+    },
+    advertising: {
+      exact_candidates: ['slow down kids at play sign'],
+      phrase_candidates: ['children playing sign'], cautious_tests: ['slow down signs'], negative_candidates: ['vinyl kids decal']
+    }
+  };
+  const brief = compileListingBrief({...fixture, marketLanguage: [], keywordProfile});
+  assert.deepEqual(brief.keyword_groups.core, ['slow down kids at play sign', 'kids at play sign']);
+  assert.deepEqual(brief.fields.title.keyword_candidates, brief.keyword_groups.core);
+  assert.deepEqual(brief.fields.backend_search_terms.candidates, ['slow down signs']);
+  assert.deepEqual(brief.advertising.exact_candidates, ['slow down kids at play sign']);
+  assert.deepEqual(brief.keyword_profile, keywordProfile);
+});
+
+test('omitting keyword profile preserves the existing brief shape', () => {
+  const before = compileListingBrief(fixture);
+  const after = compileListingBrief({...fixture, keywordProfile: undefined});
+  assert.deepEqual(after, before);
+  assert.equal(Object.hasOwn(after, 'keyword_profile'), false);
+});
+
 test('detects fully covered backend tokens and empty benefit phrasing', () => {
   const listing = {
     title: 'Aluminum Safety Sign',

@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { writeFile } from 'node:fs/promises';
+import { mkdir, readFile, stat, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { runApprove, runListingRevision } from '../../scripts/studio.js';
 import { createProjectState, renderProjectSummary } from '../../scripts/lib/project-state.js';
@@ -62,6 +62,22 @@ test('single-field revision calls only patch, changed validation, render, and wr
   assert.ok(!calls.includes('rule-refresh'));
   assert.ok(!calls.includes('image-generation'));
   assert.ok(!calls.includes('repository-tests'));
+});
+
+test('single-field revision leaves the saved keyword profile untouched', async () => {
+  await withTempWorkspace(async projectDir => {
+    const profilePath = path.join(projectDir, 'references', 'keyword-profile.json');
+    await mkdir(path.dirname(profilePath), {recursive: true});
+    await writeFile(profilePath, '{"groups":{"core":[]}}\n');
+    const beforeBytes = await readFile(profilePath);
+    const beforeTime = (await stat(profilePath)).mtimeMs;
+    await runListingRevision({
+      projectDir,
+      patch: {fields: {title: 'After'}, expectedDraftRevision: 1}
+    }, recordingDependencies([]));
+    assert.deepEqual(await readFile(profilePath), beforeBytes);
+    assert.equal((await stat(profilePath)).mtimeMs, beforeTime);
+  });
 });
 
 test('Listing approval freezes the current draft without image-path arguments', async () => {
