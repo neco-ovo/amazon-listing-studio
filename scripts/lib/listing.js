@@ -147,8 +147,9 @@ function validateProhibitedContent(listing, context, errors) {
   }
 }
 
-function validateKeywordProfile(listing, keywordProfile, errors) {
-  if (!keywordProfile) return;
+export function keywordProfileErrors(listing, keywordProfile) {
+  const errors = [];
+  if (!keywordProfile) return errors;
   const allText = `${frontText(listing)} ${listing.backend_search_terms}`;
   const normalizedText = ` ${searchTokens(allText).join(' ')} `;
   const excluded = (keywordProfile.groups?.excluded ?? [])
@@ -158,6 +159,7 @@ function validateKeywordProfile(listing, keywordProfile, errors) {
   if (excluded.length) errors.push({field: 'keyword_profile', code: 'EXCLUDED_KEYWORD', phrases: [...new Set(excluded)]});
   const duplicates = findFrontBackDuplicates(listing);
   if (duplicates.length) errors.push({field: 'backend_search_terms', code: 'FRONTEND_BACKEND_DUPLICATE', tokens: duplicates});
+  return errors;
 }
 
 function validateRefArray(value, field, publishableFacts, errors) {
@@ -224,7 +226,7 @@ export function validateListing(input, context = {}) {
   }
   validateClaimRefs(listing, context.publishableFactIds ?? new Set(), errors);
   validateProhibitedContent(listing, context, errors);
-  validateKeywordProfile(listing, context.keywordProfile, errors);
+  errors.push(...keywordProfileErrors(listing, context.keywordProfile));
 
   if ((listing.validation.condense_attempts ?? 0) >= 1 && errors.some(error => ['CHAR_LIMIT', 'BYTE_LIMIT', 'BULLETS_COMBINED_LIMIT'].includes(error.code))) {
     errors.push({field: 'validation', code: 'LIMIT_AFTER_CONDENSE', message: 'Content remains over a configured limit after one condense pass.'});

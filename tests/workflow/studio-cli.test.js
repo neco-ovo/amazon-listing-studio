@@ -205,6 +205,25 @@ test('analyze-keywords never overwrites an incompatible cache slug collision', a
   });
 });
 
+test('analyze-keywords never overwrites an unreadable keyword cache', async () => {
+  await withTempWorkspace(async root => {
+    const projectDir = path.join(root, 'sign-1');
+    const libraryDir = path.join(root, 'library');
+    await runCli(['init', '--project-dir', projectDir, '--project-id', 'sign-1', '--product-name', 'Safety Sign', '--marketplace', 'amazon.com', '--language', 'en-US', '--product-type', 'metal-sign']);
+    const cachePath = path.join(libraryDir, 'keyword-profiles', 'amazon-com', 'en-us', 'metal-sign', 'kids-sign.json');
+    await mkdir(path.dirname(cachePath), {recursive: true});
+    await writeFile(cachePath, '{corrupt');
+    const workbook = path.join(root, 'mining.xlsx');
+    await writeSellerSpriteWorkbook(workbook, {headers: miningHeaders, rows: [['kids sign', 100, 1000]]});
+    const manifest = path.join(root, 'manifest.json');
+    await writeFile(manifest, JSON.stringify({intent: 'kids sign', reports: [{path: workbook, seed_query: 'kids sign'}], fit_assessments: {'kids sign': {fit: 'exact', reason: 'match', reason_code: 'direct_match'}}}));
+    const result = await runCli(['analyze-keywords', '--project-dir', projectDir, '--input', manifest, '--library-dir', libraryDir]);
+    assert.equal(result.ok, true);
+    assert.equal(result.result.cache_path, null);
+    assert.equal(await readFile(cachePath, 'utf8'), '{corrupt');
+  });
+});
+
 test('analyze-keywords keeps the project profile when optional caching fails', async () => {
   await withTempWorkspace(async root => {
     const projectDir = path.join(root, 'sign-1');

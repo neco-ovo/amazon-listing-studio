@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import {createHash} from 'node:crypto';
-import { access, mkdir, readFile, readdir, rename, stat, writeFile } from 'node:fs/promises';
+import { access, mkdir, open, readFile, readdir, rename, stat, unlink, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import sharp from 'sharp';
@@ -10,6 +10,7 @@ import { approveArtifact, approveListingDraft, updateProject } from './lib/trans
 import { migrateLegacyProject } from './lib/migration.js';
 import { validateMainImage } from './lib/images.js';
 import { renderListing, reviseDraft } from './lib/listing-drafts.js';
+import {keywordProfileErrors} from './lib/listing.js';
 import { buildV2Delivery, verifyDelivery } from './lib/bundle.js';
 import {buildVariationDelivery, verifyVariationDelivery} from './lib/variation-bundle.js';
 import {
@@ -239,7 +240,19 @@ function profileSegment(value) {
 
 async function defaultWriteKeywordCache(filePath, profile) {
   await mkdir(path.dirname(filePath), {recursive: true});
-  await writeJsonAtomically(filePath, profile);
+  const lockPath = `${filePath}.lock`;
+  let lock;
+  try {
+    lock = await open(lockPath, 'wx');
+    const current = await readJsonIfExists(filePath);
+    if (current && current.normalized_intent !== profile.normalized_intent) {
+      throw Object.assign(new Error('Keyword cache key is occupied by another intent.'), {code: 'KEYWORD_CACHE_COLLISION'});
+    }
+    await writeJsonAtomically(filePath, profile);
+  } finally {
+    await lock?.close();
+    if (lock) await unlink(lockPath).catch(() => {});
+  }
 }
 
 async function analyzeKeywords(options, dependencies = {}) {
@@ -467,10 +480,12 @@ export async function runRecordCandidate({projectDir, candidate}, {
 
 export async function runApprove(input, {hashFile} = {}) {
   if (input.artifactType === 'listing') {
-    return updateProject(input.projectDir, state => approveListingDraft(state, {
-      userAction: 'approved',
-      now: input.now
-    }));
+    const keywordProfile = await readJsonIfExists(projectKeywordProfilePath(input.projectDir));
+    return updateProject(input.projectDir, state => {
+      const errors = keywordProfileErrors(state?.listing?.draft?.content, keywordProfile);
+      if (errors.length) throw blocking('Listing conflicts with the saved keyword profile', {errors});
+      return approveListingDraft(state, {userAction: 'approved', now: input.now});
+    });
   }
   return updateProject(input.projectDir, state => approveArtifact(state, {
       artifactId: input.artifactId,
@@ -705,10 +720,12 @@ export async function runListingRevision(input, dependencies = {}) {
   const validateChanged = dependencies.validateChanged ?? validateChangedListing;
   const renderMarkdown = dependencies.renderMarkdown ?? renderListing;
   const writeTransaction = dependencies.writeTransaction ?? defaultWriteListingTransaction;
+  const loadKeywordProfile = dependencies.loadKeywordProfile
+    ?? (() => readJsonIfExists(projectKeywordProfilePath(input.projectDir)));
 
-  const current = await loadState(input.projectDir);
+  const [current, keywordProfile] = await Promise.all([loadState(input.projectDir), loadKeywordProfile()]);
   const next = patchDraft(current, input.patch);
-  const validation = validateChanged(next, changedPaths);
+  const validation = validateChanged(next, changedPaths, {keywordProfile});
   const markdown = renderMarkdown(next.listing.draft);
   const transaction = await writeTransaction({projectDir: input.projectDir, state: next, markdown});
   return {...transaction, mode: route.mode, changed_paths: changedPaths, validation};
