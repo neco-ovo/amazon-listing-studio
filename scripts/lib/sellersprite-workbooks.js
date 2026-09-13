@@ -1,4 +1,6 @@
 import path from 'node:path';
+import {readFile} from 'node:fs/promises';
+import {strFromU8, unzipSync} from 'fflate';
 import readXlsxFile from 'read-excel-file/node';
 
 import {fail} from './errors.js';
@@ -67,6 +69,29 @@ function reportType(headers) {
   return required.some(field => headers.duplicates.has(field)) ? null : type;
 }
 
+function sellerSpriteLike(headers) {
+  return headers.fields.has('keyword') && headers.fields.size >= 2;
+}
+
+function decodeXml(value) {
+  return value.replace(/&quot;/g, '"').replace(/&apos;/g, "'").replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&');
+}
+
+async function visibleSheetNames(filePath) {
+  const archive = unzipSync(new Uint8Array(await readFile(filePath)));
+  const workbook = archive['xl/workbook.xml'];
+  if (!workbook) throw new Error('Workbook metadata is missing.');
+  const xml = strFromU8(workbook);
+  const visible = new Set();
+  for (const match of xml.matchAll(/<sheet\b([^>]*)\/?\s*>/g)) {
+    const attributes = match[1];
+    const name = attributes.match(/\bname="([^"]*)"/)?.[1];
+    const state = attributes.match(/\bstate="([^"]*)"/)?.[1] ?? 'visible';
+    if (name && state === 'visible') visible.add(decodeXml(name));
+  }
+  return visible;
+}
+
 function value(row, headers, field) {
   return headers.fields.has(field) ? row[headers.fields.get(field)] : null;
 }
@@ -104,20 +129,29 @@ function parseRow(row, headers, type) {
 
 export async function parseSellerSpriteWorkbook(filePath, importContext = {}) {
   let sheets;
+  let visibleSheets;
   try {
-    sheets = await readXlsxFile(filePath);
+    [sheets, visibleSheets] = await Promise.all([readXlsxFile(filePath), visibleSheetNames(filePath)]);
   } catch (error) {
     fail('UNSUPPORTED_KEYWORD_WORKBOOK', 'Cannot read SellerSprite workbook.', {reason: error.message});
   }
   for (const sheet of sheets) {
+    if (!visibleSheets.has(sheet.sheet)) continue;
     const rows = sheet.data;
     if (!Array.isArray(rows) || rows.length < 2) continue;
     const headers = headerMap(rows[0]);
     const type = reportType(headers);
-    if (!type) continue;
+    if (!type) {
+      if (sellerSpriteLike(headers)) {
+        fail('UNSUPPORTED_KEYWORD_WORKBOOK', 'Visible SellerSprite sheet has an ambiguous or incomplete header signature.', {sheet: sheet.sheet});
+      }
+      continue;
+    }
     const parsed = rows.slice(1).map(row => parseRow(row, headers, type));
     const validRows = parsed.filter(Boolean);
-    if (!validRows.length) continue;
+    if (!validRows.length) {
+      fail('UNSUPPORTED_KEYWORD_WORKBOOK', 'First visible matching SellerSprite sheet has no valid data rows.', {sheet: sheet.sheet});
+    }
     const scope = importContext.sampleScope ?? 'unknown_partial';
     return {
       report_type: type,

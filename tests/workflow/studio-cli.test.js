@@ -151,6 +151,7 @@ test('analyze-keywords parses once and writes project and optional reusable prof
     assert.equal(result.result.web_research_used, false);
     assert.equal(result.result.market_size_complete, false);
     const projectProfile = JSON.parse(await readFile(path.join(projectDir, 'references', 'keyword-profile.json'), 'utf8'));
+    assert.equal(projectProfile.scope_provenance, 'user_declared');
     const reusableProfile = JSON.parse(await readFile(result.result.cache_path, 'utf8'));
     assert.deepEqual(reusableProfile.groups, projectProfile.groups);
     assert.deepEqual(await readFile(statePath), stateBefore);
@@ -175,6 +176,32 @@ test('analyze-keywords parses once and writes project and optional reusable prof
     assert.equal(refreshedProfile.reports.length, 2);
     assert.equal(refreshedProfile.reports.find(item => item.report_type === 'reverse_asin').source.export_date, '2026-09-13');
     assert.equal(refreshedProfile.reports.find(item => item.report_type === 'keyword_mining').source.export_date, '2026-09-12');
+  });
+});
+
+test('analyze-keywords never overwrites an incompatible cache slug collision', async () => {
+  await withTempWorkspace(async root => {
+    const projectDir = path.join(root, 'sign-1');
+    const libraryDir = path.join(root, 'library');
+    await runCli(['init', '--project-dir', projectDir, '--project-id', 'sign-1', '--product-name', 'Safety Sign', '--marketplace', 'amazon.com', '--language', 'en-US', '--product-type', 'metal-sign']);
+    const cachePath = path.join(libraryDir, 'keyword-profiles', 'amazon-com', 'en-us', 'metal-sign', 'sign.json');
+    await mkdir(path.dirname(cachePath), {recursive: true});
+    const sentinel = JSON.stringify({marketplace: 'amazon.com', locale: 'en-US', product_type: 'metal-sign', normalized_intent: '儿童 sign', reports: []});
+    await writeFile(cachePath, sentinel);
+    const workbook = path.join(root, 'mining.xlsx');
+    await writeSellerSpriteWorkbook(workbook, {headers: miningHeaders, rows: [['警告 sign', 100, 1000]]});
+    const manifest = path.join(root, 'manifest.json');
+    await writeFile(manifest, JSON.stringify({
+      intent: '警告 sign', reports: [{path: workbook, seed_query: '警告 sign'}],
+      fit_assessments: {'警告 sign': {fit: 'exact', reason: 'match', reason_code: 'direct_match'}}
+    }));
+    const result = await runCli(['analyze-keywords', '--project-dir', projectDir, '--input', manifest, '--library-dir', libraryDir]);
+    assert.equal(result.ok, true);
+    assert.equal(result.result.cache_path, null);
+    assert.ok(result.result.warnings.some(item => item.code === 'KEYWORD_CACHE_COLLISION'));
+    assert.equal(await readFile(cachePath, 'utf8'), sentinel);
+    const profile = JSON.parse(await readFile(path.join(projectDir, 'references', 'keyword-profile.json'), 'utf8'));
+    assert.equal(profile.normalized_intent, '警告 sign');
   });
 });
 

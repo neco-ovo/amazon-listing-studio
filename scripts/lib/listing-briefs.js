@@ -75,6 +75,11 @@ export function compileListingBrief({
   brief.fields.bullets.keyword_candidates = [...brief.keyword_groups.supporting];
   brief.fields.description.keyword_candidates = [...brief.keyword_groups.supporting];
   brief.fields.backend_search_terms.candidates = [...new Set(brief.keyword_groups.backend)];
+  brief.self_audit.checks.push(
+    'excluded_keywords_absent',
+    'frontend_backend_keyword_deduplication',
+    'keyword_product_fit_and_naturalness'
+  );
   brief.advertising = structuredClone(keywordProfile.advertising ?? {});
   return brief;
 }

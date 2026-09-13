@@ -259,6 +259,7 @@ async function analyzeKeywords(options, dependencies = {}) {
   };
   const outputPath = projectKeywordProfilePath(projectDir);
   let cachePath = null;
+  let cacheCollision = false;
   const warnings = [];
   if (options['library-dir']) {
     cachePath = reusableKeywordProfilePath(path.resolve(options['library-dir']), {
@@ -269,9 +270,21 @@ async function analyzeKeywords(options, dependencies = {}) {
     });
   }
   let existing = await readJsonIfExists(outputPath);
-  if (!existing && cachePath) {
+  let cached = null;
+  if (cachePath) {
     try {
-      existing = await readJsonIfExists(cachePath);
+      cached = await readJsonIfExists(cachePath);
+      if (cached) {
+        const cachedFacts = cached.product_facts ?? {};
+        const cachedFactConflict = Object.keys(cachedFacts).some(field => (
+          Object.hasOwn(productFacts, field) && JSON.stringify(cachedFacts[field]) !== JSON.stringify(productFacts[field])
+        ));
+        const compatibility = isCompatibleKeywordProfile(cached, {...context, product_fact_conflict: cachedFactConflict}, input.now);
+        if (!compatibility.compatible) {
+          cacheCollision = true;
+          warnings.push({code: 'KEYWORD_CACHE_COLLISION'});
+        }
+      }
     } catch {
       warnings.push({code: 'KEYWORD_CACHE_NOT_READ'});
     }
@@ -284,6 +297,7 @@ async function analyzeKeywords(options, dependencies = {}) {
     const compatibility = isCompatibleKeywordProfile(existing, {...context, product_fact_conflict: factConflict}, input.now);
     if (!compatibility.compatible) existing = null;
   }
+  if (!existing && cached && !cacheCollision) existing = cached;
   const incomingReports = [];
   for (const item of input.reports) {
     if (!item?.path) throw blocking('Every SellerSprite report requires a path');
@@ -326,6 +340,7 @@ async function analyzeKeywords(options, dependencies = {}) {
   if (existing?.generated_at) profile.generated_at = existing.generated_at;
   await mkdir(path.dirname(outputPath), {recursive: true});
   await writeJsonAtomically(outputPath, profile);
+  if (cacheCollision) cachePath = null;
   if (cachePath) {
     try {
       await (dependencies.writeCache ?? defaultWriteKeywordCache)(cachePath, profile);

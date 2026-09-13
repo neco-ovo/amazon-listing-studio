@@ -78,6 +78,30 @@ test('rejects duplicate mandatory headers and ordinary spreadsheets', async () =
   });
 });
 
+test('rejects an ambiguous visible SellerSprite sheet instead of skipping to a later valid sheet', async () => {
+  await withTempWorkspace(async root => {
+    const file = path.join(root, 'ambiguous-first.xlsx');
+    await writeSellerSpriteWorkbook(file, {sheets: [
+      {sheetName: 'Broken', headers: ['关键词', '关键词', '相关度', '月搜索量'], rows: [['one', 'one', 100, 5]]},
+      {sheetName: 'Valid', headers: miningHeaders, rows: [['kids sign', 100, 1000]]}
+    ]});
+    await assert.rejects(() => parseSellerSpriteWorkbook(file), error => error.code === 'UNSUPPORTED_KEYWORD_WORKBOOK');
+  });
+});
+
+test('ignores hidden sheets and parses the first visible matching SellerSprite sheet', async () => {
+  await withTempWorkspace(async root => {
+    const file = path.join(root, 'hidden.xlsx');
+    await writeSellerSpriteWorkbook(file, {sheets: [
+      {sheetName: 'Hidden', state: 'hidden', headers: ['关键词', '关键词', '相关度', '月搜索量'], rows: [['one', 'one', 100, 5]]},
+      {sheetName: 'Visible', headers: miningHeaders, rows: [['kids sign', 100, 1000]]}
+    ]});
+    const report = await parseSellerSpriteWorkbook(file);
+    assert.equal(report.report_type, 'keyword_mining');
+    assert.equal(report.rows[0].keyword, 'kids sign');
+  });
+});
+
 test('defaults unknown scope and keeps optional malformed values null', async () => {
   await withTempWorkspace(async root => {
     const file = path.join(root, 'optional.xlsx');

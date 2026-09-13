@@ -146,6 +146,19 @@ test('rejects competitor brands, promotions, and contact details', async t => {
   }
 });
 
+test('enforces keyword profile exclusions and front-back deduplication', async () => {
+  const listing = await fixture();
+  listing.description += ' Vinyl kids decal.';
+  listing.backend_search_terms = `aluminum ${listing.backend_search_terms}`;
+  const result = validateListing(listing, {
+    ...context,
+    keywordProfile: {groups: {excluded: [{phrase: 'vinyl kids decal'}]}}
+  });
+  assert.ok(result.errors.some(error => error.code === 'EXCLUDED_KEYWORD'));
+  assert.ok(result.errors.some(error => error.code === 'FRONTEND_BACKEND_DUPLICATE'));
+  assert.equal(result.listing.upload_ready, false);
+});
+
 test('rejects stale Product Master and reports limit failure after one condense', async () => {
   const stale = await fixture();
   stale.product_master_version = 1;

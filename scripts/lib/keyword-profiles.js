@@ -125,6 +125,7 @@ export function buildKeywordProfile({project = {}, intent = '', reports = [], fi
   const excluded = evaluated.filter(item => item.fit === 'excluded');
   const timestamp = now ?? new Date().toISOString();
   const analysisScopes = [...new Set(reports.map(report => report?.source?.analysis_scope).filter(Boolean))];
+  const scopeProvenances = [...new Set(reports.map(report => report?.source?.scope_provenance ?? 'default'))];
   return {
     schema_version: 1,
     marketplace: project.marketplace ?? null,
@@ -134,6 +135,7 @@ export function buildKeywordProfile({project = {}, intent = '', reports = [], fi
     intent_slug: slug(intent),
     product_facts: {...(project.product_facts ?? {})},
     analysis_scope: analysisScopes.length === 1 ? analysisScopes[0] : 'mixed_partial',
+    scope_provenance: scopeProvenances.length === 1 ? scopeProvenances[0] : 'mixed',
     market_size_complete: false,
     reports: reports.map(report => ({
       report_type: report.report_type,

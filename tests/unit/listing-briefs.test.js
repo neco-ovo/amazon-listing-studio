@@ -48,6 +48,9 @@ test('keyword profile supplies bounded Listing and advertising candidates', () =
   assert.deepEqual(brief.fields.backend_search_terms.candidates, ['slow down signs']);
   assert.deepEqual(brief.advertising.exact_candidates, ['slow down kids at play sign']);
   assert.deepEqual(brief.keyword_profile, keywordProfile);
+  assert.ok(brief.self_audit.checks.includes('excluded_keywords_absent'));
+  assert.ok(brief.self_audit.checks.includes('frontend_backend_keyword_deduplication'));
+  assert.ok(brief.self_audit.checks.includes('keyword_product_fit_and_naturalness'));
 });
 
 test('profile exclusions cannot re-enter through legacy market language', () => {

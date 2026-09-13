@@ -107,12 +107,22 @@ test('applies product fit before deterministic evidence ordering', () => {
   assert.equal(profile.groups.supporting[0].phrase, 'playground warning sign');
   assert.ok(profile.groups.excluded.some(item => item.phrase === 'vinyl kids decal'));
   assert.equal(profile.market_size_complete, false);
+  assert.equal(profile.scope_provenance, 'default');
   assert.equal(JSON.stringify(profile).includes('"score"'), false);
   assert.deepEqual(profile.advertising.exact_candidates, profile.groups.core.map(item => item.phrase));
   assert.deepEqual(profile.advertising.phrase_candidates, profile.groups.supporting.map(item => item.phrase));
   assert.deepEqual(profile.advertising.cautious_tests, profile.groups.backend.map(item => item.phrase));
   assert.deepEqual(profile.advertising.negative_candidates, ['vinyl kids decal']);
   assert.doesNotMatch(JSON.stringify(profile.advertising), /bid|budget|forecast|profit/i);
+});
+
+test('records mixed profile-level scope provenance', () => {
+  const mixedMining = {...miningReport, source: {...miningReport.source, scope_provenance: 'export_metadata'}};
+  const mixedReverse = {...reverseReport, source: {...reverseReport.source, scope_provenance: 'user_declared'}};
+  const profile = buildKeywordProfile({
+    project: {}, intent: 'sign', reports: [mixedMining, mixedReverse], fitAssessments: assessments
+  });
+  assert.equal(profile.scope_provenance, 'mixed');
 });
 
 test('requires one fit assessment for every merged phrase', () => {
