@@ -65,6 +65,14 @@ test('profile exclusions cannot re-enter through legacy market language', () => 
   assert.deepEqual(brief.fields.backend_search_terms.candidates, []);
 });
 
+test('brief rejects a saved profile after publishable product facts change', () => {
+  const keywordProfile = {product_facts: {material: {value: 'Aluminum'}}, groups: {core: [], supporting: [], backend: [], excluded: []}};
+  assert.throws(
+    () => compileListingBrief({facts: {material: {value: 'Vinyl', publishable: true}}, keywordProfile}),
+    error => error.code === 'STALE_KEYWORD_PROFILE'
+  );
+});
+
 test('omitting keyword profile preserves the existing brief shape', () => {
   const before = compileListingBrief(fixture);
   const after = compileListingBrief({...fixture, keywordProfile: undefined});

@@ -224,6 +224,35 @@ async function learnCategory(options) {
   return {path: outputPath, observation_count: Object.keys(output.observations).length};
 }
 
+async function withFileLock(lockPath, operation) {
+  await mkdir(path.dirname(lockPath), {recursive: true});
+  let lock;
+  try {
+    lock = await open(lockPath, 'wx');
+    return await operation();
+  } finally {
+    await lock?.close();
+    if (lock) await unlink(lockPath).catch(() => {});
+  }
+}
+
+function assertCurrentKeywordProfile(profile, state) {
+  if (!profile) return;
+  const currentFacts = publishableFacts(state);
+  const priorFacts = profile.product_facts ?? {};
+  const factConflict = [...new Set([...Object.keys(priorFacts), ...Object.keys(currentFacts)])].some(field => (
+    JSON.stringify(priorFacts[field]) !== JSON.stringify(currentFacts[field])
+  ));
+  const compatibility = isCompatibleKeywordProfile(profile, {
+    marketplace: state.project.marketplace,
+    locale: state.project.language,
+    product_type: state.project.product_type,
+    intent: profile.normalized_intent,
+    product_fact_conflict: factConflict
+  });
+  if (!compatibility.compatible) throw blocking('Saved keyword profile is stale; rerun keyword analysis.', {reasons: compatibility.reasons});
+}
+
 function publishableFacts(state) {
   return Object.fromEntries(Object.entries(state?.facts ?? {})
     .filter(([, fact]) => fact?.status === 'confirmed' && fact?.publishable === true)
@@ -266,7 +295,9 @@ async function analyzeKeywords(options, dependencies = {}) {
   if (!Array.isArray(input.reports) || input.reports.length === 0) {
     throw blocking('At least one SellerSprite report is required');
   }
-  const state = await defaultLoadState(projectDir);
+  const statePath = path.join(projectDir, 'state.json');
+  const stateSnapshot = await readFile(statePath, 'utf8');
+  const state = JSON.parse(stateSnapshot);
   const productFacts = publishableFacts(state);
   const context = {
     marketplace: state.project.marketplace,
@@ -356,6 +387,7 @@ async function analyzeKeywords(options, dependencies = {}) {
     now: input.now
   });
   if (existing?.generated_at) profile.generated_at = existing.generated_at;
+  if (await readFile(statePath, 'utf8') !== stateSnapshot) throw blocking('Project facts changed during keyword analysis; rerun analysis.');
   await writeKeywordProfileLocked(outputPath, profile, projectSnapshot, 'KEYWORD_PROJECT_CHANGED');
   if (cacheCollision) cachePath = null;
   if (cachePath) {
@@ -484,12 +516,14 @@ export async function runRecordCandidate({projectDir, candidate}, {
 
 export async function runApprove(input, {hashFile} = {}) {
   if (input.artifactType === 'listing') {
-    const keywordProfile = await readJsonIfExists(projectKeywordProfilePath(input.projectDir));
-    return updateProject(input.projectDir, state => {
+    const profilePath = projectKeywordProfilePath(input.projectDir);
+    return withFileLock(`${profilePath}.lock`, () => updateProject(input.projectDir, async state => {
+      const keywordProfile = await readJsonIfExists(profilePath);
+      assertCurrentKeywordProfile(keywordProfile, state);
       const errors = keywordProfileErrors(state?.listing?.draft?.content, keywordProfile);
       if (errors.length) throw blocking('Listing conflicts with the saved keyword profile', {errors});
       return approveListingDraft(state, {userAction: 'approved', now: input.now});
-    });
+    }));
   }
   return updateProject(input.projectDir, state => approveArtifact(state, {
       artifactId: input.artifactId,
@@ -727,12 +761,18 @@ export async function runListingRevision(input, dependencies = {}) {
   const loadKeywordProfile = dependencies.loadKeywordProfile
     ?? (() => readJsonIfExists(projectKeywordProfilePath(input.projectDir)));
 
-  const [current, keywordProfile] = await Promise.all([loadState(input.projectDir), loadKeywordProfile()]);
-  const next = patchDraft(current, input.patch);
-  const validation = validateChanged(next, changedPaths, {keywordProfile});
-  const markdown = renderMarkdown(next.listing.draft);
-  const transaction = await writeTransaction({projectDir: input.projectDir, state: next, markdown});
-  return {...transaction, mode: route.mode, changed_paths: changedPaths, validation};
+  const execute = async () => {
+    const [current, keywordProfile] = await Promise.all([loadState(input.projectDir), loadKeywordProfile()]);
+    assertCurrentKeywordProfile(keywordProfile, current);
+    const next = patchDraft(current, input.patch);
+    const validation = validateChanged(next, changedPaths, {keywordProfile});
+    const markdown = renderMarkdown(next.listing.draft);
+    const transaction = await writeTransaction({projectDir: input.projectDir, state: next, markdown});
+    return {...transaction, mode: route.mode, changed_paths: changedPaths, validation};
+  };
+  if (dependencies.loadKeywordProfile) return execute();
+  const profilePath = projectKeywordProfilePath(input.projectDir);
+  return withFileLock(`${profilePath}.lock`, execute);
 }
 
 function operationFor(command, input = null) {
