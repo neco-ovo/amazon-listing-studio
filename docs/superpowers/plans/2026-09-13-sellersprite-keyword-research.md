@@ -6,7 +6,7 @@
 
 **Architecture:** A focused XLSX reader converts Reverse ASIN and Keyword Mining sheets into typed source reports. A pure analyzer merges evidence and applies model-supplied product-fit decisions before deterministic grouping; a small store writes one portable project profile and optionally caches an exact-match reusable copy. The existing Listing brief consumes the profile, while one CLI command orchestrates a single import-and-analysis pass.
 
-**Tech Stack:** Node.js 20+, ECMAScript modules, ExcelJS 4.4.0, built-in `node:test`, existing atomic JSON/state helpers.
+**Tech Stack:** Node.js 20+, ECMAScript modules, read-excel-file 9.3.10, built-in `node:test`, existing `fflate` test-fixture support and atomic JSON/state helpers.
 
 **Spec:** `docs/superpowers/specs/2026-09-13-sellersprite-keyword-research-design.md`
 
@@ -29,7 +29,7 @@
 - Modify `scripts/lib/operations.js`: classify keyword analysis as one full, data-backed profile operation.
 - Modify `scripts/lib/listing-briefs.js`: expose profile groups to drafting while retaining `market_language` fallback.
 - Modify `scripts/lib/listing.js`: select backend phrases conservatively without fragmenting them or exceeding the UTF-8 byte limit.
-- Create `tests/helpers/sellersprite-workbooks.js`: sanitized XLSX fixture builder using the production ExcelJS dependency.
+- Create `tests/helpers/sellersprite-workbooks.js`: sanitized minimal XLSX fixture builder using the existing `fflate` dependency.
 - Create `tests/unit/sellersprite-workbooks.test.js`: parser and malformed-input behavior.
 - Create `tests/unit/keyword-profiles.test.js`: grouping, sample provenance, ads, reuse, and refresh behavior.
 - Modify `tests/unit/listing-briefs.test.js`: profile priority and legacy fallback.
@@ -37,7 +37,7 @@
 - Modify `tests/workflow/studio-cli.test.js`: one-pass CLI persistence, optional cache, and failure isolation.
 - Modify `tests/skill-structure.test.js`: progressive-disclosure routing and efficiency contract.
 - Modify `SKILL.md`, `references/knowledge-and-facts.md`, and `references/listing-workflow.md`: runtime routing and bounded behavior.
-- Modify `package.json` and `package-lock.json`: add ExcelJS 4.4.0.
+- Modify `package.json` and `package-lock.json`: add read-excel-file 9.3.10.
 
 ---
 
@@ -61,14 +61,14 @@
 Run:
 
 ```powershell
-npm install exceljs@4.4.0 --save-exact
+npm install read-excel-file@9.3.10 --save-exact
 ```
 
-Expected: `package.json` and `package-lock.json` add ExcelJS; no parser behavior exists yet.
+Expected: `package.json` and `package-lock.json` add the focused read-only parser; no parser behavior exists yet. This adds seven packages and no vulnerability beyond the repository's existing `fflate` and `sharp` advisories.
 
 - [ ] **Step 2: Write sanitized fixture helpers and failing parser tests**
 
-Create a helper that writes real XLSX files with `ExcelJS.Workbook`. Use these exact canonical test headers:
+Create a helper that writes minimal real XLSX ZIP parts with the existing `fflate.zipSync` test dependency. Use these exact canonical test headers:
 
 ```js
 export const reverseHeaders = [
