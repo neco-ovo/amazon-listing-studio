@@ -37,9 +37,9 @@ At intake, detect the two supported SellerSprite workbook types by mandatory fie
 - Reverse ASIN requires keyword, traffic share, organic or sponsored rank, and monthly searches; it may additionally read purchases, purchase rate, SPR, title density, products, demand/supply, concentration, and PPC.
 - Keyword Mining requires keyword, relevance, and monthly searches; it may additionally read purchases, purchase rate, SPR, title density, products, demand/supply, concentration, and PPC.
 
-Use the first visible data sheet whose normalized headers satisfy exactly one report signature. Reordered known columns are acceptable. Duplicate mandatory headers, ambiguous report signatures, unsupported labels, malformed mandatory numeric fields, formulas without cached values, or error cells make that workbook unsupported. Optional malformed fields remain null. Parse numeric values, percentages, currency, and thousands separators without changing their units.
+Use the first visible data sheet whose normalized headers satisfy exactly one report signature. Reordered known columns are acceptable. Duplicate mandatory headers, ambiguous report signatures, or unsupported labels make that workbook unsupported. Skip a row whose mandatory numeric values are malformed, formulas lack cached values, or mandatory cells contain errors, and record the skipped-row count. Optional malformed fields remain null. The workbook becomes unsupported only when its signature is invalid or it contains no valid data rows. Parse numeric values, percentages, currency, and thousands separators without changing their units.
 
-The parser reads values without modifying the source workbook. It records the sanitized source basename, marketplace, export date when available, detected report type, imported row count, sample scope, and scope provenance. Garbled localized display labels must not corrupt English keyword values or numeric fields; unsupported or ambiguous layouts stop only spreadsheet ingestion and allow the ordinary low-confidence fallback.
+The parser reads values without modifying the source workbook. Intake may provide one explicit `sample_scope` for the import batch. Record the sanitized source basename, marketplace, export date when available, detected report type, imported and skipped row counts, sample scope, and scope provenance. Also store `reference_asin` for Reverse ASIN and `seed_query` for Keyword Mining when the workbook or intake supplies them. Garbled localized display labels must not corrupt English keyword values or numeric fields; unsupported or ambiguous layouts stop only spreadsheet ingestion and allow the ordinary low-confidence fallback.
 
 ## One-pass analysis
 
@@ -100,7 +100,8 @@ For example, aluminum safety signs may share a seller family, while `slow-kids-a
 The profile contains:
 
 - schema version, marketplace, locale, product type, normalized intent ID, source dates, report types, and row counts;
-- `analysis_scope` plus `scope_provenance`: use `top_10_sample` with `user_declared` for the supplied files, use export metadata when explicit, and otherwise use `unknown_partial`; never infer Top 10 solely from row count;
+- `analysis_scope` plus `scope_provenance`: accept scope once through intake/project metadata; use `top_10_sample` with `user_declared` for the currently supplied files, use export metadata when explicit, and otherwise default to `unknown_partial`; never infer scope from filename or row count;
+- report identity: `reference_asin` for Reverse ASIN and `seed_query` for Keyword Mining when available;
 - `market_size_complete: false` for partial exports;
 - grouped keywords with original phrase, selected metrics, sources, and concise reason;
 - compact advertising suggestions;
@@ -108,7 +109,7 @@ The profile contains:
 
 Reuse a profile only when marketplace, locale, product type, and normalized purchase intent match and current product facts do not conflict. An intent slug is derived from the canonical intent phrase and must resolve to only one profile; a collision is not an automatic match. Treat a profile older than 180 days as stale: it remains usable for a draft with a warning and is refreshed only when the user supplies new data or asks for current research. No per-keyword user confirmation is required. Ask one question only when a potentially valuable phrase conflicts with ambiguous product identity or implies an unconfirmed attribute.
 
-Refresh evidence by report identity. A newer Reverse ASIN export replaces older Reverse ASIN evidence for the same marketplace, reference ASIN, and report type; a newer Keyword Mining export does the same for the same marketplace, seed query, and report type. Complementary report types remain together. When dates are equal or unknown and values conflict, retain the current profile and report the unresolved import rather than silently combining or overwriting it.
+Refresh evidence by report identity. A newer Reverse ASIN export replaces older Reverse ASIN evidence for the same marketplace, reference ASIN, and report type; a newer Keyword Mining export does the same for the same marketplace, seed query, and report type. Complementary report types remain together. Missing `reference_asin` or `seed_query` prevents automatic replacement. When identity is missing, or dates are equal or unknown and values conflict, retain the current profile and report the unresolved import rather than silently combining or overwriting it.
 
 ## Simplified runtime flow
 
@@ -142,7 +143,8 @@ Existing projects with only `market_language` remain valid. The Listing brief tr
 Use the two supplied Top 10 exports as fixtures or sanitized test inputs. Tests cover:
 
 - report-type detection by columns;
-- fail-closed detection for reordered columns, duplicate headers, ambiguous/non-SellerSprite sheets, malformed mandatory numerics, and missing cached formula values;
+- fail-closed header/signature detection for reordered columns, duplicate headers, and ambiguous/non-SellerSprite sheets;
+- row-level rejection and skipped-row counts for malformed mandatory numerics, error cells, and missing cached formula values, with whole-workbook fallback only when no valid rows remain;
 - typed extraction of keywords and numeric metrics;
 - deduplication across Reverse ASIN and Keyword Mining;
 - product-fit exclusion before metric ranking;
@@ -150,9 +152,11 @@ Use the two supplied Top 10 exports as fixtures or sanitized test inputs. Tests 
 - front-end/backend deduplication in the Listing brief;
 - Top 10 and incomplete-market labels;
 - explicit sample-scope provenance without inferring Top 10 from row count;
+- explicit intake of batch sample scope, defaulting to `unknown_partial`;
 - bounded advertising groups without bids or forecasts;
 - profile reuse by marketplace, locale, product type, and intent, separate from seller-family matching, with near-match, stale, and slug-collision rejection;
 - same-report replacement while preserving complementary report evidence;
+- replacement refusal when `reference_asin` or `seed_query` is unavailable;
 - graceful fallback for missing or unsupported workbooks;
 - unchanged behavior for existing `market_language` projects;
 - one analysis pass, no web research when usable SellerSprite data exists, no refresh for a micro revision, no separate keyword approval, and no image or unrelated approval invalidation.
