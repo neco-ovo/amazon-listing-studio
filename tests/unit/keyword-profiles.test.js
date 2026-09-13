@@ -227,3 +227,19 @@ test('report refresh identity includes marketplace', () => {
     error => error.code === 'UNRESOLVED_KEYWORD_IMPORT'
   );
 });
+
+test('does not combine identified evidence with unidentified evidence of the same type', () => {
+  const unidentified = {
+    ...reverseReport,
+    source: {...reverseReport.source, marketplace: 'amazon.com', export_date: '2026-09-12'},
+    report_identity: {}
+  };
+  const incoming = {
+    ...reverseReport,
+    source: {...reverseReport.source, marketplace: 'amazon.com', export_date: '2026-09-13'}
+  };
+  assert.throws(
+    () => mergeKeywordProfileReports({marketplace: 'amazon.com', reports: [unidentified]}, incoming),
+    error => error.code === 'UNRESOLVED_KEYWORD_IMPORT'
+  );
+});

@@ -250,6 +250,14 @@ export function mergeKeywordProfileReports(current, incoming, now = new Date().t
   }
   const index = reports.findIndex(report => reportIdentity(report, marketplace) === incomingIdentity);
   if (index === -1) {
+    const unidentifiedSameType = reports.some(report => (
+      report?.report_type === incoming.report_type && !reportIdentity(report, marketplace)
+    ));
+    if (unidentifiedSameType) {
+      fail('UNRESOLVED_KEYWORD_IMPORT', 'Cannot combine identified evidence with unidentified evidence of the same report type.', {
+        report_type: incoming.report_type
+      });
+    }
     reports.push(incoming);
   } else {
     const oldReport = reports[index];
