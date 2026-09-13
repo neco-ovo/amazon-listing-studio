@@ -238,21 +238,25 @@ function profileSegment(value) {
     .replace(/^-|-$/g, '');
 }
 
-async function defaultWriteKeywordCache(filePath, profile) {
+async function writeKeywordProfileLocked(filePath, profile, expected, conflictCode) {
   await mkdir(path.dirname(filePath), {recursive: true});
   const lockPath = `${filePath}.lock`;
   let lock;
   try {
     lock = await open(lockPath, 'wx');
     const current = await readJsonIfExists(filePath);
-    if (current && current.normalized_intent !== profile.normalized_intent) {
-      throw Object.assign(new Error('Keyword cache key is occupied by another intent.'), {code: 'KEYWORD_CACHE_COLLISION'});
+    if (JSON.stringify(current) !== JSON.stringify(expected)) {
+      throw Object.assign(new Error('Keyword profile changed during analysis.'), {code: conflictCode});
     }
     await writeJsonAtomically(filePath, profile);
   } finally {
     await lock?.close();
     if (lock) await unlink(lockPath).catch(() => {});
   }
+}
+
+async function defaultWriteKeywordCache(filePath, profile, {expected = null} = {}) {
+  await writeKeywordProfileLocked(filePath, profile, expected, 'KEYWORD_CACHE_CHANGED');
 }
 
 async function analyzeKeywords(options, dependencies = {}) {
@@ -282,15 +286,16 @@ async function analyzeKeywords(options, dependencies = {}) {
       intent_slug: profileSegment(input.intent)
     });
   }
-  let existing = await readJsonIfExists(outputPath);
+  const projectSnapshot = await readJsonIfExists(outputPath);
+  let existing = projectSnapshot;
   let cached = null;
   if (cachePath) {
     try {
       cached = await readJsonIfExists(cachePath);
       if (cached) {
         const cachedFacts = cached.product_facts ?? {};
-        const cachedFactConflict = Object.keys(cachedFacts).some(field => (
-          Object.hasOwn(productFacts, field) && JSON.stringify(cachedFacts[field]) !== JSON.stringify(productFacts[field])
+        const cachedFactConflict = [...new Set([...Object.keys(cachedFacts), ...Object.keys(productFacts)])].some(field => (
+          JSON.stringify(cachedFacts[field]) !== JSON.stringify(productFacts[field])
         ));
         const compatibility = isCompatibleKeywordProfile(cached, {...context, product_fact_conflict: cachedFactConflict}, input.now);
         if (!compatibility.compatible) {
@@ -304,8 +309,8 @@ async function analyzeKeywords(options, dependencies = {}) {
   }
   if (existing) {
     const priorFacts = existing.product_facts ?? {};
-    const factConflict = Object.keys(priorFacts).some(field => (
-      Object.hasOwn(productFacts, field) && JSON.stringify(priorFacts[field]) !== JSON.stringify(productFacts[field])
+    const factConflict = [...new Set([...Object.keys(priorFacts), ...Object.keys(productFacts)])].some(field => (
+      JSON.stringify(priorFacts[field]) !== JSON.stringify(productFacts[field])
     ));
     const compatibility = isCompatibleKeywordProfile(existing, {...context, product_fact_conflict: factConflict}, input.now);
     if (!compatibility.compatible) existing = null;
@@ -351,12 +356,11 @@ async function analyzeKeywords(options, dependencies = {}) {
     now: input.now
   });
   if (existing?.generated_at) profile.generated_at = existing.generated_at;
-  await mkdir(path.dirname(outputPath), {recursive: true});
-  await writeJsonAtomically(outputPath, profile);
+  await writeKeywordProfileLocked(outputPath, profile, projectSnapshot, 'KEYWORD_PROJECT_CHANGED');
   if (cacheCollision) cachePath = null;
   if (cachePath) {
     try {
-      await (dependencies.writeCache ?? defaultWriteKeywordCache)(cachePath, profile);
+      await (dependencies.writeCache ?? defaultWriteKeywordCache)(cachePath, profile, {expected: cached});
     } catch {
       cachePath = null;
       warnings.push({code: 'KEYWORD_CACHE_NOT_WRITTEN'});

@@ -90,7 +90,7 @@ test('fast Listing validation blocks saved exclusions and changed backend duplic
     error => error.code === 'BLOCKING_INPUT'
   );
   assert.throws(
-    () => validateChangedListing({listing: {draft: {content: {title: 'Aluminum sign', bullets: [], backend_search_terms: 'aluminum jobsite'}}}}, ['backend_search_terms'], {keywordProfile: {groups: {excluded: []}}}),
+    () => validateChangedListing({listing: {draft: {content: {title: 'Aluminum sign', bullets: [], backend_search_terms: 'aluminum jobsite'}}}}, ['backend_search_terms'], {keywordProfile: {groups: {excluded: [], backend: [{phrase: 'aluminum'}]}}}),
     error => error.code === 'BLOCKING_INPUT'
   );
 });

@@ -57,6 +57,17 @@ test('keeps a useful partially uncovered backend phrase intact', () => {
   assert.equal(selectBackendSearchPhrases({listing, candidates: ['residential street warning']}), 'residential street warning');
 });
 
+test('keyword validation permits a backend phrase with a useful uncovered token', async () => {
+  const listing = await fixture();
+  listing.title = 'Kids Sign';
+  listing.backend_search_terms = 'kids warning';
+  const result = validateListing(listing, {
+    ...context,
+    keywordProfile: {groups: {excluded: [], backend: [{phrase: 'kids warning'}]}}
+  });
+  assert.equal(result.errors.some(error => error.code === 'FRONTEND_BACKEND_DUPLICATE'), false);
+});
+
 test('never fragments a backend phrase to fit the UTF-8 byte limit', () => {
   const result = selectBackendSearchPhrases({
     listing: {}, candidates: ['jobsite warning', 'residential street warning'], byteLimit: 20
@@ -152,7 +163,7 @@ test('enforces keyword profile exclusions and front-back deduplication', async (
   listing.backend_search_terms = `aluminum ${listing.backend_search_terms}`;
   const result = validateListing(listing, {
     ...context,
-    keywordProfile: {groups: {excluded: [{phrase: 'vinyl kids decal'}]}}
+    keywordProfile: {groups: {excluded: [{phrase: 'vinyl kids decal'}], backend: [{phrase: 'aluminum'}]}}
   });
   assert.ok(result.errors.some(error => error.code === 'EXCLUDED_KEYWORD'));
   assert.ok(result.errors.some(error => error.code === 'FRONTEND_BACKEND_DUPLICATE'));

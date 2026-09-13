@@ -157,8 +157,16 @@ export function keywordProfileErrors(listing, keywordProfile) {
     .filter(Boolean)
     .filter(phrase => normalizedText.includes(` ${searchTokens(phrase).join(' ')} `));
   if (excluded.length) errors.push({field: 'keyword_profile', code: 'EXCLUDED_KEYWORD', phrases: [...new Set(excluded)]});
-  const duplicates = findFrontBackDuplicates(listing);
-  if (duplicates.length) errors.push({field: 'backend_search_terms', code: 'FRONTEND_BACKEND_DUPLICATE', tokens: duplicates});
+  const frontend = new Set(searchTokens(frontText(listing)));
+  const backendText = ` ${searchTokens(listing.backend_search_terms).join(' ')} `;
+  const coveredPhrases = (keywordProfile.groups?.backend ?? [])
+    .map(item => typeof item === 'string' ? item : item?.phrase)
+    .filter(Boolean)
+    .filter(phrase => {
+      const tokens = searchTokens(phrase);
+      return tokens.length > 0 && backendText.includes(` ${tokens.join(' ')} `) && tokens.every(token => frontend.has(token));
+    });
+  if (coveredPhrases.length) errors.push({field: 'backend_search_terms', code: 'FRONTEND_BACKEND_DUPLICATE', phrases: [...new Set(coveredPhrases)]});
   return errors;
 }
 
