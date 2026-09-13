@@ -49,6 +49,91 @@
       "applies_when": "the same Seller Central account still contains and uses this shipping template"
     }
   },
+  "audit_output_classes": [
+    "upload_blocking_missing",
+    "autofill_from_confirmed_facts",
+    "user_confirmation_required",
+    "correctly_blank_or_not_applicable"
+  ],
+  "confirmed_fact_autofill": {
+    "metal_type": {
+      "value": "Aluminum",
+      "scope": "parent_and_children",
+      "applies_when": "current confirmed material is aluminum"
+    },
+    "shape": {
+      "value": "Vertical Rectangle",
+      "scope": "parent_and_children",
+      "applies_when": "current confirmed front-facing shape is a portrait rectangle"
+    },
+    "unit_count": {
+      "value": 1,
+      "scope": "parent_and_children",
+      "applies_when": "the offered unit contains one sign"
+    },
+    "unit_count_type": {
+      "value": "Count",
+      "scope": "parent_and_children",
+      "applies_when": "unit_count counts individual signs"
+    },
+    "number_of_packs": {
+      "value": 1,
+      "scope": "parent_and_children",
+      "applies_when": "the product is one pack containing one sign"
+    }
+  },
+  "audit_rules": {
+    "upload_blocking_missing": [
+      "report only fields whose exact template condition is active for the current Parent or Child",
+      "for sellable merchant-fulfilled Children, separately check price, inventory, shipping template, and required relationship fields"
+    ],
+    "autofill_from_confirmed_facts": [
+      "fill only when the current Product Master or Child facts support the exact value",
+      "do not turn market observations or another product's values into upload attributes"
+    ],
+    "user_confirmation_required": [
+      "ask once for unresolved factual values such as price, net weight, thickness, customization, or a restricted-value mapping; ask for package measurements only when the exact template condition or Seller Central feedback requires them",
+      "when a field accepts one restricted value, do not join several mounting surfaces or use contexts into one cell"
+    ],
+    "correctly_blank_or_not_applicable": [
+      "GTIN-exempt product ID remains blank",
+      "battery-dependent, hazmat, compliance, and certification fields remain blank when their trigger is false or unsupported",
+      "Variation Parent offer, inventory, package measurement, and image fields remain blank unless the current template explicitly requires them"
+    ]
+  },
+  "upload_field_map": {
+    "seller_sku": {"columns": ["A"], "source": "Parent or Child SKU", "scope": "parent_and_children"},
+    "product_type": {"columns": ["B"], "source": "current category template", "scope": "parent_and_children"},
+    "record_action": {"columns": ["C"], "source": "requested upload operation", "scope": "parent_and_children"},
+    "parent_child_relationship": {"columns": ["D", "E", "F"], "source": "Variation Family state", "scope": "parent_and_children"},
+    "title": {"columns": ["G"], "source": "approved Parent or Child Listing title", "scope": "parent_and_children"},
+    "item_highlights": {"columns": ["H"], "source": "approved Listing Item Highlights", "scope": "parent_and_children"},
+    "brand": {"columns": ["I"], "source": "confirmed product or account fact", "scope": "parent_and_children"},
+    "product_id_type": {"columns": ["J"], "source": "current identifier or confirmed GTIN exemption", "scope": "parent_and_children"},
+    "main_and_other_image_urls": {"columns": ["T", "U", "V", "W", "X", "Y"], "source": "approved uploaded image URLs", "scope": "children"},
+    "material": {"columns": ["AO"], "source": "confirmed Product Master material", "scope": "parent_and_children"},
+    "number_of_items": {"columns": ["AT"], "source": "confirmed package contents", "scope": "parent_and_children"},
+    "color": {"columns": ["AV"], "source": "confirmed Child color", "scope": "parent_and_children"},
+    "manufacturer": {"columns": ["Q"], "source": "confirmed account or product fact", "scope": "children"},
+    "part_number": {"columns": ["BD"], "source": "Child SKU unless separately confirmed", "scope": "children"},
+    "description": {"columns": ["AD"], "source": "approved Listing description", "scope": "parent_and_children"},
+    "bullet_points": {"columns": ["AE", "AF", "AG", "AH", "AI"], "source": "approved Listing bullet points", "scope": "parent_and_children"},
+    "backend_search_terms": {"columns": ["AJ"], "source": "approved Listing backend search terms", "scope": "parent_and_children"},
+    "variation_value": {"columns": ["AW"], "source": "confirmed Child value for the selected Variation Theme", "scope": "children"},
+    "item_dimensions": {"columns": ["DB", "DC", "DD", "DE"], "source": "confirmed Child product dimensions and units", "scope": "children"},
+    "item_weight": {"columns": ["DR", "DS"], "source": "confirmed Child net item weight and unit", "scope": "children"},
+    "included_components": {"columns": ["EG"], "source": "confirmed package contents", "scope": "parent_and_children"},
+    "condition_type": {"columns": ["EO"], "source": "current Child offer condition", "scope": "children"},
+    "price": {"columns": ["EQ", "FT"], "source": "current offer facts; never inherit from another product", "scope": "children"},
+    "fulfillment_channel": {"columns": ["FO"], "source": "current fulfillment choice", "scope": "children"},
+    "stock": {"columns": ["FP"], "source": "current inventory", "scope": "children"},
+    "shipping_template": {"columns": ["GS"], "source": "current Seller Central account mapping", "scope": "children"},
+    "package_dimensions": {"columns": ["GZ", "HA", "HB", "HC", "HD", "HE"], "source": "confirmed packaged measurements", "scope": "children", "required_when": "the current template condition or Seller Central feedback requires package dimensions for this Child"},
+    "package_weight": {"columns": ["HF", "HG"], "source": "confirmed packaged weight", "scope": "children", "required_when": "the current template condition or Seller Central feedback requires package weight for this Child"},
+    "country_of_origin": {"columns": ["HH"], "source": "confirmed manufacturing origin", "scope": "parent_and_children"},
+    "batteries_required": {"columns": ["HI"], "source": "reusable no-powered-component default when applicable", "scope": "parent"},
+    "dangerous_goods_regulation": {"columns": ["IG"], "source": "reusable ordinary non-dangerous-good default when applicable", "scope": "parent_and_children"}
+  },
   "never_inherit": ["list_price", "standard_price"],
   "template_handling": {
     "inspect": ["required markers", "parent rows", "every Child row", "conditionally required fields"],

@@ -229,9 +229,37 @@ test('SIGNAGE upload seed separates reusable defaults from account and product f
     'gtin_exemption', 'manufacturer', 'merchant_shipping_group'
   ]);
   assert.deepEqual(seed.never_inherit, ['list_price', 'standard_price']);
+  assert.deepEqual(seed.audit_output_classes, [
+    'upload_blocking_missing', 'autofill_from_confirmed_facts',
+    'user_confirmation_required', 'correctly_blank_or_not_applicable'
+  ]);
+  assert.deepEqual(Object.keys(seed.confirmed_fact_autofill).sort(), [
+    'metal_type', 'number_of_packs', 'shape', 'unit_count', 'unit_count_type'
+  ]);
+  assert.equal(seed.audit_rules.upload_blocking_missing.some(rule => /package dimensions with units/i.test(rule)), false);
+  assert.match(seed.audit_rules.user_confirmation_required.join(' '), /package measurements.+exact template condition|exact template condition.+package measurements/i);
+  assert.deepEqual(Object.keys(seed.upload_field_map).sort(), [
+    'backend_search_terms', 'batteries_required', 'brand', 'bullet_points', 'color',
+    'condition_type', 'country_of_origin', 'dangerous_goods_regulation', 'description',
+    'fulfillment_channel', 'included_components', 'item_dimensions', 'item_highlights',
+    'item_weight', 'main_and_other_image_urls', 'manufacturer', 'material',
+    'number_of_items', 'package_dimensions', 'package_weight', 'parent_child_relationship',
+    'part_number', 'price', 'product_id_type', 'product_type', 'record_action',
+    'seller_sku', 'shipping_template', 'stock', 'title', 'variation_value'
+  ]);
+  assert.equal(seed.upload_field_map.package_dimensions.required_when, 'the current template condition or Seller Central feedback requires package dimensions for this Child');
+  assert.equal(seed.upload_field_map.package_weight.required_when, 'the current template condition or Seller Central feedback requires package weight for this Child');
+  assert.equal(seed.upload_field_map.main_and_other_image_urls.scope, 'children');
+  assert.deepEqual(seed.upload_field_map.bullet_points.columns, ['AE', 'AF', 'AG', 'AH', 'AI']);
+  assert.deepEqual(seed.upload_field_map.variation_value.columns, ['AW']);
+  assert.equal(seed.upload_field_map.batteries_required.scope, 'parent');
+  assert.equal(seed.upload_field_map.dangerous_goods_regulation.scope, 'parent_and_children');
   assert.doesNotMatch(JSON.stringify(seed), /8\.99|11\.99/);
   assert.match(listingWorkflow, /amazon-us-signage-upload-fields\.json/);
   assert.match(listingWorkflow, /(?:do not|never).+price.+inherit/is);
+  assert.match(listingWorkflow, /upload-blocking missing.+autofill from confirmed facts.+user confirmation required.+correctly blank/is);
+  assert.match(listingWorkflow, /Parent.+offer.+package.+image.+correctly blank/is);
+  assert.match(listingWorkflow, /successful uploaded workbook.+regression reference/i);
 });
 
 test('approval and delivery guidance expose shared preflight and direct ZIP verification', async () => {
