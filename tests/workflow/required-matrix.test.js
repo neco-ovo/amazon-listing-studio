@@ -106,7 +106,7 @@ test('required Seed behavior matrix', async t => {
     };
     const backed = compileListingBrief({keywordProfile: profile, marketLanguage: ['jobsite']});
     assert.deepEqual(backed.fields.title.keyword_candidates, ['slow down kids at play sign']);
-    assert.deepEqual(backed.fields.backend_search_terms.candidates, ['residential street warning', 'jobsite']);
+    assert.deepEqual(backed.fields.backend_search_terms.candidates, ['residential street warning']);
     const legacy = compileListingBrief({marketLanguage: ['jobsite']});
     assert.deepEqual(legacy.fields.backend_search_terms.candidates, ['jobsite']);
     assert.equal(Object.hasOwn(legacy, 'keyword_profile'), false);

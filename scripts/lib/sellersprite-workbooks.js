@@ -123,6 +123,8 @@ export async function parseSellerSpriteWorkbook(filePath, importContext = {}) {
       report_type: type,
       source: {
         basename: cleanBasename(filePath),
+        export_date: importContext.exportDate ?? null,
+        marketplace: importContext.marketplace ?? null,
         analysis_scope: scope,
         scope_provenance: importContext.scopeProvenance ?? 'default',
         imported_rows: validRows.length

@@ -27,6 +27,9 @@ import {
 import {parseSellerSpriteWorkbook} from './lib/sellersprite-workbooks.js';
 import {
   buildKeywordProfile,
+  isCompatibleKeywordProfile,
+  mergeKeywordProfileReports,
+  normalizeKeywordPhrase,
   projectKeywordProfilePath,
   reusableKeywordProfilePath
 } from './lib/keyword-profiles.js';
@@ -242,43 +245,91 @@ async function defaultWriteKeywordCache(filePath, profile) {
 async function analyzeKeywords(options, dependencies = {}) {
   const projectDir = path.resolve(requireOption(options, 'project-dir'));
   const input = JSON.parse(await readFile(path.resolve(requireOption(options, 'input')), 'utf8'));
+  if (!normalizeKeywordPhrase(input.intent)) throw blocking('Keyword purchase intent is required');
   if (!Array.isArray(input.reports) || input.reports.length === 0) {
     throw blocking('At least one SellerSprite report is required');
   }
   const state = await defaultLoadState(projectDir);
-  const reports = [];
+  const productFacts = publishableFacts(state);
+  const context = {
+    marketplace: state.project.marketplace,
+    locale: state.project.language,
+    product_type: state.project.product_type,
+    intent: input.intent
+  };
+  const outputPath = projectKeywordProfilePath(projectDir);
+  let cachePath = null;
+  const warnings = [];
+  if (options['library-dir']) {
+    cachePath = reusableKeywordProfilePath(path.resolve(options['library-dir']), {
+      marketplace: profileSegment(context.marketplace),
+      locale: profileSegment(context.locale),
+      product_type: profileSegment(context.product_type),
+      intent_slug: profileSegment(input.intent)
+    });
+  }
+  let existing = await readJsonIfExists(outputPath);
+  if (!existing && cachePath) {
+    try {
+      existing = await readJsonIfExists(cachePath);
+    } catch {
+      warnings.push({code: 'KEYWORD_CACHE_NOT_READ'});
+    }
+  }
+  if (existing) {
+    const priorFacts = existing.product_facts ?? {};
+    const factConflict = Object.keys(priorFacts).some(field => (
+      Object.hasOwn(productFacts, field) && JSON.stringify(priorFacts[field]) !== JSON.stringify(productFacts[field])
+    ));
+    const compatibility = isCompatibleKeywordProfile(existing, {...context, product_fact_conflict: factConflict}, input.now);
+    if (!compatibility.compatible) existing = null;
+  }
+  const incomingReports = [];
   for (const item of input.reports) {
-    reports.push(await parseSellerSpriteWorkbook(path.resolve(item.path), {
+    if (!item?.path) throw blocking('Every SellerSprite report requires a path');
+    incomingReports.push(await parseSellerSpriteWorkbook(path.resolve(item.path), {
       sampleScope: input.sample_scope,
       scopeProvenance: input.scope_provenance,
       referenceAsin: item.reference_asin,
-      seedQuery: item.seed_query
+      seedQuery: item.seed_query,
+      exportDate: item.export_date,
+      marketplace: state.project.marketplace
     }));
   }
+  let reports = existing?.reports ?? [];
+  if (existing) {
+    for (const report of incomingReports) {
+      reports = mergeKeywordProfileReports({...existing, reports}, report, input.now).reports;
+    }
+  } else {
+    reports = incomingReports;
+  }
+  const inheritedAssessments = {};
+  for (const group of Object.values(existing?.groups ?? {})) {
+    for (const item of group ?? []) {
+      inheritedAssessments[item.normalized_phrase] = {
+        fit: item.fit, reason: item.reason, reason_code: item.reason_code
+      };
+    }
+  }
+  const suppliedAssessments = Object.fromEntries(Object.entries(input.fit_assessments ?? {})
+    .map(([phrase, assessment]) => [normalizeKeywordPhrase(phrase), assessment]));
   const profile = buildKeywordProfile({
     project: {
       marketplace: state.project.marketplace,
       locale: state.project.language,
       product_type: state.project.product_type,
-      product_facts: publishableFacts(state)
+      product_facts: productFacts
     },
     intent: input.intent,
     reports,
-    fitAssessments: input.fit_assessments,
+    fitAssessments: {...inheritedAssessments, ...suppliedAssessments},
     now: input.now
   });
-  const outputPath = projectKeywordProfilePath(projectDir);
+  if (existing?.generated_at) profile.generated_at = existing.generated_at;
   await mkdir(path.dirname(outputPath), {recursive: true});
   await writeJsonAtomically(outputPath, profile);
-  let cachePath = null;
-  const warnings = [];
-  if (options['library-dir']) {
-    cachePath = reusableKeywordProfilePath(path.resolve(options['library-dir']), {
-      marketplace: profileSegment(profile.marketplace),
-      locale: profileSegment(profile.locale),
-      product_type: profileSegment(profile.product_type),
-      intent_slug: profile.intent_slug
-    });
+  if (cachePath) {
     try {
       await (dependencies.writeCache ?? defaultWriteKeywordCache)(cachePath, profile);
     } catch {

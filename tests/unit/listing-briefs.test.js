@@ -50,6 +50,18 @@ test('keyword profile supplies bounded Listing and advertising candidates', () =
   assert.deepEqual(brief.keyword_profile, keywordProfile);
 });
 
+test('profile exclusions cannot re-enter through legacy market language', () => {
+  const keywordProfile = {
+    groups: {
+      core: [{phrase: 'kids at play sign'}], supporting: [], backend: [],
+      excluded: [{phrase: 'vinyl kids decal'}]
+    },
+    advertising: {}
+  };
+  const brief = compileListingBrief({marketLanguage: ['vinyl kids decal', 'jobsite'], keywordProfile});
+  assert.deepEqual(brief.fields.backend_search_terms.candidates, []);
+});
+
 test('omitting keyword profile preserves the existing brief shape', () => {
   const before = compileListingBrief(fixture);
   const after = compileListingBrief({...fixture, keywordProfile: undefined});

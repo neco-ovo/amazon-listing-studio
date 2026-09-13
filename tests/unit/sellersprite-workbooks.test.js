@@ -14,7 +14,8 @@ test('detects Reverse ASIN and accepts one valid rank', async () => {
     const file = path.join(root, 'reverse.xlsx');
     await writeSellerSpriteWorkbook(file, {headers: reverseHeaders, rows: [reverseRow]});
     const report = await parseSellerSpriteWorkbook(file, {
-      sampleScope: 'top_10_sample', scopeProvenance: 'user_declared', referenceAsin: 'B0FQ1RL7YK'
+      sampleScope: 'top_10_sample', scopeProvenance: 'user_declared', referenceAsin: 'B0FQ1RL7YK',
+      exportDate: '2026-09-13', marketplace: 'amazon.com'
     });
     assert.equal(report.report_type, 'reverse_asin');
     assert.equal(report.report_identity.reference_asin, 'B0FQ1RL7YK');
@@ -24,6 +25,8 @@ test('detects Reverse ASIN and accepts one valid rank', async () => {
     assert.equal(report.rows[0].monthly_searches, 6254);
     assert.equal(report.rows[0].purchases, 563);
     assert.equal(report.rows[0].demand_supply_ratio, 14.5);
+    assert.equal(report.source.export_date, '2026-09-13');
+    assert.equal(report.source.marketplace, 'amazon.com');
   });
 });
 

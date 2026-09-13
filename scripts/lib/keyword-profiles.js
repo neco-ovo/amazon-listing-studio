@@ -32,18 +32,50 @@ export function mergeKeywordEvidence(reports) {
       const current = merged.get(normalized) ?? {
         phrase: String(row.keyword).trim(),
         normalized_phrase: normalized,
-        sources: {}
+        sources: {},
+        evidence: []
       };
-      if (!current.sources[sourceType]) current.sources[sourceType] = {...row};
+      current.evidence.push({
+        report_type: sourceType,
+        report_identity: {...(report.report_identity ?? {})},
+        source: {...(report.source ?? {})},
+        row: {...row}
+      });
       merged.set(normalized, current);
     }
   }
-  return [...merged.values()];
+  return [...merged.values()].map(item => {
+    item.evidence.sort((left, right) => evidenceKey(left).localeCompare(evidenceKey(right), 'en-US'));
+    const phrases = item.evidence.map(entry => String(entry.row.keyword).trim()).sort(compareReadablePhrase);
+    item.phrase = phrases[0];
+    for (const type of ['reverse_asin', 'keyword_mining']) {
+      const rows = item.evidence.filter(entry => entry.report_type === type).map(entry => entry.row);
+      if (rows.length) item.sources[type] = {...rows.sort(compareRows)[0]};
+    }
+    return item;
+  });
+}
+
+function evidenceKey(entry) {
+  return `${entry.report_type}:${JSON.stringify(entry.report_identity)}:${entry.source.basename ?? ''}`;
+}
+
+function compareReadablePhrase(left, right) {
+  const punctuation = value => (value.match(/[^\p{L}\p{N}\s]/gu) ?? []).length;
+  return punctuation(left) - punctuation(right) || (left < right ? -1 : left > right ? 1 : 0);
+}
+
+function compareRows(left, right) {
+  for (const field of ['traffic_share', 'purchases', 'monthly_searches', 'purchase_rate']) {
+    const compared = descendingNullable(left[field], right[field]);
+    if (compared) return compared;
+  }
+  return String(left.keyword).localeCompare(String(right.keyword), 'en-US');
 }
 
 function bestMetric(item, field) {
-  const values = Object.values(item.sources)
-    .map(source => source[field])
+  const values = item.evidence
+    .map(entry => entry.row[field])
     .filter(value => typeof value === 'number' && Number.isFinite(value));
   return values.length ? Math.max(...values) : null;
 }

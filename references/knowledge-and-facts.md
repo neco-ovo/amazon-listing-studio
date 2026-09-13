@@ -24,7 +24,7 @@ Keyword profiles are separate from product facts, seller-family facts, and categ
 
 Run `scripts/studio.js analyze-keywords --project-dir <dir> --input <manifest.json> [--library-dir <dir>]`. It reads each workbook once and writes the portable copy to the product’s references/keyword-profile.json; the optional seller-library cache is keyed by marketplace, locale, product type, and normalized purchase intent. Use one analysis pass and no per-keyword approval. Ask one consolidated question only when a valuable phrase implies an ambiguous or unconfirmed product attribute.
 
-Record explicit sample scope. `top_10_sample` means a limited Top 10 sample and is not complete market analysis; absent scope defaults to `unknown_partial`. A profile older than 180 days remains usable for drafts with a stale warning. Refresh only for newer supplied evidence or an explicit current-research request, never merely because another Listing draft was created.
+Record explicit sample scope. `top_10_sample` means a limited Top 10 sample and is not complete market analysis; absent scope defaults to `unknown_partial`. Put each report's `export_date` explicitly in the import manifest; never infer it from the filename. A profile older than 180 days remains usable for drafts with a stale warning. Refresh only for newer supplied evidence or an explicit current-research request, never merely because another Listing draft was created.
 
 If XLSX parsing or keyword analysis fails, omit the profile and report the failure; it must not block image generation or Product Master work. Existing category `market_language` remains the legacy fallback for Listing language.
 

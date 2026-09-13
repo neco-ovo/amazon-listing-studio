@@ -132,8 +132,8 @@ test('analyze-keywords parses once and writes project and optional reusable prof
       sample_scope: 'top_10_sample',
       scope_provenance: 'user_declared',
       reports: [
-        {path: reversePath, reference_asin: 'B0FQ1RL7YK'},
-        {path: miningPath, seed_query: 'slow down kids at play sign'}
+        {path: reversePath, reference_asin: 'B0FQ1RL7YK', export_date: '2026-09-12'},
+        {path: miningPath, seed_query: 'slow down kids at play sign', export_date: '2026-09-12'}
       ],
       fit_assessments: {
         'slow down kids at play sign': {fit: 'exact', reason: 'exact product intent', reason_code: 'direct_match'}
@@ -155,6 +155,26 @@ test('analyze-keywords parses once and writes project and optional reusable prof
     assert.deepEqual(reusableProfile.groups, projectProfile.groups);
     assert.deepEqual(await readFile(statePath), stateBefore);
     assert.deepEqual(await readFile(approvedImage), imageBefore);
+
+    const newerReverse = path.join(root, 'reverse-new.xlsx');
+    await writeSellerSpriteWorkbook(newerReverse, {
+      headers: reverseHeaders,
+      rows: [['slow down kids at play sign', '7%', 4, null, 7000, 600, '9%', 12, 6, 2500, 15, '$1.70']]
+    });
+    const refreshManifest = path.join(root, 'refresh.json');
+    await writeFile(refreshManifest, JSON.stringify({
+      intent: 'slow down kids at play sign',
+      reports: [{path: newerReverse, reference_asin: 'B0FQ1RL7YK', export_date: '2026-09-13'}],
+      fit_assessments: {}
+    }));
+    const refreshed = await runCli([
+      'analyze-keywords', '--project-dir', projectDir, '--input', refreshManifest
+    ]);
+    assert.equal(refreshed.ok, true);
+    const refreshedProfile = JSON.parse(await readFile(path.join(projectDir, 'references', 'keyword-profile.json'), 'utf8'));
+    assert.equal(refreshedProfile.reports.length, 2);
+    assert.equal(refreshedProfile.reports.find(item => item.report_type === 'reverse_asin').source.export_date, '2026-09-13');
+    assert.equal(refreshedProfile.reports.find(item => item.report_type === 'keyword_mining').source.export_date, '2026-09-12');
   });
 });
 

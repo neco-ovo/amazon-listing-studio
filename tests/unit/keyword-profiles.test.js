@@ -79,6 +79,21 @@ test('merges duplicate phrases without averaging unlike report evidence', () => 
   assert.equal(keyword.sources.keyword_mining.organic_rank, null);
 });
 
+test('retains multiple same-type report observations independent of manifest order', () => {
+  const second = {
+    ...reverseReport,
+    report_identity: {reference_asin: 'B0SECOND'},
+    rows: [row('slow down kids at play sign', {traffic_share: 0.2, monthly_searches: 7000})]
+  };
+  const forward = mergeKeywordEvidence([reverseReport, second]);
+  const reverse = mergeKeywordEvidence([second, reverseReport]);
+  const firstKeyword = forward.find(item => item.normalized_phrase === 'slow down kids at play sign');
+  const secondKeyword = reverse.find(item => item.normalized_phrase === 'slow down kids at play sign');
+  assert.equal(firstKeyword.evidence.filter(item => item.report_type === 'reverse_asin').length, 2);
+  assert.deepEqual(firstKeyword, secondKeyword);
+  assert.equal(firstKeyword.sources.reverse_asin.traffic_share, 0.2);
+});
+
 test('applies product fit before deterministic evidence ordering', () => {
   const profile = buildKeywordProfile({
     project: {marketplace: 'US', locale: 'en-US', product_type: 'rigid aluminum sign'},

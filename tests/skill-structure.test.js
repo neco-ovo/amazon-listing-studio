@@ -262,6 +262,7 @@ test('keyword research guidance stays lightweight and data-backed', async () => 
   assert.match(skill, /SellerSprite|keyword profile/i);
   assert.match(combined, /SellerSprite.+XLSX.+cached keyword profile.+web.+fallback/is);
   assert.match(combined, /top_10_sample.+not.+complete market analysis/is);
+  assert.match(combined, /export_date.+(?:explicit|manifest).+(?:not|never).+filename/is);
   assert.match(combined, /one analysis pass.+no per-keyword approval/is);
   for (const group of ['core', 'supporting', 'backend', 'excluded']) assert.match(listing, new RegExp(group, 'i'));
   for (const group of ['exact_candidates', 'phrase_candidates', 'cautious_tests', 'negative_candidates']) {
