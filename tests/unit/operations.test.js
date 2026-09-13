@@ -26,6 +26,12 @@ test('unknown operations fail closed to full mode', () => {
   });
 });
 
+test('data-backed keyword analysis uses one full analysis pass', () => {
+  assert.deepEqual(classifyOperation({kind: 'keyword_analysis'}), {
+    mode: 'full', reasons: ['DATA_BACKED_KEYWORD_PROFILE']
+  });
+});
+
 test('routes local Child changes without widening the workflow', () => {
   for (const kind of ['add_child', 'child_listing_field_edit', 'remove_child']) {
     assert.equal(classifyOperation({kind}).mode, 'fast');

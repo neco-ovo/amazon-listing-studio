@@ -100,6 +100,7 @@ export function buildKeywordProfile({project = {}, intent = '', reports = [], fi
     product_type: project.product_type ?? null,
     normalized_intent: normalizeKeywordPhrase(intent),
     intent_slug: slug(intent),
+    product_facts: {...(project.product_facts ?? {})},
     analysis_scope: analysisScopes.length === 1 ? analysisScopes[0] : 'mixed_partial',
     market_size_complete: false,
     reports: reports.map(report => ({

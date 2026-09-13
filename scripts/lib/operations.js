@@ -17,6 +17,7 @@ const ROUTES = Object.freeze({
   approve_asset: {mode: 'fast', reason: 'CURRENT_ARTIFACT_APPROVAL'},
   knowledge_lookup: {mode: 'fast', reason: 'LOCAL_LIBRARY_LOOKUP'},
   learn_category: {mode: 'full', reason: 'SHARED_KNOWLEDGE_CHANGE'},
+  keyword_analysis: {mode: 'full', reason: 'DATA_BACKED_KEYWORD_PROFILE'},
   new_project: {mode: 'full', reason: 'NEW_PROJECT'},
   first_product_master: {mode: 'full', reason: 'PRODUCT_MASTER_LOCK'},
   product_identity_change: {mode: 'full', reason: 'IDENTITY_DEPENDENCIES'},

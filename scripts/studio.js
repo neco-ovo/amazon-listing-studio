@@ -24,6 +24,12 @@ import {
   resolveVariationFactConflicts,
   reviseVariationChild
 } from './lib/variation-project.js';
+import {parseSellerSpriteWorkbook} from './lib/sellersprite-workbooks.js';
+import {
+  buildKeywordProfile,
+  projectKeywordProfilePath,
+  reusableKeywordProfilePath
+} from './lib/keyword-profiles.js';
 
 function parseArgs(argv) {
   const [command, ...rest] = argv;
@@ -212,6 +218,83 @@ async function learnCategory(options) {
   };
   await writeJsonAtomically(outputPath, output);
   return {path: outputPath, observation_count: Object.keys(output.observations).length};
+}
+
+function publishableFacts(state) {
+  return Object.fromEntries(Object.entries(state?.facts ?? {})
+    .filter(([, fact]) => fact?.status === 'confirmed' && fact?.publishable === true)
+    .map(([field, fact]) => [field, fact.value]));
+}
+
+function profileSegment(value) {
+  return String(value ?? '')
+    .normalize('NFKC')
+    .toLocaleLowerCase('en-US')
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-|-$/g, '');
+}
+
+async function defaultWriteKeywordCache(filePath, profile) {
+  await mkdir(path.dirname(filePath), {recursive: true});
+  await writeJsonAtomically(filePath, profile);
+}
+
+async function analyzeKeywords(options, dependencies = {}) {
+  const projectDir = path.resolve(requireOption(options, 'project-dir'));
+  const input = JSON.parse(await readFile(path.resolve(requireOption(options, 'input')), 'utf8'));
+  if (!Array.isArray(input.reports) || input.reports.length === 0) {
+    throw blocking('At least one SellerSprite report is required');
+  }
+  const state = await defaultLoadState(projectDir);
+  const reports = [];
+  for (const item of input.reports) {
+    reports.push(await parseSellerSpriteWorkbook(path.resolve(item.path), {
+      sampleScope: input.sample_scope,
+      scopeProvenance: input.scope_provenance,
+      referenceAsin: item.reference_asin,
+      seedQuery: item.seed_query
+    }));
+  }
+  const profile = buildKeywordProfile({
+    project: {
+      marketplace: state.project.marketplace,
+      locale: state.project.language,
+      product_type: state.project.product_type,
+      product_facts: publishableFacts(state)
+    },
+    intent: input.intent,
+    reports,
+    fitAssessments: input.fit_assessments,
+    now: input.now
+  });
+  const outputPath = projectKeywordProfilePath(projectDir);
+  await mkdir(path.dirname(outputPath), {recursive: true});
+  await writeJsonAtomically(outputPath, profile);
+  let cachePath = null;
+  const warnings = [];
+  if (options['library-dir']) {
+    cachePath = reusableKeywordProfilePath(path.resolve(options['library-dir']), {
+      marketplace: profileSegment(profile.marketplace),
+      locale: profileSegment(profile.locale),
+      product_type: profileSegment(profile.product_type),
+      intent_slug: profile.intent_slug
+    });
+    try {
+      await (dependencies.writeCache ?? defaultWriteKeywordCache)(cachePath, profile);
+    } catch {
+      cachePath = null;
+      warnings.push({code: 'KEYWORD_CACHE_NOT_WRITTEN'});
+    }
+  }
+  return {
+    profile_path: outputPath,
+    cache_path: cachePath,
+    report_count: reports.length,
+    analysis_passes: 1,
+    web_research_used: false,
+    market_size_complete: false,
+    warnings
+  };
 }
 
 function candidatePath(projectDir, relativePath) {
@@ -575,6 +658,7 @@ function operationFor(command, input = null) {
   const kinds = {
     init: 'new_project',
     'learn-category': 'learn_category',
+    'analyze-keywords': 'keyword_analysis',
     'record-candidate': 'record_candidate',
     'record-variation-candidate': 'record_candidate',
     'revise-listing': 'listing_field_edit',
@@ -597,6 +681,7 @@ export async function runCli(argv, {
   clock = Date.now,
   candidateDependencies,
   listingDependencies,
+  keywordDependencies,
   hashFile,
   buildV2 = buildV2Delivery,
   verifyV2 = verifyDelivery,
@@ -612,6 +697,7 @@ export async function runCli(argv, {
     let routeInput = null;
     if (command === 'init') result = await initProject(options);
     else if (command === 'learn-category') result = await learnCategory(options);
+    else if (command === 'analyze-keywords') result = await analyzeKeywords(options, keywordDependencies);
     else if (command === 'promote-variation') {
       const theme = JSON.parse(await readFile(path.resolve(requireOption(options, 'theme')), 'utf8'));
       result = await promoteToVariation({

@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { access, mkdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { runCli } from '../../scripts/studio.js';
+import {miningHeaders, reverseHeaders, writeSellerSpriteWorkbook} from '../helpers/sellersprite-workbooks.js';
 import { withTempWorkspace } from '../helpers/temp-workspace.js';
 
 test('init and validate return stable JSON result shapes', async () => {
@@ -99,6 +100,105 @@ test('learn-category stores observations outside a product project', async () =>
     assert.equal(result.ok, true);
     const saved = JSON.parse(await readFile(path.join(libraryDir, 'categories', 'amazon.com', 'safety-signs.json'), 'utf8'));
     assert.equal(saved.observations.weatherproof.value, true);
+  });
+});
+
+test('analyze-keywords parses once and writes project and optional reusable profiles', async () => {
+  await withTempWorkspace(async root => {
+    const projectDir = path.join(root, 'sign-1');
+    const libraryDir = path.join(root, 'library');
+    await runCli([
+      'init', '--project-dir', projectDir, '--project-id', 'sign-1', '--product-name', 'Safety Sign',
+      '--marketplace', 'amazon.com', '--language', 'en-US', '--product-type', 'metal-sign'
+    ]);
+    const statePath = path.join(projectDir, 'state.json');
+    const stateBefore = await readFile(statePath);
+    const approvedImage = path.join(projectDir, 'images', 'main', 'approved.png');
+    await writeFile(approvedImage, 'approved-image-bytes');
+    const imageBefore = await readFile(approvedImage);
+    const reversePath = path.join(root, 'reverse.xlsx');
+    const miningPath = path.join(root, 'mining.xlsx');
+    await writeSellerSpriteWorkbook(reversePath, {
+      headers: reverseHeaders,
+      rows: [['slow down kids at play sign', '6.23%', 6, null, 6254, 563, '9%', 13, 7, 2673, 14.5, '$1.84']]
+    });
+    await writeSellerSpriteWorkbook(miningPath, {
+      headers: miningHeaders,
+      rows: [['slow down kids at play sign', 100, 6254, 563, '9%', 13, 7, 2673, 14.5, '$1.84']]
+    });
+    const manifestPath = path.join(root, 'manifest.json');
+    await writeFile(manifestPath, JSON.stringify({
+      intent: 'slow down kids at play sign',
+      sample_scope: 'top_10_sample',
+      scope_provenance: 'user_declared',
+      reports: [
+        {path: reversePath, reference_asin: 'B0FQ1RL7YK'},
+        {path: miningPath, seed_query: 'slow down kids at play sign'}
+      ],
+      fit_assessments: {
+        'slow down kids at play sign': {fit: 'exact', reason: 'exact product intent', reason_code: 'direct_match'}
+      }
+    }));
+
+    const result = await runCli([
+      'analyze-keywords', '--project-dir', projectDir, '--input', manifestPath, '--library-dir', libraryDir
+    ]);
+    assert.equal(result.ok, true);
+    assert.equal(result.operation, 'analyze-keywords');
+    assert.equal(result.mode, 'full');
+    assert.equal(result.result.report_count, 2);
+    assert.equal(result.result.analysis_passes, 1);
+    assert.equal(result.result.web_research_used, false);
+    assert.equal(result.result.market_size_complete, false);
+    const projectProfile = JSON.parse(await readFile(path.join(projectDir, 'references', 'keyword-profile.json'), 'utf8'));
+    const reusableProfile = JSON.parse(await readFile(result.result.cache_path, 'utf8'));
+    assert.deepEqual(reusableProfile.groups, projectProfile.groups);
+    assert.deepEqual(await readFile(statePath), stateBefore);
+    assert.deepEqual(await readFile(approvedImage), imageBefore);
+  });
+});
+
+test('analyze-keywords keeps the project profile when optional caching fails', async () => {
+  await withTempWorkspace(async root => {
+    const projectDir = path.join(root, 'sign-1');
+    await runCli([
+      'init', '--project-dir', projectDir, '--project-id', 'sign-1', '--product-name', 'Safety Sign',
+      '--product-type', 'metal-sign'
+    ]);
+    const miningPath = path.join(root, 'mining.xlsx');
+    await writeSellerSpriteWorkbook(miningPath, {
+      headers: miningHeaders, rows: [['kids sign', 100, 1000, 90, '9%', 10, 3, 100, 10, '$1']]
+    });
+    const manifestPath = path.join(root, 'manifest.json');
+    await writeFile(manifestPath, JSON.stringify({
+      intent: 'kids sign', reports: [{path: miningPath, seed_query: 'kids sign'}],
+      fit_assessments: {'kids sign': {fit: 'exact', reason: 'match', reason_code: 'direct_match'}}
+    }));
+    const result = await runCli([
+      'analyze-keywords', '--project-dir', projectDir, '--input', manifestPath,
+      '--library-dir', path.join(root, 'library')
+    ], {keywordDependencies: {writeCache: async () => { throw new Error('cache unavailable'); }}});
+    assert.equal(result.ok, true);
+    assert.deepEqual(result.result.warnings, [{code: 'KEYWORD_CACHE_NOT_WRITTEN'}]);
+    await access(path.join(projectDir, 'references', 'keyword-profile.json'));
+  });
+});
+
+test('analyze-keywords rejects unsupported input without creating a profile', async () => {
+  await withTempWorkspace(async root => {
+    const projectDir = path.join(root, 'sign-1');
+    await runCli([
+      'init', '--project-dir', projectDir, '--project-id', 'sign-1', '--product-name', 'Safety Sign',
+      '--product-type', 'metal-sign'
+    ]);
+    const workbook = path.join(root, 'ordinary.xlsx');
+    await writeSellerSpriteWorkbook(workbook, {headers: ['Name', 'Price'], rows: [['Sign', 10]]});
+    const manifest = path.join(root, 'manifest.json');
+    await writeFile(manifest, JSON.stringify({intent: 'sign', reports: [{path: workbook}], fit_assessments: {}}));
+    const result = await runCli(['analyze-keywords', '--project-dir', projectDir, '--input', manifest]);
+    assert.equal(result.ok, false);
+    assert.equal(result.code, 'UNSUPPORTED_KEYWORD_WORKBOOK');
+    await assert.rejects(() => access(path.join(projectDir, 'references', 'keyword-profile.json')));
   });
 });
 
