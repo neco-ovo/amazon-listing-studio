@@ -222,6 +222,39 @@ test('analyze-keywords rejects unsupported input without creating a profile', as
   });
 });
 
+test('analyze-keywords rejects conflicting duplicate identities in an initial batch', async () => {
+  await withTempWorkspace(async root => {
+    const projectDir = path.join(root, 'sign-1');
+    await runCli([
+      'init', '--project-dir', projectDir, '--project-id', 'sign-1', '--product-name', 'Safety Sign',
+      '--product-type', 'metal-sign'
+    ]);
+    const first = path.join(root, 'reverse-a.xlsx');
+    const second = path.join(root, 'reverse-b.xlsx');
+    await writeSellerSpriteWorkbook(first, {
+      headers: reverseHeaders,
+      rows: [['kids sign', '5%', 5, null, 1000, 90, '9%', 10, 3, 100, 10, '$1']]
+    });
+    await writeSellerSpriteWorkbook(second, {
+      headers: reverseHeaders,
+      rows: [['kids sign', '7%', 3, null, 1200, 100, '9%', 10, 3, 100, 12, '$1']]
+    });
+    const manifest = path.join(root, 'manifest.json');
+    await writeFile(manifest, JSON.stringify({
+      intent: 'kids sign',
+      reports: [
+        {path: first, reference_asin: 'B0SAME', export_date: '2026-09-13'},
+        {path: second, reference_asin: 'B0SAME', export_date: '2026-09-13'}
+      ],
+      fit_assessments: {'kids sign': {fit: 'exact', reason: 'match', reason_code: 'direct_match'}}
+    }));
+    const result = await runCli(['analyze-keywords', '--project-dir', projectDir, '--input', manifest]);
+    assert.equal(result.ok, false);
+    assert.equal(result.code, 'UNRESOLVED_KEYWORD_IMPORT');
+    await assert.rejects(() => access(path.join(projectDir, 'references', 'keyword-profile.json')));
+  });
+});
+
 test('unknown commands return a stable error instead of mutating files', async () => {
   const result = await runCli(['unknown-command']);
   assert.equal(result.ok, false);

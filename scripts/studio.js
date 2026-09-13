@@ -296,14 +296,11 @@ async function analyzeKeywords(options, dependencies = {}) {
       marketplace: state.project.marketplace
     }));
   }
-  let reports = existing?.reports ?? [];
-  if (existing) {
-    for (const report of incomingReports) {
-      reports = mergeKeywordProfileReports({...existing, reports}, report, input.now).reports;
-    }
-  } else {
-    reports = incomingReports;
+  let mergedProfile = existing ?? {marketplace: state.project.marketplace, reports: []};
+  for (const report of incomingReports) {
+    mergedProfile = mergeKeywordProfileReports(mergedProfile, report, input.now);
   }
+  const reports = mergedProfile.reports;
   const inheritedAssessments = {};
   for (const group of Object.values(existing?.groups ?? {})) {
     for (const item of group ?? []) {

@@ -209,14 +209,16 @@ export function reusableKeywordProfilePath(libraryDir, key) {
   return target;
 }
 
-function reportIdentity(report) {
+function reportIdentity(report, fallbackMarketplace) {
+  const marketplace = normalizeKeywordPhrase(report?.source?.marketplace ?? fallbackMarketplace);
+  if (!marketplace) return null;
   if (report?.report_type === 'reverse_asin') {
     const value = String(report.report_identity?.reference_asin ?? '').trim().toLocaleUpperCase('en-US');
-    return value ? `reverse_asin:${value}` : null;
+    return value ? `${marketplace}:reverse_asin:${value}` : null;
   }
   if (report?.report_type === 'keyword_mining') {
     const value = normalizeKeywordPhrase(report.report_identity?.seed_query);
-    return value ? `keyword_mining:${value}` : null;
+    return value ? `${marketplace}:keyword_mining:${value}` : null;
   }
   return null;
 }
@@ -229,12 +231,24 @@ function exportTime(report) {
 }
 
 export function mergeKeywordProfileReports(current, incoming, now = new Date().toISOString()) {
-  const incomingIdentity = reportIdentity(incoming);
-  if (!incomingIdentity) {
-    fail('UNRESOLVED_KEYWORD_IMPORT', 'Report identity is required for automatic keyword evidence refresh.');
+  const marketplace = current?.marketplace;
+  const currentMarketplace = normalizeKeywordPhrase(marketplace);
+  const incomingMarketplace = normalizeKeywordPhrase(incoming?.source?.marketplace ?? marketplace);
+  if (currentMarketplace && incomingMarketplace !== currentMarketplace) {
+    fail('UNRESOLVED_KEYWORD_IMPORT', 'Keyword evidence marketplace does not match the profile.', {
+      profile_marketplace: marketplace,
+      report_marketplace: incoming?.source?.marketplace
+    });
   }
   const reports = (current?.reports ?? []).map(report => ({...report}));
-  const index = reports.findIndex(report => reportIdentity(report) === incomingIdentity);
+  const incomingIdentity = reportIdentity(incoming, marketplace);
+  if (!incomingIdentity) {
+    if (reports.length === 0) {
+      return {...current, reports: [incoming], refreshed_at: now, needs_reanalysis: true};
+    }
+    fail('UNRESOLVED_KEYWORD_IMPORT', 'Report identity is required for automatic keyword evidence refresh.');
+  }
+  const index = reports.findIndex(report => reportIdentity(report, marketplace) === incomingIdentity);
   if (index === -1) {
     reports.push(incoming);
   } else {
