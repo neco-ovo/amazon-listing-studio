@@ -1,11 +1,13 @@
-export function compileListingBrief({facts = {}, marketLanguage = [], rules = {}, marketingExpressions = []} = {}) {
+export function compileListingBrief({
+  facts = {}, marketLanguage = [], keywordProfile, rules = {}, marketingExpressions = []
+} = {}) {
   const publishableFacts = Object.fromEntries(
     Object.entries(facts)
       .filter(([, fact]) => fact?.publishable === true)
       .map(([id, fact]) => [id, structuredClone(fact)])
   );
 
-  return {
+  const brief = {
     publishable_facts: publishableFacts,
     market_language: [...new Set(marketLanguage.filter(Boolean))],
     authorized_marketing_expressions: marketingExpressions
@@ -59,4 +61,32 @@ export function compileListingBrief({facts = {}, marketLanguage = [], rules = {}
       stop: 'do_not_recursively_polish_or_rewrite_clean_fields'
     }
   };
+  if (!keywordProfile) return brief;
+  if (keywordProfile.product_facts) {
+    const currentFacts = Object.fromEntries(Object.entries(publishableFacts).map(([id, fact]) => [id, fact.value]));
+    const expectedFacts = Object.fromEntries(Object.entries(keywordProfile.product_facts).map(([id, fact]) => [id, fact?.value ?? fact]));
+    if (JSON.stringify(currentFacts) !== JSON.stringify(expectedFacts)) {
+      throw Object.assign(new Error('Keyword profile no longer matches current publishable facts.'), {code: 'STALE_KEYWORD_PROFILE'});
+    }
+  }
+  const phrases = group => (keywordProfile.groups?.[group] ?? []).map(item => item.phrase).filter(Boolean);
+  brief.keyword_profile = structuredClone(keywordProfile);
+  brief.keyword_groups = {
+    core: phrases('core'),
+    supporting: phrases('supporting'),
+    backend: phrases('backend'),
+    excluded: phrases('excluded')
+  };
+  brief.fields.title.keyword_candidates = [...brief.keyword_groups.core];
+  brief.fields.item_highlights.keyword_candidates = [...brief.keyword_groups.core];
+  brief.fields.bullets.keyword_candidates = [...brief.keyword_groups.supporting];
+  brief.fields.description.keyword_candidates = [...brief.keyword_groups.supporting];
+  brief.fields.backend_search_terms.candidates = [...new Set(brief.keyword_groups.backend)];
+  brief.self_audit.checks.push(
+    'excluded_keywords_absent',
+    'frontend_backend_keyword_deduplication',
+    'keyword_product_fit_and_naturalness'
+  );
+  brief.advertising = structuredClone(keywordProfile.advertising ?? {});
+  return brief;
 }

@@ -253,3 +253,23 @@ test('legacy CLIs are compatibility wrappers instead of duplicate orchestrators'
   assert.match(await readFile(path.join(root, 'scripts', 'init-project.js'), 'utf8'), /runCli/);
   assert.match(await readFile(path.join(root, 'scripts', 'validate-state.js'), 'utf8'), /runCli/);
 });
+
+test('keyword research guidance stays lightweight and data-backed', async () => {
+  const skill = await readFile(path.join(root, 'SKILL.md'), 'utf8');
+  const knowledge = await readFile(path.join(root, 'references', 'knowledge-and-facts.md'), 'utf8');
+  const listing = await readFile(path.join(root, 'references', 'listing-workflow.md'), 'utf8');
+  const combined = `${knowledge}\n${listing}`;
+  assert.match(skill, /SellerSprite|keyword profile/i);
+  assert.match(combined, /SellerSprite.+XLSX.+cached keyword profile.+web.+fallback/is);
+  assert.match(combined, /top_10_sample.+not.+complete market analysis/is);
+  assert.match(combined, /export_date.+(?:explicit|manifest).+(?:not|never).+filename/is);
+  assert.match(combined, /one analysis pass.+no per-keyword approval/is);
+  for (const group of ['core', 'supporting', 'backend', 'excluded']) assert.match(listing, new RegExp(group, 'i'));
+  for (const group of ['exact_candidates', 'phrase_candidates', 'cautious_tests', 'negative_candidates']) {
+    assert.match(listing, new RegExp(group));
+  }
+  assert.match(listing, /no.+(?:bids|budgets|forecasts|dashboard|opaque score)/is);
+  assert.match(listing, /micro revision.+(?:does not|must not).+(?:refresh|reanalyze).+(?:research|keyword)/is);
+  assert.match(combined, /keyword.+failure.+(?:does not|must not).+block.+(?:image|Product Master)/is);
+  assert.match(combined, /market_language.+fallback/i);
+});

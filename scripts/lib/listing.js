@@ -45,6 +45,24 @@ export function findFrontBackDuplicates(listing = {}) {
   return [...new Set(searchTokens(listing.backend_search_terms))].filter(token => frontend.has(token));
 }
 
+export function selectBackendSearchPhrases({listing = {}, candidates = [], byteLimit = 250} = {}) {
+  const frontend = new Set(searchTokens(frontText(listing)));
+  const seen = new Set();
+  const selected = [];
+  for (const value of candidates) {
+    const phrase = String(value ?? '').trim().replace(/\s+/g, ' ');
+    const normalized = searchTokens(phrase).join(' ');
+    if (!normalized || seen.has(normalized)) continue;
+    seen.add(normalized);
+    const tokens = searchTokens(phrase);
+    if (tokens.every(token => frontend.has(token))) continue;
+    const next = [...selected, phrase].join(' ');
+    if (utf8Bytes(next) > byteLimit) break;
+    selected.push(phrase);
+  }
+  return selected.join(' ');
+}
+
 const EMPTY_BENEFIT = /^(?:supports?|provides?|offers?)\s+(?:a\s+|an\s+)?(?:(?:various|different|exposed|general|everyday|straightforward|versatile)\s+)*(?:settings?|applications?|uses?|needs?|placement|contexts?)\.?$/i;
 
 export function findEmptyBenefitPhrases(listing = {}) {
@@ -129,6 +147,29 @@ function validateProhibitedContent(listing, context, errors) {
   }
 }
 
+export function keywordProfileErrors(listing, keywordProfile) {
+  const errors = [];
+  if (!keywordProfile) return errors;
+  const allText = `${frontText(listing)} ${listing.backend_search_terms}`;
+  const normalizedText = ` ${searchTokens(allText).join(' ')} `;
+  const excluded = (keywordProfile.groups?.excluded ?? [])
+    .map(item => typeof item === 'string' ? item : item?.phrase)
+    .filter(Boolean)
+    .filter(phrase => normalizedText.includes(` ${searchTokens(phrase).join(' ')} `));
+  if (excluded.length) errors.push({field: 'keyword_profile', code: 'EXCLUDED_KEYWORD', phrases: [...new Set(excluded)]});
+  const frontend = new Set(searchTokens(frontText(listing)));
+  const backendText = ` ${searchTokens(listing.backend_search_terms).join(' ')} `;
+  const coveredPhrases = (keywordProfile.groups?.backend ?? [])
+    .map(item => typeof item === 'string' ? item : item?.phrase)
+    .filter(Boolean)
+    .filter(phrase => {
+      const tokens = searchTokens(phrase);
+      return tokens.length > 0 && backendText.includes(` ${tokens.join(' ')} `) && tokens.every(token => frontend.has(token));
+    });
+  if (coveredPhrases.length) errors.push({field: 'backend_search_terms', code: 'FRONTEND_BACKEND_DUPLICATE', phrases: [...new Set(coveredPhrases)]});
+  return errors;
+}
+
 function validateRefArray(value, field, publishableFacts, errors) {
   if (!Array.isArray(value) || value.length === 0) {
     errors.push({field, code: 'CLAIM_REFS_MISSING'});
@@ -193,6 +234,7 @@ export function validateListing(input, context = {}) {
   }
   validateClaimRefs(listing, context.publishableFactIds ?? new Set(), errors);
   validateProhibitedContent(listing, context, errors);
+  errors.push(...keywordProfileErrors(listing, context.keywordProfile));
 
   if ((listing.validation.condense_attempts ?? 0) >= 1 && errors.some(error => ['CHAR_LIMIT', 'BYTE_LIMIT', 'BULLETS_COMBINED_LIMIT'].includes(error.code))) {
     errors.push({field: 'validation', code: 'LIMIT_AFTER_CONDENSE', message: 'Content remains over a configured limit after one condense pass.'});

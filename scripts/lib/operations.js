@@ -1,5 +1,5 @@
 import { fail } from './errors.js';
-import { findEmptyBenefitPhrases, findFrontBackDuplicates } from './listing.js';
+import { findEmptyBenefitPhrases, findFrontBackDuplicates, keywordProfileErrors } from './listing.js';
 import { auditListing } from './listing-audit.js';
 
 const ROUTES = Object.freeze({
@@ -17,6 +17,7 @@ const ROUTES = Object.freeze({
   approve_asset: {mode: 'fast', reason: 'CURRENT_ARTIFACT_APPROVAL'},
   knowledge_lookup: {mode: 'fast', reason: 'LOCAL_LIBRARY_LOOKUP'},
   learn_category: {mode: 'full', reason: 'SHARED_KNOWLEDGE_CHANGE'},
+  keyword_analysis: {mode: 'full', reason: 'DATA_BACKED_KEYWORD_PROFILE'},
   new_project: {mode: 'full', reason: 'NEW_PROJECT'},
   first_product_master: {mode: 'full', reason: 'PRODUCT_MASTER_LOCK'},
   product_identity_change: {mode: 'full', reason: 'IDENTITY_DEPENDENCIES'},
@@ -93,7 +94,7 @@ function valueAtPath(root, fieldPath) {
   }, root);
 }
 
-export function validateChangedListing(state, changedPaths = []) {
+export function validateChangedListing(state, changedPaths = [], {keywordProfile} = {}) {
   const content = state?.listing?.draft?.content;
   if (!content) fail('BLOCKING_INPUT', 'A working Listing draft is required');
   const paths = [...new Set(changedPaths)];
@@ -112,6 +113,10 @@ export function validateChangedListing(state, changedPaths = []) {
   const affectedFindings = audit.findings.filter(item => paths.some(field => item.path === field || item.path.startsWith(`${field}.`)));
   if (affectedFindings.length) fail('BLOCKING_INPUT', 'Changed Listing field fails retail-language self-check', {findings: affectedFindings});
   const backendChanged = paths.includes('backend_search_terms');
+  const keywordErrors = keywordProfileErrors(content, keywordProfile).filter(error => (
+    error.code === 'FRONTEND_BACKEND_DUPLICATE' ? backendChanged : true
+  ));
+  if (keywordErrors.length) fail('BLOCKING_INPUT', 'Changed Listing conflicts with the saved keyword profile', {errors: keywordErrors});
   return {
     ok: true,
     plan: validationPlan({operation: {kind: 'listing_field_edit'}, changedPaths: paths}),

@@ -2,7 +2,9 @@ import assert from 'node:assert/strict';
 import {readFile} from 'node:fs/promises';
 import test from 'node:test';
 
-import {createSchemaAuthorization, normalizeListing, utf8Bytes, validateListing} from '../../scripts/lib/listing.js';
+import {
+  createSchemaAuthorization, normalizeListing, selectBackendSearchPhrases, utf8Bytes, validateListing
+} from '../../scripts/lib/listing.js';
 
 const limits = {
   title_chars: 75,
@@ -43,6 +45,34 @@ test('normalizeListing keeps stable arrays and optional product-detail fields', 
   assert.deepEqual(listing.special_features, ['one']);
   assert.deepEqual(listing.attributes, {});
   assert.deepEqual(listing.rules_unverified, []);
+});
+
+test('drops a fully covered backend phrase after conservative normalization', () => {
+  const listing = {title: 'Slow-Down Kids at Play Sign'};
+  assert.equal(selectBackendSearchPhrases({listing, candidates: ['slow down kids at play sign']}), '');
+});
+
+test('keeps a useful partially uncovered backend phrase intact', () => {
+  const listing = {title: 'Kids at Play Sign'};
+  assert.equal(selectBackendSearchPhrases({listing, candidates: ['residential street warning']}), 'residential street warning');
+});
+
+test('keyword validation permits a backend phrase with a useful uncovered token', async () => {
+  const listing = await fixture();
+  listing.title = 'Kids Sign';
+  listing.backend_search_terms = 'kids warning';
+  const result = validateListing(listing, {
+    ...context,
+    keywordProfile: {groups: {excluded: [], backend: [{phrase: 'kids warning'}]}}
+  });
+  assert.equal(result.errors.some(error => error.code === 'FRONTEND_BACKEND_DUPLICATE'), false);
+});
+
+test('never fragments a backend phrase to fit the UTF-8 byte limit', () => {
+  const result = selectBackendSearchPhrases({
+    listing: {}, candidates: ['jobsite warning', 'residential street warning'], byteLimit: 20
+  });
+  assert.equal(result, 'jobsite warning');
 });
 
 test('enforces title, Item Highlights, Bullet, Description, and search limits', async t => {
@@ -125,6 +155,19 @@ test('rejects competitor brands, promotions, and contact details', async t => {
       assert.ok(validateListing(listing, context).errors.some(error => error.code === 'PROHIBITED_CONTENT'));
     });
   }
+});
+
+test('enforces keyword profile exclusions and front-back deduplication', async () => {
+  const listing = await fixture();
+  listing.description += ' Vinyl kids decal.';
+  listing.backend_search_terms = `aluminum ${listing.backend_search_terms}`;
+  const result = validateListing(listing, {
+    ...context,
+    keywordProfile: {groups: {excluded: [{phrase: 'vinyl kids decal'}], backend: [{phrase: 'aluminum'}]}}
+  });
+  assert.ok(result.errors.some(error => error.code === 'EXCLUDED_KEYWORD'));
+  assert.ok(result.errors.some(error => error.code === 'FRONTEND_BACKEND_DUPLICATE'));
+  assert.equal(result.listing.upload_ready, false);
 });
 
 test('rejects stale Product Master and reports limit failure after one condense', async () => {

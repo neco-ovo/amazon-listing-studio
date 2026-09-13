@@ -8,6 +8,7 @@ import {auditListing, preflightListingScope} from '../../scripts/lib/listing-aud
 import {loadMerchantLayouts, selectMerchantLayout} from '../../scripts/lib/merchant-layouts.js';
 import {createProjectState} from '../../scripts/lib/project-state.js';
 import {utf8Bytes, validateListing} from '../../scripts/lib/listing.js';
+import {compileListingBrief} from '../../scripts/lib/listing-briefs.js';
 import * as listingModule from '../../scripts/lib/listing.js';
 import * as state from '../../scripts/lib/state.js';
 import {diffUpstream, writeDiffReport} from '../../scripts/lib/templates.js';
@@ -93,6 +94,22 @@ test('required Seed behavior matrix', async t => {
 
   await t.test('backend terms count UTF-8 bytes', () => {
     assert.equal(utf8Bytes('sign 标牌'), Buffer.byteLength('sign 标牌', 'utf8'));
+  });
+
+  await t.test('profile-backed and legacy Listing briefs both remain available', () => {
+    const profile = {
+      groups: {
+        core: [{phrase: 'slow down kids at play sign'}], supporting: [],
+        backend: [{phrase: 'residential street warning'}], excluded: []
+      },
+      advertising: {exact_candidates: ['slow down kids at play sign']}
+    };
+    const backed = compileListingBrief({keywordProfile: profile, marketLanguage: ['jobsite']});
+    assert.deepEqual(backed.fields.title.keyword_candidates, ['slow down kids at play sign']);
+    assert.deepEqual(backed.fields.backend_search_terms.candidates, ['residential street warning']);
+    const legacy = compileListingBrief({marketLanguage: ['jobsite']});
+    assert.deepEqual(legacy.fields.backend_search_terms.candidates, ['jobsite']);
+    assert.equal(Object.hasOwn(legacy, 'keyword_profile'), false);
   });
 
   await t.test('template diff reports change without overwriting snapshot', async () => {

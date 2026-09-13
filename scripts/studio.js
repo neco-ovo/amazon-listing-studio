@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import {createHash} from 'node:crypto';
-import { access, mkdir, readFile, readdir, rename, stat, writeFile } from 'node:fs/promises';
+import { access, mkdir, open, readFile, readdir, rename, stat, unlink, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import sharp from 'sharp';
@@ -10,6 +10,7 @@ import { approveArtifact, approveListingDraft, updateProject } from './lib/trans
 import { migrateLegacyProject } from './lib/migration.js';
 import { validateMainImage } from './lib/images.js';
 import { renderListing, reviseDraft } from './lib/listing-drafts.js';
+import {keywordProfileErrors} from './lib/listing.js';
 import { buildV2Delivery, verifyDelivery } from './lib/bundle.js';
 import {buildVariationDelivery, verifyVariationDelivery} from './lib/variation-bundle.js';
 import {
@@ -24,6 +25,15 @@ import {
   resolveVariationFactConflicts,
   reviseVariationChild
 } from './lib/variation-project.js';
+import {parseSellerSpriteWorkbook} from './lib/sellersprite-workbooks.js';
+import {
+  buildKeywordProfile,
+  isCompatibleKeywordProfile,
+  mergeKeywordProfileReports,
+  normalizeKeywordPhrase,
+  projectKeywordProfilePath,
+  reusableKeywordProfilePath
+} from './lib/keyword-profiles.js';
 
 function parseArgs(argv) {
   const [command, ...rest] = argv;
@@ -214,6 +224,191 @@ async function learnCategory(options) {
   return {path: outputPath, observation_count: Object.keys(output.observations).length};
 }
 
+async function withFileLock(lockPath, operation) {
+  await mkdir(path.dirname(lockPath), {recursive: true});
+  let lock;
+  try {
+    lock = await open(lockPath, 'wx');
+    return await operation();
+  } finally {
+    await lock?.close();
+    if (lock) await unlink(lockPath).catch(() => {});
+  }
+}
+
+function assertCurrentKeywordProfile(profile, state) {
+  if (!profile) return;
+  const currentFacts = publishableFacts(state);
+  const priorFacts = profile.product_facts ?? {};
+  const factConflict = [...new Set([...Object.keys(priorFacts), ...Object.keys(currentFacts)])].some(field => (
+    JSON.stringify(priorFacts[field]) !== JSON.stringify(currentFacts[field])
+  ));
+  const compatibility = isCompatibleKeywordProfile(profile, {
+    marketplace: state.project.marketplace,
+    locale: state.project.language,
+    product_type: state.project.product_type,
+    intent: profile.normalized_intent,
+    product_fact_conflict: factConflict
+  });
+  if (!compatibility.compatible) throw blocking('Saved keyword profile is stale; rerun keyword analysis.', {reasons: compatibility.reasons});
+}
+
+function publishableFacts(state) {
+  return Object.fromEntries(Object.entries(state?.facts ?? {})
+    .filter(([, fact]) => fact?.status === 'confirmed' && fact?.publishable === true)
+    .map(([field, fact]) => [field, fact.value]));
+}
+
+function profileSegment(value) {
+  return String(value ?? '')
+    .normalize('NFKC')
+    .toLocaleLowerCase('en-US')
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-|-$/g, '');
+}
+
+async function writeKeywordProfileLocked(filePath, profile, expected, conflictCode) {
+  await mkdir(path.dirname(filePath), {recursive: true});
+  const lockPath = `${filePath}.lock`;
+  let lock;
+  try {
+    lock = await open(lockPath, 'wx');
+    const current = await readJsonIfExists(filePath);
+    if (JSON.stringify(current) !== JSON.stringify(expected)) {
+      throw Object.assign(new Error('Keyword profile changed during analysis.'), {code: conflictCode});
+    }
+    await writeJsonAtomically(filePath, profile);
+  } finally {
+    await lock?.close();
+    if (lock) await unlink(lockPath).catch(() => {});
+  }
+}
+
+async function defaultWriteKeywordCache(filePath, profile, {expected = null} = {}) {
+  await writeKeywordProfileLocked(filePath, profile, expected, 'KEYWORD_CACHE_CHANGED');
+}
+
+async function analyzeKeywords(options, dependencies = {}) {
+  const projectDir = path.resolve(requireOption(options, 'project-dir'));
+  const input = JSON.parse(await readFile(path.resolve(requireOption(options, 'input')), 'utf8'));
+  if (!normalizeKeywordPhrase(input.intent)) throw blocking('Keyword purchase intent is required');
+  if (!Array.isArray(input.reports) || input.reports.length === 0) {
+    throw blocking('At least one SellerSprite report is required');
+  }
+  const statePath = path.join(projectDir, 'state.json');
+  const stateSnapshot = await readFile(statePath, 'utf8');
+  const state = JSON.parse(stateSnapshot);
+  const productFacts = publishableFacts(state);
+  const context = {
+    marketplace: state.project.marketplace,
+    locale: state.project.language,
+    product_type: state.project.product_type,
+    intent: input.intent
+  };
+  const outputPath = projectKeywordProfilePath(projectDir);
+  let cachePath = null;
+  let cacheCollision = false;
+  const warnings = [];
+  if (options['library-dir']) {
+    cachePath = reusableKeywordProfilePath(path.resolve(options['library-dir']), {
+      marketplace: profileSegment(context.marketplace),
+      locale: profileSegment(context.locale),
+      product_type: profileSegment(context.product_type),
+      intent_slug: profileSegment(input.intent)
+    });
+  }
+  const projectSnapshot = await readJsonIfExists(outputPath);
+  let existing = projectSnapshot;
+  let cached = null;
+  if (cachePath) {
+    try {
+      cached = await readJsonIfExists(cachePath);
+      if (cached) {
+        const cachedFacts = cached.product_facts ?? {};
+        const cachedFactConflict = [...new Set([...Object.keys(cachedFacts), ...Object.keys(productFacts)])].some(field => (
+          JSON.stringify(cachedFacts[field]) !== JSON.stringify(productFacts[field])
+        ));
+        const compatibility = isCompatibleKeywordProfile(cached, {...context, product_fact_conflict: cachedFactConflict}, input.now);
+        if (!compatibility.compatible) {
+          cacheCollision = true;
+          warnings.push({code: 'KEYWORD_CACHE_COLLISION'});
+        }
+      }
+    } catch {
+      warnings.push({code: 'KEYWORD_CACHE_NOT_READ'});
+    }
+  }
+  if (existing) {
+    const priorFacts = existing.product_facts ?? {};
+    const factConflict = [...new Set([...Object.keys(priorFacts), ...Object.keys(productFacts)])].some(field => (
+      JSON.stringify(priorFacts[field]) !== JSON.stringify(productFacts[field])
+    ));
+    const compatibility = isCompatibleKeywordProfile(existing, {...context, product_fact_conflict: factConflict}, input.now);
+    if (!compatibility.compatible) existing = null;
+  }
+  if (!existing && cached && !cacheCollision) existing = cached;
+  const incomingReports = [];
+  for (const item of input.reports) {
+    if (!item?.path) throw blocking('Every SellerSprite report requires a path');
+    incomingReports.push(await parseSellerSpriteWorkbook(path.resolve(item.path), {
+      sampleScope: input.sample_scope,
+      scopeProvenance: input.scope_provenance,
+      referenceAsin: item.reference_asin,
+      seedQuery: item.seed_query,
+      exportDate: item.export_date,
+      marketplace: state.project.marketplace
+    }));
+  }
+  let mergedProfile = existing ?? {marketplace: state.project.marketplace, reports: []};
+  for (const report of incomingReports) {
+    mergedProfile = mergeKeywordProfileReports(mergedProfile, report, input.now);
+  }
+  const reports = mergedProfile.reports;
+  const inheritedAssessments = {};
+  for (const group of Object.values(existing?.groups ?? {})) {
+    for (const item of group ?? []) {
+      inheritedAssessments[item.normalized_phrase] = {
+        fit: item.fit, reason: item.reason, reason_code: item.reason_code
+      };
+    }
+  }
+  const suppliedAssessments = Object.fromEntries(Object.entries(input.fit_assessments ?? {})
+    .map(([phrase, assessment]) => [normalizeKeywordPhrase(phrase), assessment]));
+  const profile = buildKeywordProfile({
+    project: {
+      marketplace: state.project.marketplace,
+      locale: state.project.language,
+      product_type: state.project.product_type,
+      product_facts: productFacts
+    },
+    intent: input.intent,
+    reports,
+    fitAssessments: {...inheritedAssessments, ...suppliedAssessments},
+    now: input.now
+  });
+  if (existing?.generated_at) profile.generated_at = existing.generated_at;
+  if (await readFile(statePath, 'utf8') !== stateSnapshot) throw blocking('Project facts changed during keyword analysis; rerun analysis.');
+  await writeKeywordProfileLocked(outputPath, profile, projectSnapshot, 'KEYWORD_PROJECT_CHANGED');
+  if (cacheCollision) cachePath = null;
+  if (cachePath) {
+    try {
+      await (dependencies.writeCache ?? defaultWriteKeywordCache)(cachePath, profile, {expected: cached});
+    } catch {
+      cachePath = null;
+      warnings.push({code: 'KEYWORD_CACHE_NOT_WRITTEN'});
+    }
+  }
+  return {
+    profile_path: outputPath,
+    cache_path: cachePath,
+    report_count: reports.length,
+    analysis_passes: 1,
+    web_research_used: false,
+    market_size_complete: false,
+    warnings
+  };
+}
+
 function candidatePath(projectDir, relativePath) {
   if (!relativePath || path.isAbsolute(relativePath)) {
     throw Object.assign(new Error('Candidate path must be project-relative'), {code: 'BLOCKING_INPUT'});
@@ -321,9 +516,13 @@ export async function runRecordCandidate({projectDir, candidate}, {
 
 export async function runApprove(input, {hashFile} = {}) {
   if (input.artifactType === 'listing') {
-    return updateProject(input.projectDir, state => approveListingDraft(state, {
-      userAction: 'approved',
-      now: input.now
+    const profilePath = projectKeywordProfilePath(input.projectDir);
+    return withFileLock(`${profilePath}.lock`, () => updateProject(input.projectDir, async state => {
+      const keywordProfile = await readJsonIfExists(profilePath);
+      assertCurrentKeywordProfile(keywordProfile, state);
+      const errors = keywordProfileErrors(state?.listing?.draft?.content, keywordProfile);
+      if (errors.length) throw blocking('Listing conflicts with the saved keyword profile', {errors});
+      return approveListingDraft(state, {userAction: 'approved', now: input.now});
     }));
   }
   return updateProject(input.projectDir, state => approveArtifact(state, {
@@ -559,13 +758,21 @@ export async function runListingRevision(input, dependencies = {}) {
   const validateChanged = dependencies.validateChanged ?? validateChangedListing;
   const renderMarkdown = dependencies.renderMarkdown ?? renderListing;
   const writeTransaction = dependencies.writeTransaction ?? defaultWriteListingTransaction;
+  const loadKeywordProfile = dependencies.loadKeywordProfile
+    ?? (() => readJsonIfExists(projectKeywordProfilePath(input.projectDir)));
 
-  const current = await loadState(input.projectDir);
-  const next = patchDraft(current, input.patch);
-  const validation = validateChanged(next, changedPaths);
-  const markdown = renderMarkdown(next.listing.draft);
-  const transaction = await writeTransaction({projectDir: input.projectDir, state: next, markdown});
-  return {...transaction, mode: route.mode, changed_paths: changedPaths, validation};
+  const execute = async () => {
+    const [current, keywordProfile] = await Promise.all([loadState(input.projectDir), loadKeywordProfile()]);
+    assertCurrentKeywordProfile(keywordProfile, current);
+    const next = patchDraft(current, input.patch);
+    const validation = validateChanged(next, changedPaths, {keywordProfile});
+    const markdown = renderMarkdown(next.listing.draft);
+    const transaction = await writeTransaction({projectDir: input.projectDir, state: next, markdown});
+    return {...transaction, mode: route.mode, changed_paths: changedPaths, validation};
+  };
+  if (dependencies.loadKeywordProfile) return execute();
+  const profilePath = projectKeywordProfilePath(input.projectDir);
+  return withFileLock(`${profilePath}.lock`, execute);
 }
 
 function operationFor(command, input = null) {
@@ -575,6 +782,7 @@ function operationFor(command, input = null) {
   const kinds = {
     init: 'new_project',
     'learn-category': 'learn_category',
+    'analyze-keywords': 'keyword_analysis',
     'record-candidate': 'record_candidate',
     'record-variation-candidate': 'record_candidate',
     'revise-listing': 'listing_field_edit',
@@ -597,6 +805,7 @@ export async function runCli(argv, {
   clock = Date.now,
   candidateDependencies,
   listingDependencies,
+  keywordDependencies,
   hashFile,
   buildV2 = buildV2Delivery,
   verifyV2 = verifyDelivery,
@@ -612,6 +821,7 @@ export async function runCli(argv, {
     let routeInput = null;
     if (command === 'init') result = await initProject(options);
     else if (command === 'learn-category') result = await learnCategory(options);
+    else if (command === 'analyze-keywords') result = await analyzeKeywords(options, keywordDependencies);
     else if (command === 'promote-variation') {
       const theme = JSON.parse(await readFile(path.resolve(requireOption(options, 'theme')), 'utf8'));
       result = await promoteToVariation({

@@ -17,7 +17,7 @@ Use **light drafts, immutable approvals, strict delivery**. Run deterministic st
 
 Read only what the current step needs:
 
-- Facts, conflicts, category language: `references/knowledge-and-facts.md`.
+- Facts, conflicts, category language, SellerSprite XLSX and reusable keyword profiles: `references/knowledge-and-facts.md`.
 - Images, Product Master, gallery, fonts, QA: `references/image-workflow.md`.
 - Listing, rules, keywords, revisions: `references/listing-workflow.md`.
 - Parent/Child Variation work only: `references/variation-workflow.md`; the ordinary single-product path does not load it.
@@ -33,6 +33,7 @@ Use at most one domain reference for ordinary work; add delivery guidance only w
 - Lock Product Master only after the exact main raster is decoded, inspected, presented, and explicitly approved. Once the gallery plan and layout are approved, generate all planned secondary images for one consolidated review; revise only affected images.
 - Reuse a matching seller-owned layout seed without reopening its source project. Remove scene props or fasteners that could imply included package contents. Repair dimension lines against measured product bounds and check regional visual balance.
 - Build Title, Item Highlights, five benefit-led Bullets, Description, Backend Search Terms, Special Features, and supported details from publishable facts. Hold one consolidated Listing review and one bounded natural-language self-check.
+- When SellerSprite exports are supplied, analyze them once into the product’s references/keyword-profile.json; reuse an exact compatible profile and keep web keyword research as fallback.
 - A micro revision changes only requested fields and direct dependents. Formal versions and hashes are created only on explicit approval. Approval must derive system scope from current state and use the shared finalization preflight.
 - Require final approval bound to the current Product Master, selected images, Listing version, marketplace, product type, and rule status. Finalization rehashes selected artifacts and verifies the new package once.
 
