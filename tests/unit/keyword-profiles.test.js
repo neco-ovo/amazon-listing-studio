@@ -3,8 +3,12 @@ import assert from 'node:assert/strict';
 
 import {
   buildKeywordProfile,
+  isCompatibleKeywordProfile,
   mergeKeywordEvidence,
-  normalizeKeywordPhrase
+  mergeKeywordProfileReports,
+  normalizeKeywordPhrase,
+  projectKeywordProfilePath,
+  reusableKeywordProfilePath
 } from '../../scripts/lib/keyword-profiles.js';
 
 function row(keyword, values = {}) {
@@ -112,4 +116,81 @@ test('excluded weak or duplicate phrases are not suggested as negatives', () => 
   assert.equal(profile.groups.core.length, 0);
   assert.equal(profile.groups.backend.length, 0);
   assert.deepEqual(profile.advertising.negative_candidates, []);
+});
+
+test('matches reusable profiles exactly and reports staleness separately', () => {
+  const profile = {
+    marketplace: 'US', locale: 'en-US', product_type: 'Rigid Aluminum Sign',
+    normalized_intent: 'slow down kids at play sign', intent_slug: 'slow-down-kids-at-play-sign',
+    refreshed_at: '2026-01-01T00:00:00.000Z'
+  };
+  const context = {
+    marketplace: 'us', locale: 'en-US', product_type: 'rigid aluminum sign',
+    intent: 'Slow Down Kids at Play Sign'
+  };
+  assert.deepEqual(
+    isCompatibleKeywordProfile(profile, context, '2026-09-13T00:00:00.000Z'),
+    {compatible: true, stale: true, reasons: []}
+  );
+  assert.equal(isCompatibleKeywordProfile(profile, {...context, locale: 'en-CA'}).compatible, false);
+  assert.equal(isCompatibleKeywordProfile(profile, {...context, product_type: 'vinyl decal'}).compatible, false);
+  assert.equal(isCompatibleKeywordProfile(profile, {...context, intent: 'horse crossing sign'}).compatible, false);
+  assert.equal(isCompatibleKeywordProfile(profile, {...context, product_fact_conflict: true}).compatible, false);
+  assert.equal(isCompatibleKeywordProfile(profile, {...context, intent_slug_collision: true}).compatible, false);
+});
+
+test('builds conventional safe profile paths', () => {
+  assert.match(projectKeywordProfilePath('D:/Amazon/project'), /references[\\/]keyword-profile\.json$/);
+  assert.match(reusableKeywordProfilePath('D:/Amazon/library', {
+    marketplace: 'us', locale: 'en-us', product_type: 'rigid-aluminum-sign', intent_slug: 'slow-kids-sign'
+  }), /keyword-profiles[\\/]us[\\/]en-us[\\/]rigid-aluminum-sign[\\/]slow-kids-sign\.json$/);
+  assert.throws(
+    () => reusableKeywordProfilePath('D:/Amazon/library', {
+      marketplace: 'us', locale: 'en-us', product_type: '../escape', intent_slug: 'sign'
+    }), error => error.code === 'UNSAFE_KEYWORD_PROFILE_PATH'
+  );
+});
+
+test('replaces only newer evidence with the same report identity', () => {
+  const currentReverse = {
+    ...reverseReport,
+    source: {...reverseReport.source, export_date: '2026-09-01'},
+    report_identity: {reference_asin: 'B0TEST'}
+  };
+  const currentMining = {
+    ...miningReport,
+    source: {...miningReport.source, export_date: '2026-09-02'}
+  };
+  const current = {
+    marketplace: 'US', refreshed_at: '2026-09-02T00:00:00.000Z',
+    reports: [currentReverse, currentMining], groups: {core: []}
+  };
+  const incoming = {
+    ...currentReverse,
+    source: {...currentReverse.source, export_date: '2026-09-13'},
+    rows: [row('new phrase', {traffic_share: 0.2, monthly_searches: 100, organic_rank: 2})]
+  };
+  const merged = mergeKeywordProfileReports(current, incoming, '2026-09-13T00:00:00.000Z');
+  assert.equal(merged.reports.find(report => report.report_type === 'reverse_asin').source.export_date, '2026-09-13');
+  assert.deepEqual(merged.reports.find(report => report.report_type === 'keyword_mining'), currentMining);
+  assert.equal(merged.needs_reanalysis, true);
+});
+
+test('refuses ambiguous report replacement', () => {
+  const current = {
+    marketplace: 'US',
+    reports: [{...reverseReport, source: {...reverseReport.source, export_date: '2026-09-13'}}]
+  };
+  const missingIdentity = {...reverseReport, report_identity: {}, source: {...reverseReport.source, export_date: '2026-09-14'}};
+  assert.throws(
+    () => mergeKeywordProfileReports(current, missingIdentity),
+    error => error.code === 'UNRESOLVED_KEYWORD_IMPORT'
+  );
+  const sameDateConflict = {
+    ...reverseReport, source: {...reverseReport.source, export_date: '2026-09-13'}, rows: [row('changed')]
+  };
+  assert.throws(
+    () => mergeKeywordProfileReports(current, sameDateConflict),
+    error => error.code === 'UNRESOLVED_KEYWORD_IMPORT'
+  );
 });

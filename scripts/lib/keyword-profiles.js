@@ -1,3 +1,5 @@
+import path from 'node:path';
+
 import {fail} from './errors.js';
 
 const FIT_ORDER = {exact: 0, high: 1, related: 2, excluded: 3};
@@ -13,6 +15,10 @@ export function normalizeKeywordPhrase(value) {
     .replace(/[^\p{L}\p{N}]+/gu, ' ')
     .trim()
     .replace(/\s+/g, ' ');
+}
+
+function slug(value) {
+  return normalizeKeywordPhrase(value).replace(/\s+/g, '-');
 }
 
 export function mergeKeywordEvidence(reports) {
@@ -93,6 +99,7 @@ export function buildKeywordProfile({project = {}, intent = '', reports = [], fi
     locale: project.locale ?? null,
     product_type: project.product_type ?? null,
     normalized_intent: normalizeKeywordPhrase(intent),
+    intent_slug: slug(intent),
     analysis_scope: analysisScopes.length === 1 ? analysisScopes[0] : 'mixed_partial',
     market_size_complete: false,
     reports: reports.map(report => ({
@@ -113,5 +120,106 @@ export function buildKeywordProfile({project = {}, intent = '', reports = [], fi
     },
     generated_at: timestamp,
     refreshed_at: timestamp
+  };
+}
+
+function comparable(value) {
+  return normalizeKeywordPhrase(value);
+}
+
+export function isCompatibleKeywordProfile(profile, context, now = new Date().toISOString()) {
+  const reasons = [];
+  if (comparable(profile?.marketplace) !== comparable(context?.marketplace)) reasons.push('marketplace');
+  if (comparable(profile?.locale) !== comparable(context?.locale)) reasons.push('locale');
+  if (comparable(profile?.product_type) !== comparable(context?.product_type)) reasons.push('product_type');
+  if (profile?.normalized_intent !== normalizeKeywordPhrase(context?.intent)) reasons.push('intent');
+  if (context?.product_fact_conflict) reasons.push('product_fact_conflict');
+  if (context?.intent_slug_collision) reasons.push('intent_slug_collision');
+  const refreshed = Date.parse(profile?.refreshed_at);
+  const current = Date.parse(now);
+  const stale = !Number.isFinite(refreshed) || !Number.isFinite(current)
+    || current - refreshed > 180 * 24 * 60 * 60 * 1000;
+  return {compatible: reasons.length === 0, stale, reasons};
+}
+
+function safeSegment(value) {
+  const segment = String(value ?? '').trim();
+  if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/i.test(segment)) {
+    fail('UNSAFE_KEYWORD_PROFILE_PATH', 'Keyword profile path contains an unsafe or empty segment.', {segment});
+  }
+  return segment;
+}
+
+function beneath(root, target) {
+  const relative = path.relative(root, target);
+  return relative && !relative.startsWith(`..${path.sep}`) && relative !== '..' && !path.isAbsolute(relative);
+}
+
+export function projectKeywordProfilePath(projectDir) {
+  const root = path.resolve(projectDir);
+  return path.resolve(root, 'references', 'keyword-profile.json');
+}
+
+export function reusableKeywordProfilePath(libraryDir, key) {
+  const root = path.resolve(libraryDir);
+  const target = path.resolve(
+    root,
+    'keyword-profiles',
+    safeSegment(key?.marketplace),
+    safeSegment(key?.locale),
+    safeSegment(key?.product_type),
+    `${safeSegment(key?.intent_slug)}.json`
+  );
+  if (!beneath(root, target)) {
+    fail('UNSAFE_KEYWORD_PROFILE_PATH', 'Keyword profile path escapes its library root.');
+  }
+  return target;
+}
+
+function reportIdentity(report) {
+  if (report?.report_type === 'reverse_asin') {
+    const value = String(report.report_identity?.reference_asin ?? '').trim().toLocaleUpperCase('en-US');
+    return value ? `reverse_asin:${value}` : null;
+  }
+  if (report?.report_type === 'keyword_mining') {
+    const value = normalizeKeywordPhrase(report.report_identity?.seed_query);
+    return value ? `keyword_mining:${value}` : null;
+  }
+  return null;
+}
+
+function exportTime(report) {
+  const value = report?.source?.export_date;
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(String(value ?? ''))) return null;
+  const parsed = Date.parse(`${value}T00:00:00.000Z`);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+export function mergeKeywordProfileReports(current, incoming, now = new Date().toISOString()) {
+  const incomingIdentity = reportIdentity(incoming);
+  if (!incomingIdentity) {
+    fail('UNRESOLVED_KEYWORD_IMPORT', 'Report identity is required for automatic keyword evidence refresh.');
+  }
+  const reports = (current?.reports ?? []).map(report => ({...report}));
+  const index = reports.findIndex(report => reportIdentity(report) === incomingIdentity);
+  if (index === -1) {
+    reports.push(incoming);
+  } else {
+    const oldReport = reports[index];
+    if (JSON.stringify(oldReport) === JSON.stringify(incoming)) return current;
+    const oldTime = exportTime(oldReport);
+    const incomingTime = exportTime(incoming);
+    if (oldTime === null || incomingTime === null || incomingTime <= oldTime) {
+      fail('UNRESOLVED_KEYWORD_IMPORT', 'Conflicting keyword evidence cannot be replaced without a strictly newer export date.', {
+        report_identity: incomingIdentity
+      });
+    }
+    reports[index] = incoming;
+  }
+  return {
+    ...current,
+    reports,
+    refreshed_at: now,
+    needs_reanalysis: true
   };
 }
