@@ -16,6 +16,19 @@ Field priorities:
 
 Combine confirmed facts into plain consumer language. Avoid empty conservative phrases such as “supports exposed settings,” “provides versatile use,” or “supports straightforward placement.” Do not globally ban `supports` or `provides`; a sentence with a concrete object and outcome can be natural.
 
+## Data-backed keyword placement
+
+When the product’s references/keyword-profile.json exists and exactly matches marketplace, locale, product type, and purchase intent, pass it to `compileListingBrief`. Use its four groups without turning search terms into facts:
+
+- `core`: strongest exact/high-fit phrases for the Title and primary purchase-intent copy.
+- `supporting`: natural secondary wording for Bullets and Description.
+- `backend`: relevant uncovered phrases for Backend Search Terms.
+- `excluded`: validation context only; never publish these phrases.
+
+Preserve complete backend phrases and remove one only when all its meaningful tokens already appear on the front end. Never fragment a phrase to fill the byte limit. If no compatible profile exists, retain category `market_language` as the fallback.
+
+Create only four bounded advertising starting lists from the same pass: `exact_candidates` from core, `phrase_candidates` from supporting, `cautious_tests` from backend, and `negative_candidates` only for product mismatches or unsupported attributes. These are optional suggestions for a small seller: no bids, budgets, forecasts, dashboard, or opaque score.
+
 Run one bounded self-check in the same drafting operation. Check natural direct US retail language, buyer-intent alignment, internal QA leakage, unsupported absolutes or compliance implications, environment-versus-mounting logic, useful backend terms, canonical terminology, and field-appropriate marketing strength. Repair only clearly flagged sentences once. Do not recursively polish, rewrite clean fields, or make wording more elaborate merely to sound professional.
 
 ## Rules and validation
@@ -29,6 +42,8 @@ When filling an Amazon.com `SIGNAGE` upload template, load the dated field seed 
 ## Review and revision
 
 Present one consolidated Listing review. A small requested change uses `scripts/studio.js revise-listing --project-dir <dir> --patch <patch.json>` and validates only changed paths plus direct fact/keyword dependencies. Do not repeat market research, rule refresh, image generation, or repository tests.
+
+A micro revision does not refresh or reanalyze keyword research. It reuses the saved profile and changes only the requested field plus direct dependencies.
 
 System scope fields come from current project state at approval, not from consumer-copy revision requests. Approval must pass the same Listing scope preflight used by finalization before it freezes JSON/Markdown hashes. Filling or normalizing metadata alone does not create another consumer-copy Listing version.
 
