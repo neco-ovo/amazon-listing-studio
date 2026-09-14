@@ -564,6 +564,28 @@ test('final approval rejects stale identity and Child-main versions', async () =
   );
 });
 
+test('shared approval can atomically narrow an approved asset to an explicit Child subset', async () => {
+  const state = await fullyApprovedState();
+  const asset = state.variation.shared_assets['material-v1'];
+  asset.fact_dependencies = {material: 'aluminum', color_name: 'Horse Crossing'};
+  const before = structuredClone(state);
+
+  const next = await approveVariationArtifact(state, {
+    artifactId: 'material-v1', artifactType: 'shared_image',
+    scope: {type: 'subset_shared', child_skus: ['HORSE-12X16']},
+    childSkus: ['HORSE-12X16'], factDependencies: {material: 'aluminum'},
+    path: 'family/shared-assets/material.png', userAction: 'approved',
+    now: '2026-08-27T08:01:00.000Z'
+  }, {hashFile: async () => hash('c')});
+
+  assert.deepEqual(state, before);
+  assert.deepEqual(next.variation.shared_assets['material-v1'].scope, {
+    type: 'subset_shared', child_skus: ['HORSE-12X16']
+  });
+  assert.deepEqual(next.approvals.at(-1).declared_child_skus, ['HORSE-12X16']);
+  assert.deepEqual(next.approvals.at(-1).applicable_child_skus, ['HORSE-12X16']);
+});
+
 test('final approval atomically locks a current draft Family identity', async () => {
   const state = await fullyApprovedState();
   state.variation.family_identity.status = 'draft';

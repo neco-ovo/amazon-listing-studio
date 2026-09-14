@@ -271,15 +271,19 @@ async function approveChildMain(state, input, options) {
 async function approveSharedImage(state, input, options) {
   const candidate = state.variation.shared_assets?.[input.artifactId];
   assertCandidate(candidate, input, 'shared image');
-  const scope = sharedScopeDeclaration(candidate);
+  const requestedScope = input.scope ?? candidate.scope;
+  const scope = sharedScopeDeclaration({...candidate, scope: requestedScope});
   if (!record(input.factDependencies) || Object.keys(input.factDependencies).length === 0) {
     fail('BLOCKING_INPUT', 'Shared image approval requires explicit factual dependencies');
   }
-  if (record(candidate.fact_dependencies)
+  if (input.scope === undefined && record(candidate.fact_dependencies)
       && !isDeepStrictEqual(candidate.fact_dependencies, input.factDependencies)) {
     fail('BLOCKING_INPUT', 'Shared image factual dependencies do not match the candidate');
   }
-  const scopedAsset = {...candidate, fact_dependencies: structuredClone(input.factDependencies)};
+  const scopedAsset = {
+    ...candidate, scope: structuredClone(requestedScope),
+    fact_dependencies: structuredClone(input.factDependencies)
+  };
   const applicable = applicableChildren(state.variation, scopedAsset);
   if (!exactArray(input.childSkus, applicable)) {
     fail('BLOCKING_INPUT', 'Shared image approval must name the exact currently applicable Child set', {
@@ -293,6 +297,9 @@ async function approveSharedImage(state, input, options) {
     scope_type: 'shared_image', kind: candidate.kind, path: input.path,
     asset_scope: structuredClone(candidate.scope)
   });
+  const inspectionBinding = {
+    ...structuredClone(candidate.inspection_binding), asset_scope: structuredClone(requestedScope)
+  };
   const now = input.now ?? new Date().toISOString();
   const id = approvalId('shared-image', input.artifactId, now);
   assertNewApprovalId(state, id);
@@ -305,7 +312,7 @@ async function approveSharedImage(state, input, options) {
     path: input.path,
     sha256,
     candidate_sha256: candidate.candidate_sha256,
-    inspection_binding: structuredClone(candidate.inspection_binding),
+    inspection_binding: inspectionBinding,
     ...scope,
     fact_dependencies: structuredClone(input.factDependencies),
     applicable_child_skus: [...applicable],
@@ -320,6 +327,8 @@ async function approveSharedImage(state, input, options) {
     approval_id: id,
     approved_at: now,
     fact_dependencies: structuredClone(input.factDependencies),
+    scope: structuredClone(requestedScope),
+    inspection_binding: inspectionBinding,
     applicable_child_skus: [...applicable]
   };
   next.approvals.push(approval);
