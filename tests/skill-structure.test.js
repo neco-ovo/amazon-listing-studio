@@ -265,9 +265,12 @@ test('SIGNAGE upload seed separates reusable defaults from account and product f
 test('approval and delivery guidance expose shared preflight and direct ZIP verification', async () => {
   const skill = await readFile(path.join(root, 'SKILL.md'), 'utf8');
   const delivery = await readFile(path.join(root, 'references', 'delivery-and-compliance.md'), 'utf8');
+  const variation = await readFile(path.join(root, 'references', 'variation-workflow.md'), 'utf8');
 
   assert.match(skill, /approval.+derive.+system scope/is);
   assert.match(skill, /shared.+finalization preflight/i);
+  assert.match(variation, /approve-variation.+locks.+Family Identity.+same transaction/is);
+  assert.match(variation, /hash.+automatic.+not.+separate user confirmation/is);
   assert.match(delivery, /verify-delivery/);
   assert.match(delivery, /without extraction/i);
 });

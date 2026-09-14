@@ -5,7 +5,8 @@ import {createHash} from 'node:crypto';
 import {
   approveVariationArtifact,
   approveVariationListing,
-  approveVariationVersion
+  approveVariationVersion,
+  hashVariationFinalScope
 } from '../../scripts/lib/variation-approvals.js';
 import {materializeChildListing} from '../../scripts/lib/variation-listing.js';
 
@@ -563,6 +564,33 @@ test('final approval rejects stale identity and Child-main versions', async () =
   );
 });
 
+test('final approval atomically locks a current draft Family identity', async () => {
+  const state = await fullyApprovedState();
+  state.variation.family_identity.status = 'draft';
+
+  const next = approveVariationVersion(state, {userAction: 'approved', now});
+
+  assert.equal(state.variation.family_identity.status, 'draft');
+  assert.equal(next.variation.family_identity.status, 'locked');
+  assert.equal(next.variation.versions.at(-1).status, 'approved');
+  assert.match(next.variation.versions.at(-1).scope_sha256, /^[a-f0-9]{64}$/);
+});
+
+test('final approval rejects unsupported facts already placed in a draft Family identity', async () => {
+  const state = await fullyApprovedState();
+  state.variation.family_identity.status = 'draft';
+  state.variation.family_identity.facts.material = {
+    value: 'aluminum', status: 'conflicted', publishable: true, conflicts: ['steel']
+  };
+  const before = structuredClone(state);
+
+  assert.throws(
+    () => approveVariationVersion(state, {userAction: 'approved', now}),
+    error => error.code === 'BLOCKING_INPUT'
+  );
+  assert.deepEqual(state, before);
+});
+
 test('final approval rejects stale current Child records and marketplace bindings', async () => {
   const listingStale = await fullyApprovedState();
   listingStale.variation.children['HORSE-12X16'].listing.status = 'stale';
@@ -616,6 +644,7 @@ test('final approval freezes the complete Variation scope', async () => {
   assert.deepEqual(approval.child_skus, ['HORSE-12X16', 'KIDS-12X16']);
   assert.equal(approval.marketplace, 'amazon.com');
   assert.equal(approval.rule_status, 'verified');
+  assert.deepEqual(approval.family_identity_facts, {material: fact('aluminum')});
   assert.match(approval.parent_listing_content_sha256, /^[a-f0-9]{64}$/);
   assert.match(approval.scope_sha256, /^[a-f0-9]{64}$/);
   assert.ok(approval.child_versions.every(item => item.product_master_version > 0 && item.listing_version > 0));
@@ -631,6 +660,10 @@ test('final approval freezes the complete Variation scope', async () => {
   });
   assert.equal(next.variation.versions.at(-1).approval_id, approval.id);
   assert.equal(next.variation.versions.at(-1).scope_sha256, approval.scope_sha256);
+
+  const changedIdentity = structuredClone(approval);
+  changedIdentity.family_identity_facts.material.value = 'steel';
+  assert.notEqual(hashVariationFinalScope(changedIdentity), approval.scope_sha256);
 
   next.variation.children['HORSE-12X16'].variation_values.color_name = 'Changed';
   assert.equal(approval.child_variations[0].variation_values.color_name, 'Horse Crossing');

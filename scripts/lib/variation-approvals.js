@@ -35,6 +35,38 @@ function activeChildren(variation) {
   return Object.values(variation.children ?? {}).filter(child => child?.active !== false);
 }
 
+function semanticValue(value) {
+  const raw = record(value) && Object.hasOwn(value, 'value') ? value.value : value;
+  return typeof raw === 'string'
+    ? raw.normalize('NFKC').trim().toLocaleLowerCase('en-US').replace(/\s+/g, ' ')
+    : JSON.stringify(raw);
+}
+
+function lockDraftFamilyIdentity(state) {
+  const identity = state.variation.family_identity;
+  if (identity.status === 'locked') return state;
+  if (identity.status !== 'draft' || !(Number(identity.version) > 0)) {
+    fail('BLOCKING_INPUT', 'Final Variation approval requires a current Family identity');
+  }
+  const children = activeChildren(state.variation);
+  const common = computeCommonFacts(children).common;
+  for (const [field, fact] of Object.entries(identity.facts ?? {})) {
+    const supported = record(fact) && fact.publishable === true && fact.status === 'user_confirmed'
+      && (!Array.isArray(fact.conflicts) || fact.conflicts.length === 0);
+    if (!supported || !Object.hasOwn(common, field) || semanticValue(fact) !== semanticValue(common[field])) {
+      fail('BLOCKING_INPUT', 'Draft Family identity does not match current common Child facts', {field});
+    }
+  }
+  const next = structuredClone(state);
+  next.variation.family_identity.status = 'locked';
+  next.variation.family_identity.facts = Object.fromEntries(Object.keys(common).map(field => {
+    const representative = children.map(child => child.facts?.[field])
+      .find(fact => semanticValue(fact) === semanticValue(common[field]));
+    return [field, structuredClone(representative ?? common[field])];
+  }));
+  return next;
+}
+
 function approvalId(scopeType, target, now) {
   const timestamp = now.toLowerCase().replace(/[^a-z0-9]/g, '');
   return `approval-${scopeType}-${target}-${timestamp}`;
@@ -53,6 +85,7 @@ function hashText(value) {
 export function variationFinalScopePayload(scope) {
   return {
     family_identity_version: scope.family_identity_version,
+    family_identity_facts: structuredClone(scope.family_identity_facts),
     parent_sku: scope.parent_sku,
     parent_version: scope.parent_version,
     parent_listing_approval_id: scope.parent_listing_approval_id,
@@ -752,11 +785,10 @@ function finalSharedScope(state, childSkus, {version, now, userAction}) {
 export function approveVariationVersion(state, input) {
   explicitApproval(input);
   assertVariationState(state);
-  if (state.variation.family_identity?.status !== 'locked'
-      || !(Number(state.variation.family_identity.version) > 0)
-      || state.variation.theme?.verification_status !== 'verified') {
-    fail('BLOCKING_INPUT', 'Final Variation approval requires locked identity and a verified Variation Theme');
+  if (state.variation.theme?.verification_status !== 'verified') {
+    fail('BLOCKING_INPUT', 'Final Variation approval requires a verified Variation Theme');
   }
+  state = lockDraftFamilyIdentity(state);
   const children = activeChildren(state.variation);
   if (children.length === 0) fail('BLOCKING_INPUT', 'Final Variation approval requires active Children');
   const parent = state.variation.parent;
@@ -794,6 +826,7 @@ export function approveVariationVersion(state, input) {
   assertNewApprovalId(state, id);
   const frozenScope = {
     family_identity_version: state.variation.family_identity.version,
+    family_identity_facts: structuredClone(state.variation.family_identity.facts),
     parent_sku: parent.sku,
     parent_version: parentListing.version,
     parent_listing_approval_id: parentApproval.id,
