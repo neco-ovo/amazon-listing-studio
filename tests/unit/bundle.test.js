@@ -86,6 +86,10 @@ test('verifyDelivery binds the manifest to the supplied final approval versions'
       verifyDelivery({deliveryDir, expectedScope: {...approval, listing_version: approval.listing_version + 1}}),
       error => error.details?.reason === 'APPROVAL_SCOPE_MISMATCH'
     );
+    await assert.rejects(
+      verifyDelivery({deliveryDir, expectedScope: {...approval, product_master_version: approval.product_master_version + 1}}),
+      error => error.details?.reason === 'APPROVAL_SCOPE_MISMATCH'
+    );
   });
 });
 

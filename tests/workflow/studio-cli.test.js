@@ -191,6 +191,23 @@ test('analyze-keywords parses once and writes project and optional reusable prof
     assert.equal(refreshedProfile.reports.find(item => item.report_type === 'keyword_mining').source.export_date, '2026-09-12');
     assert.deepEqual(refreshedProfile.listing_strategy, projectProfile.listing_strategy);
     assert.deepEqual(refreshedProfile.keyword_fact_fields, ['included_components']);
+
+    const stateWithKeywordChange = JSON.parse(await readFile(statePath, 'utf8'));
+    stateWithKeywordChange.facts.included_components = {status: 'confirmed', publishable: true, value: ['sign']};
+    await writeFile(statePath, `${JSON.stringify(stateWithKeywordChange, null, 2)}\n`);
+    const changedManifest = path.join(root, 'changed.json');
+    await writeFile(changedManifest, JSON.stringify({
+      intent: 'slow down kids at play sign',
+      reports: [{path: newerReverse, reference_asin: 'B0FQ1RL7YK', export_date: '2026-09-14'}],
+      fit_assessments: {
+        'slow down kids at play sign': {fit: 'exact', reason: 'exact product intent', reason_code: 'direct_match'}
+      }
+    }));
+    const changed = await runCli(['analyze-keywords', '--project-dir', projectDir, '--input', changedManifest]);
+    assert.equal(changed.ok, true);
+    const changedProfile = JSON.parse(await readFile(path.join(projectDir, 'references', 'keyword-profile.json'), 'utf8'));
+    assert.deepEqual(changedProfile.listing_strategy, projectProfile.listing_strategy);
+    assert.deepEqual(changedProfile.keyword_fact_fields, ['included_components']);
   });
 });
 

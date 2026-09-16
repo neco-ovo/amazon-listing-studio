@@ -401,12 +401,12 @@ async function analyzeKeywords(options, dependencies = {}) {
       locale: state.project.language,
       product_type: state.project.product_type,
       product_facts: productFacts,
-      keyword_fact_fields: input.keyword_fact_fields ?? existing?.keyword_fact_fields
+      keyword_fact_fields: input.keyword_fact_fields ?? projectSnapshot?.keyword_fact_fields ?? existing?.keyword_fact_fields
     },
     intent: input.intent,
     reports,
     fitAssessments: {...inheritedAssessments, ...suppliedAssessments},
-    listingStrategy: input.listing_strategy ?? existing?.listing_strategy,
+    listingStrategy: input.listing_strategy ?? projectSnapshot?.listing_strategy ?? existing?.listing_strategy,
     now: input.now
   });
   if (existing?.generated_at) profile.generated_at = existing.generated_at;
