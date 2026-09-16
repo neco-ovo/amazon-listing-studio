@@ -99,7 +99,7 @@ Provide one command:
 studio compact-project --project-dir <old-project>
 ```
 
-It first produces a dry-run report, then builds the compact project in a sibling staging directory, validates every indexed formal artifact, and swaps directories only after validation succeeds. A failed validation removes only the staging directory and leaves the original project unchanged.
+It first produces a dry-run report, then builds the compact project in a sibling staging directory and validates every indexed formal artifact. After validation, it renames the original project to a sibling backup, promotes staging to the original project path, and restores the backup if promotion fails. It removes the backup only after successful promotion. A failed validation removes only staging and leaves the original project unchanged.
 
 The compactor deletes only recognized generated artifacts on an explicit allowlist, such as project-local `node_modules`, spreadsheet lock files, known inspection output, generated previews, extracted delivery copies, rejected candidates registered in state, and empty directories. It moves unknown files and scripts to `.studio/legacy/`; filenames or locations alone never prove that a file is generated. Current approved artifacts and user inputs are preserved.
 

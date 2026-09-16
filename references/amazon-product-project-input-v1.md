@@ -126,7 +126,7 @@ Each asset requires `role`, `scope`, and `path`.
 Supported scope meanings:
 
 - `product`: applies to the single product.
-- `shared`: applies to every active Child unless `child_skus` narrows it.
+- `shared`: applies to every active Child and does not accept `child_sku` or `child_skus`.
 - `child`: requires `child_sku` and applies only to that Child.
 - `subset`: requires a non-empty `child_skus` list.
 
