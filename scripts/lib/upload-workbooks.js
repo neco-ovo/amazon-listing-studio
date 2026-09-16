@@ -26,6 +26,17 @@ function rangeColumns(range) {
   return Array.from({length: columnNumber(end) - columnNumber(start) + 1}, (_, index) => columnName(columnNumber(start) + index));
 }
 
+export function rangeAffectsRows(range, mappedColumns, rowCount) {
+  const mapped = new Set(mappedColumns);
+  return String(range).trim().split(/\s+/).some(part => {
+    const [start, end = start] = part.split(':');
+    const startRow = Number(/\d+$/.exec(start)?.[0]);
+    const endRow = Number(/\d+$/.exec(end)?.[0]);
+    return rangeColumns(part).some(column => mapped.has(column))
+      && startRow <= rowCount + 5 && endRow >= 6;
+  });
+}
+
 function workbookParts(archive) {
   const workbook = strFromU8(archive['xl/workbook.xml']);
   const rels = strFromU8(archive['xl/_rels/workbook.xml.rels']);

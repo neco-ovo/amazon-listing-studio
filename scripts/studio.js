@@ -34,6 +34,7 @@ import {
 } from './lib/upload-preparation.js';
 import {
   inspectUploadTemplate,
+  rangeAffectsRows,
   requiredForRow,
   validateRestrictedValues,
   writeUploadWorkbook
@@ -832,13 +833,18 @@ function uploadRows(projection, input) {
   });
 }
 
-function uploadFindings({inspection, rules, rows}) {
+function uploadFindings({inspection, rules, rows, checkRules = true}) {
+  const mappedColumns = Object.keys(inspection.columns);
+  const conditions = inspection.unsupported_conditions
+    .map(item => ({code: 'UNSUPPORTED_TEMPLATE_CONDITION', ...item}));
+  const validations = inspection.unsupported_validations
+    .map(item => ({code: 'UNSUPPORTED_TEMPLATE_VALIDATION', ...item}));
+  const templateFindings = [...conditions, ...validations];
   const findings = [
-    ...inspection.unsupported_conditions.map(item => ({code: 'UNSUPPORTED_TEMPLATE_CONDITION', ...item})),
-    ...inspection.unsupported_validations.map(item => ({code: 'UNSUPPORTED_TEMPLATE_VALIDATION', ...item})),
+    ...templateFindings.filter(item => rangeAffectsRows(item.cells, mappedColumns, rows.length)),
     ...validateRestrictedValues({inspection, rows})
   ];
-  if (!rules || rules.status !== 'fresh' || rules.refresh_required) {
+  if (checkRules && (!rules || rules.status !== 'fresh' || rules.refresh_required)) {
     findings.push({code: rules?.status === 'stale' ? 'RULES_STALE' : 'RULES_UNAVAILABLE'});
   }
   for (const row of rows) {
@@ -852,7 +858,10 @@ function uploadFindings({inspection, rules, rows}) {
       findings.push({code: 'REQUIRED_FIELD_MISSING', field: 'shipping_template', seller_sku: row.seller_sku});
     }
   }
-  return findings;
+  return {
+    findings,
+    diagnostics: templateFindings.filter(item => !rangeAffectsRows(item.cells, mappedColumns, rows.length))
+  };
 }
 
 export async function prepareUpload({
@@ -878,7 +887,24 @@ export async function prepareUpload({
   const inspection = inspectUploadTemplate(templateBytes, seed);
   const marketplace = delivery.manifest.marketplace ?? delivery.manifest.approval_scope?.marketplace ?? state.project.marketplace;
   const productType = delivery.manifest.product_type ?? delivery.manifest.approval_scope?.product_type ?? state.project.product_type;
-  const rules = await resolveCurrentRules({
+  const base = projectUploadPreparation({delivery, input});
+  const preliminaryRows = uploadRows(base, input);
+  const preliminary = uploadFindings({inspection, rules: null, rows: preliminaryRows, checkRules: false});
+  const preliminaryFindings = [...base.findings, ...preliminary.findings];
+  if (!input.image_urls) {
+    return {
+      status: 'hosting_required',
+      delivery_identity: base.delivery_identity,
+      proposed_images: base.proposed_images,
+      unresolved: [...preliminaryFindings, {code: 'RULES_CHECK_DEFERRED'}],
+      diagnostics: preliminary.diagnostics
+    };
+  }
+  const hosted = attachHostedUrls(base, input.image_urls);
+  const rows = uploadRows(hosted, input);
+  const local = uploadFindings({inspection, rules: null, rows, checkRules: false});
+  const localFindings = [...hosted.findings, ...local.findings];
+  const rules = localFindings.length ? null : await resolveCurrentRules({
     libraryDir: rulesLibrary,
     marketplace,
     productType,
@@ -886,20 +912,9 @@ export async function prepareUpload({
     purpose: 'upload_ready',
     now
   });
-  const base = projectUploadPreparation({delivery, input});
-  const preliminaryRows = uploadRows(base, input);
-  const preliminaryFindings = [...base.findings, ...uploadFindings({inspection, rules, rows: preliminaryRows})];
-  if (!input.image_urls) {
-    return {
-      status: 'hosting_required',
-      delivery_identity: base.delivery_identity,
-      proposed_images: base.proposed_images,
-      unresolved: preliminaryFindings
-    };
-  }
-  const hosted = attachHostedUrls(base, input.image_urls);
-  const rows = uploadRows(hosted, input);
-  const findings = [...hosted.findings, ...uploadFindings({inspection, rules, rows})];
+  const checked = uploadFindings({inspection, rules, rows, checkRules: Boolean(rules)});
+  const findings = [...hosted.findings, ...checked.findings];
+  const diagnostics = [...checked.diagnostics, ...(!rules ? [{code: 'RULES_CHECK_DEFERRED'}] : [])];
   if (await pathExists(outputDir)) throw Object.assign(new Error('Upload output already exists'), {code: 'OUTPUT_EXISTS'});
   const stage = `${outputDir}.tmp-${process.pid}-${Date.now()}`;
   const extension = path.extname(templatePath).toLowerCase();
@@ -915,6 +930,7 @@ export async function prepareUpload({
     const manifest = {
       delivery_identity: hosted.delivery_identity,
       findings,
+      diagnostics,
       image_urls: Object.fromEntries(hosted.proposed_images.map(item => [item.object_key, item.url])),
       marketplace,
       seller_account: input.seller_account ?? null,
@@ -928,6 +944,7 @@ export async function prepareUpload({
       workbook_path: path.join(outputDir, workbookName),
       manifest_path: path.join(outputDir, 'upload-manifest.json'),
       findings,
+      diagnostics,
       rows
     };
   } catch (error) {

@@ -84,3 +84,36 @@ test('writes a preserved workbook once exact hosted URLs arrive and never overwr
   assert.equal(second.ok, false);
   assert.equal(second.code, 'OUTPUT_EXISTS');
 });
+
+test('unrelated template formulas are diagnostics while mapped formulas block readiness', async () => {
+  for (const [range, expected] of [['HZ6:HZ20', 'upload-ready'], ['T6:T20', 'manual-prep']]) {
+    const item = await fixture();
+    await writeFile(item.templatePath, uploadTemplate({
+      macro: true, conditionalRange: range, conditionalFormula: 'INDIRECT("FO"&ROW())="AMAZON_NA"'
+    }));
+    await writeFile(item.inputPath, JSON.stringify({
+      offer: {record_action: 'Create or Replace (Full Update)'},
+      image_urls: {delivery_identity: 'single:final-1:1', images: {'skp-main.png': 'https://img.example/skp-main.png'}}
+    }));
+    const result = await runCli(args(item), dependencies(item.manifest));
+    assert.equal(result.result.status, expected, range);
+    if (expected === 'upload-ready') {
+      assert.equal(result.result.findings.length, 0);
+      assert.equal(result.result.diagnostics[0].code, 'UNSUPPORTED_TEMPLATE_CONDITION');
+    }
+  }
+});
+
+test('hosting request defers current-rule resolution', async () => {
+  const item = await fixture();
+  await writeFile(item.inputPath, JSON.stringify({offer: {record_action: 'Create or Replace (Full Update)'}}));
+  const result = await runCli(args(item), {
+    uploadDependencies: {
+      ...dependencies(item.manifest).uploadDependencies,
+      resolveRules: async () => assert.fail('rules must not resolve before hosted URLs exist')
+    }
+  });
+  assert.equal(result.ok, true);
+  assert.equal(result.result.status, 'hosting_required');
+  assert.ok(result.result.unresolved.some(item => item.code === 'RULES_CHECK_DEFERRED'));
+});

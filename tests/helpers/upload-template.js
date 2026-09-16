@@ -16,7 +16,7 @@ export function uploadTemplate(options = {}) {
   const validationXml = validations.map(([sqref, formula]) => `<dataValidation type="list" sqref="${sqref}"><formula1>${esc(formula)}</formula1></dataValidation>`).join('');
   const condition = options.conditionalFormula ?? '$FO6="AMAZON_NA"';
   const worksheet = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData><row r="6"><c r="A6" s="1" t="inlineStr"><is><t>OLD</t></is></c><c r="FO6" t="inlineStr"><is><t>DEFAULT</t></is></c><c r="HZ6"><f>1+1</f><v>${options.cachedValue ?? 2}</v></c></row></sheetData><conditionalFormatting sqref="GZ6:HG20"><cfRule type="expression"><formula>${esc(condition)}</formula></cfRule></conditionalFormatting><dataValidations count="${validations.length}">${validationXml}</dataValidations></worksheet>`;
+<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData><row r="6"><c r="A6" s="1" t="inlineStr"><is><t>OLD</t></is></c><c r="FO6" t="inlineStr"><is><t>DEFAULT</t></is></c><c r="HZ6"><f>1+1</f><v>${options.cachedValue ?? 2}</v></c></row></sheetData><conditionalFormatting sqref="${options.conditionalRange ?? 'GZ6:HG20'}"><cfRule type="expression"><formula>${esc(condition)}</formula></cfRule></conditionalFormatting><dataValidations count="${validations.length}">${validationXml}</dataValidations></worksheet>`;
   const hiddenRows = hiddenValues.map((value, index) => `<row r="${index + 4}"><c r="C${index + 4}" t="inlineStr"><is><t>${esc(value)}</t></is></c></row>`).join('');
   const definedName = options.definedName ? `<definedName name="${esc(options.definedName.name)}">${esc(options.definedName.target)}</definedName>` : '';
   const files = {
