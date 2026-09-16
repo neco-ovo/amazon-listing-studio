@@ -3,6 +3,7 @@ import path from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
 import { validateProjectState } from './project-state.js';
 import { updateProject } from './transactions.js';
+import {readProjectState} from './project-layout.js';
 import { evaluateSharedAssetApplicability } from './variation-images.js';
 import {
   childSkuDirectoryKey,
@@ -702,7 +703,7 @@ export async function promoteToVariation({
 }) {
   const root = path.resolve(projectDir);
   const desired = desiredVariation({parentSku, childSku, theme, themeSource, now});
-  const current = JSON.parse(await readFile(path.join(root, 'state.json'), 'utf8'));
+  const current = await readProjectState(root);
   const projectValidation = validateProjectState(current);
   if (!projectValidation.valid) {
     fail('BLOCKING_INPUT', 'Existing project state is invalid', {errors: projectValidation.errors});

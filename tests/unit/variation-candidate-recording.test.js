@@ -29,7 +29,8 @@ test('Variation candidate inspection and hash use one immutable byte snapshot', 
       parentSku: 'SIGN-PARENT', dimensions: ['size_name'], firstChildSku: 'SKU-12X16',
       firstChildFacts: {size_name: '12 x 16 in'}, now
     });
-    await writeFile(path.join(projectDir, 'state.json'), `${JSON.stringify(state, null, 2)}\n`);
+    await mkdir(path.join(projectDir, '.studio'), {recursive: true});
+    await writeFile(path.join(projectDir, '.studio', 'state.json'), `${JSON.stringify(state, null, 2)}\n`);
     await writeFile(path.join(projectDir, 'project.md'), renderProjectSummary(state));
 
     const result = await runRecordVariationCandidate({
@@ -69,7 +70,8 @@ test('legacy candidate recording retains its default file-path inspection flow',
     await mkdir(path.dirname(filePath), {recursive: true});
     await copyFile(fixtures.valid, filePath);
     const state = createProjectState({projectId: 'single', productType: 'METAL_SIGN', now});
-    await writeFile(path.join(projectDir, 'state.json'), `${JSON.stringify(state, null, 2)}\n`);
+    await mkdir(path.join(projectDir, '.studio'), {recursive: true});
+    await writeFile(path.join(projectDir, '.studio', 'state.json'), `${JSON.stringify(state, null, 2)}\n`);
     await writeFile(path.join(projectDir, 'project.md'), renderProjectSummary(state));
 
     const result = await runRecordCandidate({

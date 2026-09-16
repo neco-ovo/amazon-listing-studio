@@ -9,6 +9,7 @@ import {DomainError} from './errors.js';
 import {isSchemaAuthorizationCurrent} from './listing.js';
 import {preflightListingScope} from './listing-audit.js';
 import {renderListing} from './listing-drafts.js';
+import {readProjectState} from './project-layout.js';
 
 function invalid(reason, message, details = {}) {
   return new DomainError('BUNDLE_INVALID', message, {reason, ...details});
@@ -460,7 +461,7 @@ async function readAllV2Images(projectDir, images, hashFile) {
 }
 
 export async function buildV2Delivery({projectDir, outputDir, finalApproval, hashFile = sha256File}) {
-  const state = JSON.parse(await readFile(path.join(projectDir, 'state.json'), 'utf8'));
+  const state = await readProjectState(projectDir);
   const selection = validateV2Scope(state, finalApproval);
   const loadedImages = await readAllV2Images(projectDir, selection.images, hashFile);
   const artifacts = loadedImages.map(({image, bytes, actualHash}) => ({

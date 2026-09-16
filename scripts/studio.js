@@ -7,6 +7,7 @@ import {isDeepStrictEqual} from 'node:util';
 import sharp from 'sharp';
 import { classifyChildFactImpact, classifyOperation, validateChangedListing } from './lib/operations.js';
 import { createProjectState, renderProjectSummary, validateProjectState } from './lib/project-state.js';
+import {projectPaths, readProjectState, writeProjectSnapshot} from './lib/project-layout.js';
 import { approveArtifact, approveListingDraft, updateProject } from './lib/transactions.js';
 import { migrateLegacyProject } from './lib/migration.js';
 import { validateMainImage } from './lib/images.js';
@@ -218,15 +219,8 @@ async function initProject(options) {
     productType: requireOption(options, 'product-type')
   });
   await mkdir(projectDir, {recursive: true});
-  await writeFile(path.join(projectDir, 'state.json'), `${JSON.stringify(state, null, 2)}\n`, {flag: 'wx'});
-  await writeFile(path.join(projectDir, 'project.md'), renderProjectSummary(state), {flag: 'wx'});
-  const directories = [
-    'docs/superpowers/specs', 'docs/superpowers/plans', 'references',
-    'images/main', 'images/secondary', 'images/candidates',
-    'listing/drafts', 'listing/approved', 'delivery'
-  ];
-  for (const directory of directories) await mkdir(path.join(projectDir, directory), {recursive: true});
-  return {project_dir: projectDir, created: ['project.md', 'state.json', ...directories]};
+  await writeProjectSnapshot(projectDir, state);
+  return {project_dir: projectDir, created: ['project.md', 'product.json', '.studio/state.json']};
 }
 
 async function learnCategory(options) {
@@ -320,7 +314,7 @@ async function analyzeKeywords(options, dependencies = {}) {
   if (!Array.isArray(input.reports) || input.reports.length === 0) {
     throw blocking('At least one SellerSprite report is required');
   }
-  const statePath = path.join(projectDir, 'state.json');
+  const statePath = projectPaths(projectDir).state;
   const stateSnapshot = await readFile(statePath, 'utf8');
   const state = JSON.parse(stateSnapshot);
   const productFacts = publishableFacts(state);
@@ -566,7 +560,7 @@ export async function runApprove(input, {hashFile} = {}) {
 }
 
 async function defaultLoadState(projectDir) {
-  return JSON.parse(await readFile(path.join(path.resolve(projectDir), 'state.json'), 'utf8'));
+  return readProjectState(projectDir);
 }
 
 function variationCandidateKind(candidate) {
@@ -894,7 +888,7 @@ export async function prepareUpload({
   now = new Date().toISOString()
 }) {
   const [state, input, seed, templateBytes] = await Promise.all([
-    readJsonIfExists(path.join(projectDir, 'state.json')),
+    readProjectState(projectDir),
     readJsonIfExists(inputPath),
     readJsonIfExists(new URL('../assets/rule-seeds/amazon-us-signage-upload-fields.json', import.meta.url)),
     readFile(templatePath)
@@ -1063,7 +1057,7 @@ export async function runCli(argv, {
       const patch = JSON.parse(await readFile(path.resolve(requireOption(options, 'patch')), 'utf8'));
       result = await runListingRevision({projectDir, patch, now: options.now}, listingDependencies);
     } else if (command === 'validate') {
-      const state = JSON.parse(await readFile(path.join(path.resolve(requireOption(options, 'project-dir')), 'state.json'), 'utf8'));
+      const state = await readProjectState(requireOption(options, 'project-dir'));
       result = validateProjectState(state);
     } else if (command === 'migrate') {
       result = await migrateLegacyProject({
@@ -1073,7 +1067,7 @@ export async function runCli(argv, {
     } else if (command === 'finalize') {
       const projectDir = path.resolve(requireOption(options, 'project-dir'));
       const outputDir = projectOutputPath(projectDir, requireOption(options, 'output'), 'Delivery output');
-      const state = await readJsonIfExists(path.join(projectDir, 'state.json'));
+      const state = await readProjectState(projectDir);
       const finalApproval = options.approval
         ? JSON.parse(await readFile(path.resolve(options.approval), 'utf8'))
         : currentFinalApproval(state);
@@ -1093,7 +1087,7 @@ export async function runCli(argv, {
       const manifest = await readJsonIfExists(path.join(deliveryDir, 'delivery-manifest.json'));
       if (options['project-dir']) {
         const projectDir = path.resolve(options['project-dir']);
-        const state = await readJsonIfExists(path.join(projectDir, 'state.json'));
+        const state = await readProjectState(projectDir);
         if (state?.project?.mode === 'variation_family') {
           if (manifest?.delivery_kind !== 'variation') {
             throw blocking('Delivery manifest kind does not match trusted Variation project mode');

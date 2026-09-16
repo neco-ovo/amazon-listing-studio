@@ -21,7 +21,8 @@ async function fixture() {
     project_id: 'slow-kids-pets', marketplace: 'amazon.com', product_type: 'SIGNAGE',
     product_master_version: 1, listing_version: 1, artifact_ids: ['main']
   };
-  await writeFile(path.join(projectDir, 'state.json'), JSON.stringify({
+  await mkdir(path.join(projectDir, '.studio'), {recursive: true});
+  await writeFile(path.join(projectDir, '.studio', 'state.json'), JSON.stringify({
     schema_version: 2,
     project: {mode: 'single_product', product_id: 'slow-kids-pets', marketplace: 'amazon.com', product_type: 'SIGNAGE'},
     product_master: {version: 1}, gallery: {selected: ['main']},

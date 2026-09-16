@@ -13,7 +13,8 @@ async function project(root, mode) {
     id: 'approval-variation-final-v1', finalized: true, scope_type: 'variation_final',
     variation_version: 1, scope_sha256: 'a'.repeat(64)
   };
-  await writeFile(path.join(projectDir, 'state.json'), JSON.stringify({
+  await mkdir(path.join(projectDir, '.studio'), {recursive: true});
+  await writeFile(path.join(projectDir, '.studio', 'state.json'), JSON.stringify({
     schema_version: 2,
     project: {mode},
     ...(mode === 'variation_family' ? {
@@ -145,7 +146,8 @@ test('trusted schema-v2 project without Variation state keeps the legacy verifie
     const deliveryDir = path.join(root, 'legacy-delivery');
     await mkdir(projectDir);
     await mkdir(deliveryDir);
-    await writeFile(path.join(projectDir, 'state.json'), JSON.stringify({
+    await mkdir(path.join(projectDir, '.studio'), {recursive: true});
+    await writeFile(path.join(projectDir, '.studio', 'state.json'), JSON.stringify({
       schema_version: 2, project: {product_id: 'single-product'}
     }));
     await writeFile(path.join(deliveryDir, 'delivery-manifest.json'), JSON.stringify({schema_version: 2}));

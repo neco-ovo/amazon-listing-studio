@@ -64,7 +64,8 @@ test('public CLI adds a Child, records scoped candidates, approves every Variati
     state.variation.children['SKU-12X16'].facts = {
       material: fact('aluminum'), size_name: fact('12 x 16 in')
     };
-    await writeFile(path.join(projectDir, 'state.json'), `${JSON.stringify(state, null, 2)}\n`);
+    await mkdir(path.join(projectDir, '.studio'), {recursive: true});
+    await writeFile(path.join(projectDir, '.studio', 'state.json'), `${JSON.stringify(state, null, 2)}\n`);
     await writeFile(path.join(projectDir, 'project.md'), renderProjectSummary(state));
 
     const added = await runInput(root, 'add-child', projectDir, 'add-child.json', {
@@ -116,7 +117,7 @@ test('public CLI adds a Child, records scoped candidates, approves every Variati
     });
     assert.equal(sharedApproved.ok, true, sharedApproved.message);
 
-    const statePathBeforeBatch = path.join(projectDir, 'state.json');
+    const statePathBeforeBatch = path.join(projectDir, '.studio', 'state.json');
     const beforeRejectedBatch = await readFile(statePathBeforeBatch);
     const rejectedBatch = await runInput(root, 'approve-variation-batch', projectDir, 'rejected-batch.json', {
       userAction: 'approved',
@@ -140,7 +141,7 @@ test('public CLI adds a Child, records scoped candidates, approves every Variati
     assert.equal(batchApproved.ok, true, batchApproved.message);
     assert.equal(batchApproved.result.approvals.length, 4);
 
-    const saved = JSON.parse(await readFile(path.join(projectDir, 'state.json'), 'utf8'));
+    const saved = JSON.parse(await readFile(path.join(projectDir, '.studio', 'state.json'), 'utf8'));
     const finalApproval = saved.approvals.at(-1);
     assert.equal(finalApproval.scope_type, 'variation_final');
     const finalized = await runCli([
@@ -162,9 +163,10 @@ test('public Variation candidate routing rejects a sibling Child path without mu
     state.variation.theme.source = {kind: 'category_schema', id: 'METAL_SIGN', allowed_themes: [['size_name']]};
     state.variation.theme.verification_status = 'verified';
     state.variation.children['SKU-12X16'].facts.size_name = fact('12 x 16 in');
-    await writeFile(path.join(projectDir, 'state.json'), `${JSON.stringify(state, null, 2)}\n`);
+    await mkdir(path.join(projectDir, '.studio'), {recursive: true});
+    await writeFile(path.join(projectDir, '.studio', 'state.json'), `${JSON.stringify(state, null, 2)}\n`);
     await writeFile(path.join(projectDir, 'project.md'), renderProjectSummary(state));
-    const before = await readFile(path.join(projectDir, 'state.json'));
+    const before = await readFile(path.join(projectDir, '.studio', 'state.json'));
     const input = await writeInput(projectDir, 'bad-candidate.json', {
       scopeType: 'child_main', artifactId: 'wrong-main', childSku: 'SKU-12X16',
       path: 'children/OTHER-SKU/assets/main.png', inspection_status: 'pass'
@@ -175,7 +177,7 @@ test('public Variation candidate routing rejects a sibling Child path without mu
     ]);
     assert.equal(result.ok, false);
     assert.equal(result.code, 'BLOCKING_INPUT');
-    assert.deepEqual(await readFile(path.join(projectDir, 'state.json')), before);
+    assert.deepEqual(await readFile(path.join(projectDir, '.studio', 'state.json')), before);
   });
 });
 
@@ -201,7 +203,8 @@ test('Variation approval rejects files changed after scoped candidate inspection
         state.variation.children['SKU-12X16'].facts = {
           material: fact('aluminum'), size_name: fact('12 x 16 in')
         };
-        await writeFile(path.join(projectDir, 'state.json'), `${JSON.stringify(state, null, 2)}\n`);
+        await mkdir(path.join(projectDir, '.studio'), {recursive: true});
+        await writeFile(path.join(projectDir, '.studio', 'state.json'), `${JSON.stringify(state, null, 2)}\n`);
         await writeFile(path.join(projectDir, 'project.md'), renderProjectSummary(state));
 
         const fixtures = await createMainImageFixtures(path.join(root, 'fixtures'));
@@ -222,7 +225,7 @@ test('Variation approval rejects files changed after scoped candidate inspection
         assert.match(recorded.result.candidate.candidate_sha256, /^[a-f0-9]{64}$/);
 
         await writeFile(target, Buffer.from(`changed-after-inspection-${scopeType}`));
-        const statePath = path.join(projectDir, 'state.json');
+        const statePath = path.join(projectDir, '.studio', 'state.json');
         const beforeApproval = await readFile(statePath);
         const approvalFields = scopeType === 'child_main'
           ? {childSku: 'SKU-12X16'}

@@ -1,5 +1,6 @@
 import path from 'node:path';
-import {realpath} from 'node:fs/promises';
+import {mkdir, readFile, realpath, rename, unlink, writeFile} from 'node:fs/promises';
+import {renderProjectSummary} from './project-state.js';
 
 function invalid(message) {
   return Object.assign(new Error(message), {code: 'INVALID_PRODUCT_PROJECT'});
@@ -75,6 +76,57 @@ export function buildProductDocument(state) {
     ...(listingPath ? {listing: {product: listingPath}} : {})
   };
   return document;
+}
+
+export async function readProjectState(projectDir) {
+  return JSON.parse(await readFile(projectPaths(projectDir).state, 'utf8'));
+}
+
+export async function writeProjectSnapshot(projectDir, state) {
+  const paths = projectPaths(projectDir);
+  const nonce = `${process.pid}-${Date.now()}`;
+  const files = [
+    [paths.state, `${JSON.stringify(state, null, 2)}\n`],
+    [paths.product, `${JSON.stringify(buildProductDocument(state), null, 2)}\n`],
+    [paths.summary, renderProjectSummary(state)]
+  ].map(([target, content]) => ({
+    target,
+    content,
+    temporary: `${target}.tmp-${nonce}`,
+    backup: `${target}.bak-${nonce}`,
+    backedUp: false,
+    installed: false
+  }));
+
+  for (const file of files) {
+    await mkdir(path.dirname(file.target), {recursive: true});
+    await writeFile(file.temporary, file.content, {encoding: 'utf8', flag: 'wx'});
+  }
+  try {
+    for (const file of files) {
+      try {
+        await rename(file.target, file.backup);
+        file.backedUp = true;
+      } catch (error) {
+        if (error.code !== 'ENOENT') throw error;
+      }
+    }
+    for (const file of files) {
+      await rename(file.temporary, file.target);
+      file.installed = true;
+    }
+  } catch (error) {
+    for (const file of files.toReversed()) {
+      if (file.installed) await unlink(file.target).catch(() => {});
+      if (file.backedUp) await rename(file.backup, file.target);
+    }
+    throw error;
+  } finally {
+    for (const file of files) {
+      await unlink(file.temporary).catch(() => {});
+      await unlink(file.backup).catch(() => {});
+    }
+  }
 }
 
 function validateStringArray(value, field) {

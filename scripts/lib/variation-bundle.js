@@ -15,6 +15,7 @@ import {
   variationFinalScopePayload
 } from './variation-approvals.js';
 import {validateVariationExtension} from './variations.js';
+import {readProjectState} from './project-layout.js';
 
 function invalid(reason, message, details = {}) {
   return new DomainError('BUNDLE_INVALID', message, {reason, ...details});
@@ -704,7 +705,7 @@ export async function buildVariationDelivery({
 }) {
   let state;
   try {
-    state = JSON.parse(await readFile(path.join(path.resolve(projectDir), 'state.json'), 'utf8'));
+    state = await readProjectState(projectDir);
   } catch (cause) {
     const error = invalid('MISSING_FILE', 'Variation project state cannot be read.');
     error.cause = cause;
