@@ -159,8 +159,11 @@ test('secondary-image guidance prevents scene props from implying included acces
   const skill = await readFile(path.join(root, 'SKILL.md'), 'utf8');
 
   assert.match(imageWorkflow, /props.+included-package claims/i);
-  assert.match(imageWorkflow, /(?:screws|fasteners).+(?:unless confirmed|unconfirmed)/i);
+  assert.match(imageWorkflow, /(?:screws|fasteners).+confirmed included.+exact|confirmed included.+exact.+(?:screws|fasteners)/i);
   assert.match(skill, /(?:scene props|fasteners).+imply included package contents/i);
+  assert.match(imageWorkflow, /minor.+visual.+review.+not.+regenerat/is);
+  assert.match(imageWorkflow, /confirmed absent.+strict.+confirmed included.+exact|confirmed included.+exact.+confirmed absent.+strict/is);
+  assert.match(imageWorkflow, /unknown.+consolidated.+question.+omit/is);
 });
 
 test('infographic repair anchors dimensions and checks regional balance', async () => {
