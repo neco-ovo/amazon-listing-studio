@@ -1,6 +1,8 @@
 import path from 'node:path';
 import {mkdir, readFile, realpath, rename, unlink, writeFile} from 'node:fs/promises';
+import {isDeepStrictEqual} from 'node:util';
 import {renderProjectSummary} from './project-state.js';
+import {computeCommonFacts} from './variations.js';
 
 function invalid(message) {
   return Object.assign(new Error(message), {code: 'INVALID_PRODUCT_PROJECT'});
@@ -73,17 +75,77 @@ function approvedListingPath(listing) {
   return approved?.status === 'approved' ? approved.json_path : null;
 }
 
+function confirmedFactValue(record) {
+  if (!object(record) || record.publishable !== true
+      || !['confirmed', 'user_confirmed'].includes(record.status)
+      || (record.conflicts?.length ?? 0) > 0) return undefined;
+  return factValue(record);
+}
+
+function variationProjection(state) {
+  const dimensions = state.variation.theme?.dimensions ?? [];
+  const children = Object.values(state.variation.children ?? {}).filter(child => child.active !== false);
+  const activeSkus = children.map(child => child.sku);
+  const common = computeCommonFacts(children).common;
+  const projectedChildren = children.map(child => {
+    const facts = {};
+    for (const [id, record] of Object.entries(child.facts ?? {})) {
+      const value = confirmedFactValue(record);
+      if (value !== undefined && !dimensions.includes(id) && !isDeepStrictEqual(value, common[id])) facts[id] = structuredClone(value);
+    }
+    return {sku: child.sku, values: structuredClone(child.variation_values ?? {}), facts};
+  });
+
+  const assets = [];
+  for (const asset of Object.values(state.variation.shared_assets ?? {})) {
+    if (asset.status !== 'approved' || !asset.path) continue;
+    const applicable = (asset.applicable_child_skus ?? []).filter(sku => activeSkus.includes(sku));
+    if (applicable.length === 0) continue;
+    const base = {role: asset.kind, path: asset.path};
+    if (applicable.length === activeSkus.length) assets.push({...base, scope: 'shared'});
+    else if (applicable.length === 1) assets.push({...base, scope: 'child', child_sku: applicable[0]});
+    else assets.push({...base, scope: 'subset', child_skus: applicable});
+  }
+  for (const child of children) {
+    if (child.product_master?.status !== 'locked') continue;
+    const records = {...(child.gallery?.assets ?? {}), ...(child.assets ?? {})};
+    for (const asset of Object.values(records)) {
+      if (asset.status === 'approved' && asset.path) {
+        assets.push({role: asset.kind, scope: 'child', child_sku: child.sku, path: asset.path});
+      }
+    }
+    if (!Object.keys(records).length && child.main_image?.path && child.main_image.approval_id) {
+      assets.push({role: 'main', scope: 'child', child_sku: child.sku, path: child.main_image.path});
+    }
+  }
+
+  const listing = {};
+  const parentPath = approvedListingPath(state.variation.parent?.listing);
+  if (parentPath) listing.parent = parentPath;
+  const childListings = Object.fromEntries(children.flatMap(child => {
+    const listingPath = approvedListingPath(child.listing);
+    return listingPath ? [[child.sku, listingPath]] : [];
+  }));
+  if (Object.keys(childListings).length) listing.children = childListings;
+  return {dimensions, children: projectedChildren, common, assets, listing};
+}
+
 export function buildProductDocument(state) {
   if (!object(state?.project)) throw invalid('Project state is missing project identity');
-  const facts = {};
-  for (const [id, fact] of Object.entries(state.facts ?? {})) {
-    if (fact?.status === 'confirmed' && fact.publishable === true) facts[id] = structuredClone(factValue(fact));
+  const variation = state.project.mode === 'variation_family' && state.variation
+    ? variationProjection(state)
+    : null;
+  const facts = variation ? variation.common : {};
+  if (!variation) {
+    for (const [id, fact] of Object.entries(state.facts ?? {})) {
+      if (fact?.status === 'confirmed' && fact.publishable === true) facts[id] = structuredClone(factValue(fact));
+    }
   }
   const selected = new Set(state.gallery?.selected ?? []);
-  const assets = Object.values(state.gallery?.assets ?? {})
+  const assets = variation ? variation.assets : Object.values(state.gallery?.assets ?? {})
     .filter(asset => selected.has(asset.id) && asset.status === 'approved' && asset.path)
     .map(asset => ({role: asset.kind, scope: 'product', path: asset.path}));
-  const listingPath = approvedListingPath(state.listing);
+  const listingPath = variation ? null : approvedListingPath(state.listing);
   const document = {
     schema_version: 1,
     product_id: state.project.product_id,
@@ -94,7 +156,10 @@ export function buildProductDocument(state) {
     approved_claims: structuredClone(state.project.approved_claims ?? []),
     excluded_claims: structuredClone(state.project.excluded_claims ?? []),
     assets,
-    ...(listingPath ? {listing: {product: listingPath}} : {})
+    ...(variation ? {
+      variation: {themes: variation.dimensions, children: variation.children},
+      ...(Object.keys(variation.listing).length ? {listing: variation.listing} : {})
+    } : listingPath ? {listing: {product: listingPath}} : {})
   };
   return document;
 }

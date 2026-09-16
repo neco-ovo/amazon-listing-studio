@@ -50,6 +50,35 @@ function variationDocument() {
   };
 }
 
+function sparseVariationState() {
+  const fact = value => ({status: 'user_confirmed', publishable: true, value, conflicts: []});
+  const child = (sku, color, size) => ({
+    sku, active: true, variation_values: {color_name: color, size_name: size},
+    facts: {material: fact('Aluminum'), color_name: fact(color), size_name: fact(size)},
+    product_master: {status: 'locked', version: 1},
+    assets: {[`${sku}-main`]: {id: `${sku}-main`, kind: 'main', status: 'approved', path: `assets/children/${sku}/main.png`}},
+    listing: {approved: [{status: 'approved', json_path: `listing/children/${sku}/listing.json`}]}
+  });
+  return {
+    schema_version: 2,
+    project: {product_id: 'sign-family', marketplace: 'amazon.com', language: 'en-US', product_type: 'aluminum-sign', mode: 'variation_family'},
+    facts: {}, gallery: {selected: [], assets: {}}, listing: {approved: []},
+    variation: {
+      theme: {dimensions: ['color_name', 'size_name']},
+      parent: {listing: {approved: [{status: 'approved', json_path: 'listing/parent/listing.json'}]}},
+      children: {
+        'YELLOW-8X12': child('YELLOW-8X12', 'Yellow', '8 x 12 in'),
+        INACTIVE: {...child('INACTIVE', 'Blue', '8 x 12 in'), active: false},
+        'RED-12X16': child('RED-12X16', 'Red', '12 x 16 in')
+      },
+      shared_assets: {
+        material: {id: 'material', kind: 'material', status: 'approved', path: 'assets/shared/material.png', applicable_child_skus: ['YELLOW-8X12', 'RED-12X16']},
+        yellow: {id: 'yellow', kind: 'application', status: 'approved', path: 'assets/shared/yellow.png', applicable_child_skus: ['YELLOW-8X12']}
+      }
+    }
+  };
+}
+
 test('defines compact paths without creating directories', () => {
   const paths = projectPaths('D:/products/sign');
   assert.equal(paths.state, path.resolve('D:/products/sign/.studio/state.json'));
@@ -86,4 +115,28 @@ test('rejects unsafe and resolved paths outside the project root', async () => {
     }),
     /outside the project root/i
   );
+});
+
+test('projects only active sparse Children and canonical asset scopes', () => {
+  const product = buildProductDocument(sparseVariationState());
+  assert.deepEqual(product.variation.children.map(child => child.sku), ['YELLOW-8X12', 'RED-12X16']);
+  assert.deepEqual(product.facts, {material: 'Aluminum'});
+  assert.deepEqual(product.variation.children.map(child => child.facts), [{}, {}]);
+  assert.equal(product.assets.find(asset => asset.path.endsWith('material.png')).scope, 'shared');
+  assert.deepEqual(product.assets.find(asset => asset.path.endsWith('yellow.png')), {
+    role: 'application', scope: 'child', child_sku: 'YELLOW-8X12', path: 'assets/shared/yellow.png'
+  });
+  assert.equal(product.assets.some(asset => asset.scope === 'shared' && asset.child_skus), false);
+  assert.equal(product.listing.parent, 'listing/parent/listing.json');
+  assert.equal(product.listing.children['RED-12X16'], 'listing/children/RED-12X16/listing.json');
+});
+
+test('omits only the affected Child scope after targeted invalidation', () => {
+  const state = sparseVariationState();
+  state.variation.children['YELLOW-8X12'].product_master.status = 'stale';
+  state.variation.shared_assets.yellow.status = 'stale';
+  const product = buildProductDocument(state);
+  assert.equal(product.assets.some(asset => asset.child_sku === 'YELLOW-8X12'), false);
+  assert.equal(product.assets.some(asset => asset.child_sku === 'RED-12X16'), true);
+  assert.equal(product.assets.some(asset => asset.scope === 'shared'), true);
 });
