@@ -396,27 +396,41 @@ test('finalize uses the current stored single-product final approval when --appr
   });
 });
 
-test('finalize rejects ambiguous current single-product final approvals', async () => {
+test('finalize selects the newest equivalent current single-product approval', async () => {
   await withTempWorkspace(async root => {
     const scope = {
       type: 'final', finalized: true, project_id: 'sign-1', product_master_version: 1,
-      listing_version: 1, artifact_ids: ['main-v1'], marketplace: 'amazon.com', product_type: 'METAL_SIGN'
+      listing_version: 1, artifact_ids: ['main-v1', 'scene-v1'], marketplace: 'amazon.com', product_type: 'METAL_SIGN',
+      rule_scope: {status: 'verified'}
     };
     await writeFile(path.join(root, 'state.json'), JSON.stringify({
       schema_version: 2,
       project: {product_id: 'sign-1', marketplace: 'amazon.com', product_type: 'METAL_SIGN'},
       product_master: {version: 1, status: 'locked'},
-      gallery: {selected: ['main-v1']},
+      gallery: {selected: ['main-v1', 'scene-v1']},
       listing: {approved: [{version: 1, status: 'approved'}]},
-      approvals: [{...scope, id: 'final-a'}, {...scope, id: 'final-b'}]
+      approvals: [
+        {...scope, id: 'final-a', approved_at: '2026-09-15T00:00:00.000Z', audit: {actor: 'first'}},
+        {...scope, id: 'final-b', artifact_ids: ['scene-v1', 'main-v1'], approved_at: '2026-09-16T00:00:00.000Z', audit: {actor: 'second'}}
+      ]
     }));
+    let received;
 
     const result = await runCli([
       'finalize', '--project-dir', root, '--output', path.join(root, 'delivery')
-    ], {buildV2: async () => ({zipPath: 'must-not-run.zip'})});
+    ], {buildV2: async input => { received = input; return {zipPath: 'delivery.zip'}; }});
 
+    assert.equal(result.ok, true, result.message);
+    assert.equal(received.finalApproval.id, 'final-b');
+  });
+});
+
+test('finalize still rejects current approvals with different rule scopes', async () => {
+  await withTempWorkspace(async root => {
+    const scope = {type: 'final', finalized: true, project_id: 'sign-1', product_master_version: 1, listing_version: 1, artifact_ids: ['main-v1'], marketplace: 'amazon.com', product_type: 'METAL_SIGN'};
+    await writeFile(path.join(root, 'state.json'), JSON.stringify({schema_version: 2, project: {product_id: 'sign-1', marketplace: 'amazon.com', product_type: 'METAL_SIGN'}, product_master: {version: 1}, gallery: {selected: ['main-v1']}, listing: {approved: [{version: 1}]}, approvals: [{...scope, id: 'final-a', rule_scope: {status: 'verified'}}, {...scope, id: 'final-b', rule_scope: {status: 'unverified'}}]}));
+    const result = await runCli(['finalize', '--project-dir', root, '--output', path.join(root, 'delivery')], {buildV2: async () => ({zipPath: 'must-not-run.zip'})});
     assert.equal(result.ok, false);
-    assert.equal(result.code, 'BLOCKING_INPUT');
     assert.match(result.message, /single current immutable final approval/i);
   });
 });

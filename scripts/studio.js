@@ -3,6 +3,7 @@ import {createHash} from 'node:crypto';
 import { access, mkdir, open, readFile, readdir, rename, stat, unlink, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
+import {isDeepStrictEqual} from 'node:util';
 import sharp from 'sharp';
 import { classifyChildFactImpact, classifyOperation, validateChangedListing } from './lib/operations.js';
 import { createProjectState, renderProjectSummary, validateProjectState } from './lib/project-state.js';
@@ -122,6 +123,20 @@ function currentSingleFinalApproval(state) {
       && artifactIds.length === selected.length
       && artifactIds.every(id => selected.includes(id));
   });
+  if (matches.length > 1) {
+    const first = matches[0];
+    const sameScope = matches.every(item => (
+      item.product_master_version === first.product_master_version
+      && item.listing_version === first.listing_version
+      && [...item.artifact_ids].sort().join('\0') === [...first.artifact_ids].sort().join('\0')
+      && item.marketplace === first.marketplace
+      && item.product_type === first.product_type
+      && isDeepStrictEqual(item.rule_scope ?? null, first.rule_scope ?? null)
+    ));
+    if (sameScope) return matches.reduce((latest, item) => (
+      Date.parse(item.approved_at ?? '') >= Date.parse(latest.approved_at ?? '') ? item : latest
+    ));
+  }
   if (matches.length !== 1) {
     throw blocking('Finalization requires a single current immutable final approval', {
       matching_approval_ids: matches.map(item => item.id)
@@ -709,23 +724,24 @@ export async function runApproveVariation({projectDir, approval}, {hashFile} = {
   });
 }
 
-export async function runApproveVariationBatch({projectDir, approvals}, {hashFile} = {}) {
+export async function runApproveVariationBatch({projectDir, approvals, userAction}, {hashFile} = {}) {
   if (!Array.isArray(approvals) || approvals.length < 2) {
     throw blocking('Variation batch approval requires at least two approvals');
   }
-  approvals.forEach(validateVariationApprovalInput);
-  if (approvals.some(item => item.userAction !== 'approved')) {
+  const normalized = approvals.map(item => ({...item, userAction: item.userAction ?? userAction}));
+  normalized.forEach(validateVariationApprovalInput);
+  if (normalized.some(item => item.userAction !== 'approved')) {
     throw blocking('Every batch item requires the same explicit approved user action');
   }
-  const finalIndexes = approvals.map((item, index) => item.scopeType === 'variation_final' ? index : -1)
+  const finalIndexes = normalized.map((item, index) => item.scopeType === 'variation_final' ? index : -1)
     .filter(index => index >= 0);
-  if (finalIndexes.length > 1 || (finalIndexes.length === 1 && finalIndexes[0] !== approvals.length - 1)) {
+  if (finalIndexes.length > 1 || (finalIndexes.length === 1 && finalIndexes[0] !== normalized.length - 1)) {
     throw blocking('Variation final approval may appear only once and last');
   }
   return updateProject(projectDir, async state => {
     let next = state;
     const created = [];
-    for (const approval of approvals) {
+    for (const approval of normalized) {
       const before = next.approvals.length;
       next = await applyVariationApproval(next, approval, {projectDir, hashFile});
       created.push(...next.approvals.slice(before));
@@ -1038,7 +1054,9 @@ export async function runCli(argv, {
     } else if (command === 'approve-variation-batch') {
       const projectDir = path.resolve(requireOption(options, 'project-dir'));
       const batch = JSON.parse(await readFile(path.resolve(requireOption(options, 'input')), 'utf8'));
-      result = await runApproveVariationBatch({projectDir, approvals: batch.approvals}, {hashFile});
+      result = await runApproveVariationBatch({
+        projectDir, approvals: batch.approvals, userAction: batch.userAction
+      }, {hashFile});
     } else if (command === 'revise-listing') {
       const projectDir = path.resolve(requireOption(options, 'project-dir'));
       const patch = JSON.parse(await readFile(path.resolve(requireOption(options, 'patch')), 'utf8'));
