@@ -137,7 +137,14 @@ test('analyze-keywords parses once and writes project and optional reusable prof
       ],
       fit_assessments: {
         'slow down kids at play sign': {fit: 'exact', reason: 'exact product intent', reason_code: 'direct_match'}
-      }
+      },
+      listing_strategy: {
+        target_customers: ['homeowners'],
+        use_contexts: ['driveways'],
+        purchase_motivations: ['encourage drivers to slow down'],
+        benefit_order: ['clear warning visibility', 'outdoor durability']
+      },
+      keyword_fact_fields: ['included_components']
     }));
 
     const result = await runCli([
@@ -152,10 +159,16 @@ test('analyze-keywords parses once and writes project and optional reusable prof
     assert.equal(result.result.market_size_complete, false);
     const projectProfile = JSON.parse(await readFile(path.join(projectDir, 'references', 'keyword-profile.json'), 'utf8'));
     assert.equal(projectProfile.scope_provenance, 'user_declared');
+    assert.deepEqual(projectProfile.listing_strategy.target_customers, ['homeowners']);
+    assert.deepEqual(projectProfile.keyword_fact_fields, ['included_components']);
     const reusableProfile = JSON.parse(await readFile(result.result.cache_path, 'utf8'));
     assert.deepEqual(reusableProfile.groups, projectProfile.groups);
     assert.deepEqual(await readFile(statePath), stateBefore);
     assert.deepEqual(await readFile(approvedImage), imageBefore);
+
+    const stateWithUnrelatedChange = JSON.parse(await readFile(statePath, 'utf8'));
+    stateWithUnrelatedChange.facts.item_weight = {status: 'confirmed', publishable: true, value: '0.13 kg'};
+    await writeFile(statePath, `${JSON.stringify(stateWithUnrelatedChange, null, 2)}\n`);
 
     const newerReverse = path.join(root, 'reverse-new.xlsx');
     await writeSellerSpriteWorkbook(newerReverse, {
@@ -176,6 +189,39 @@ test('analyze-keywords parses once and writes project and optional reusable prof
     assert.equal(refreshedProfile.reports.length, 2);
     assert.equal(refreshedProfile.reports.find(item => item.report_type === 'reverse_asin').source.export_date, '2026-09-13');
     assert.equal(refreshedProfile.reports.find(item => item.report_type === 'keyword_mining').source.export_date, '2026-09-12');
+    assert.deepEqual(refreshedProfile.listing_strategy, projectProfile.listing_strategy);
+    assert.deepEqual(refreshedProfile.keyword_fact_fields, ['included_components']);
+
+    const stateWithKeywordChange = JSON.parse(await readFile(statePath, 'utf8'));
+    stateWithKeywordChange.facts.included_components = {status: 'confirmed', publishable: true, value: ['sign']};
+    await writeFile(statePath, `${JSON.stringify(stateWithKeywordChange, null, 2)}\n`);
+    const changedManifest = path.join(root, 'changed.json');
+    await writeFile(changedManifest, JSON.stringify({
+      intent: 'slow down kids at play sign',
+      reports: [{path: newerReverse, reference_asin: 'B0FQ1RL7YK', export_date: '2026-09-14'}],
+      fit_assessments: {
+        'slow down kids at play sign': {fit: 'exact', reason: 'exact product intent', reason_code: 'direct_match'}
+      }
+    }));
+    const changed = await runCli(['analyze-keywords', '--project-dir', projectDir, '--input', changedManifest]);
+    assert.equal(changed.ok, true);
+    const changedProfile = JSON.parse(await readFile(path.join(projectDir, 'references', 'keyword-profile.json'), 'utf8'));
+    assert.deepEqual(changedProfile.listing_strategy, projectProfile.listing_strategy);
+    assert.deepEqual(changedProfile.keyword_fact_fields, ['included_components']);
+
+    const newIntentManifest = path.join(root, 'new-intent.json');
+    await writeFile(newIntentManifest, JSON.stringify({
+      intent: 'driveway safety sign',
+      reports: [{path: newerReverse, reference_asin: 'B0FQ1RL7YK', export_date: '2026-09-15'}],
+      fit_assessments: {
+        'slow down kids at play sign': {fit: 'high', reason: 'related safety sign', reason_code: 'related_intent'}
+      }
+    }));
+    const newIntent = await runCli(['analyze-keywords', '--project-dir', projectDir, '--input', newIntentManifest]);
+    assert.equal(newIntent.ok, true);
+    const newIntentProfile = JSON.parse(await readFile(path.join(projectDir, 'references', 'keyword-profile.json'), 'utf8'));
+    assert.equal(newIntentProfile.listing_strategy, undefined);
+    assert.equal(newIntentProfile.keyword_fact_fields, undefined);
   });
 });
 
@@ -392,27 +438,41 @@ test('finalize uses the current stored single-product final approval when --appr
   });
 });
 
-test('finalize rejects ambiguous current single-product final approvals', async () => {
+test('finalize selects the newest equivalent current single-product approval', async () => {
   await withTempWorkspace(async root => {
     const scope = {
       type: 'final', finalized: true, project_id: 'sign-1', product_master_version: 1,
-      listing_version: 1, artifact_ids: ['main-v1'], marketplace: 'amazon.com', product_type: 'METAL_SIGN'
+      listing_version: 1, artifact_ids: ['main-v1', 'scene-v1'], marketplace: 'amazon.com', product_type: 'METAL_SIGN',
+      rule_scope: {status: 'verified'}
     };
     await writeFile(path.join(root, 'state.json'), JSON.stringify({
       schema_version: 2,
       project: {product_id: 'sign-1', marketplace: 'amazon.com', product_type: 'METAL_SIGN'},
       product_master: {version: 1, status: 'locked'},
-      gallery: {selected: ['main-v1']},
+      gallery: {selected: ['main-v1', 'scene-v1']},
       listing: {approved: [{version: 1, status: 'approved'}]},
-      approvals: [{...scope, id: 'final-a'}, {...scope, id: 'final-b'}]
+      approvals: [
+        {...scope, id: 'final-a', approved_at: '2026-09-15T00:00:00.000Z', audit: {actor: 'first'}},
+        {...scope, id: 'final-b', artifact_ids: ['scene-v1', 'main-v1'], approved_at: '2026-09-16T00:00:00.000Z', audit: {actor: 'second'}}
+      ]
     }));
+    let received;
 
     const result = await runCli([
       'finalize', '--project-dir', root, '--output', path.join(root, 'delivery')
-    ], {buildV2: async () => ({zipPath: 'must-not-run.zip'})});
+    ], {buildV2: async input => { received = input; return {zipPath: 'delivery.zip'}; }});
 
+    assert.equal(result.ok, true, result.message);
+    assert.equal(received.finalApproval.id, 'final-b');
+  });
+});
+
+test('finalize still rejects current approvals with different rule scopes', async () => {
+  await withTempWorkspace(async root => {
+    const scope = {type: 'final', finalized: true, project_id: 'sign-1', product_master_version: 1, listing_version: 1, artifact_ids: ['main-v1'], marketplace: 'amazon.com', product_type: 'METAL_SIGN'};
+    await writeFile(path.join(root, 'state.json'), JSON.stringify({schema_version: 2, project: {product_id: 'sign-1', marketplace: 'amazon.com', product_type: 'METAL_SIGN'}, product_master: {version: 1}, gallery: {selected: ['main-v1']}, listing: {approved: [{version: 1}]}, approvals: [{...scope, id: 'final-a', rule_scope: {status: 'verified'}}, {...scope, id: 'final-b', rule_scope: {status: 'unverified'}}]}));
+    const result = await runCli(['finalize', '--project-dir', root, '--output', path.join(root, 'delivery')], {buildV2: async () => ({zipPath: 'must-not-run.zip'})});
     assert.equal(result.ok, false);
-    assert.equal(result.code, 'BLOCKING_INPUT');
     assert.match(result.message, /single current immutable final approval/i);
   });
 });
@@ -457,5 +517,34 @@ test('finalize rejects a delivery output outside the product root', async () => 
     assert.equal(result.ok, false);
     assert.equal(result.code, 'BLOCKING_INPUT');
     assert.match(result.message, /delivery.+product root|outside.+project/i);
+  });
+});
+
+test('analyze-keywords reuses shared evidence across unrelated product fact changes', async () => {
+  await withTempWorkspace(async root => {
+    const libraryDir = path.join(root, 'library');
+    const first = path.join(root, 'first');
+    const second = path.join(root, 'second');
+    for (const projectDir of [first, second]) {
+      await runCli(['init', '--project-dir', projectDir, '--project-id', path.basename(projectDir), '--product-name', 'Safety Sign', '--marketplace', 'amazon.com', '--language', 'en-US', '--product-type', 'METAL_SIGN']);
+    }
+    for (const [projectDir, weight] of [[first, '0.2 kg'], [second, '0.13 kg']]) {
+      const statePath = path.join(projectDir, 'state.json');
+      const state = JSON.parse(await readFile(statePath, 'utf8'));
+      state.facts.item_weight = {status: 'confirmed', publishable: true, value: weight};
+      await writeFile(statePath, JSON.stringify(state));
+    }
+    const mining = path.join(root, 'mining.xlsx');
+    await writeSellerSpriteWorkbook(mining, {headers: miningHeaders, rows: [['safety sign', 100, 1000]]});
+    const firstManifest = path.join(root, 'first.json');
+    await writeFile(firstManifest, JSON.stringify({intent: 'safety sign', reports: [{path: mining, seed_query: 'safety sign', export_date: '2026-09-12'}], fit_assessments: {'safety sign': {fit: 'exact', reason: 'match', reason_code: 'direct_match'}}}));
+    await runCli(['analyze-keywords', '--project-dir', first, '--input', firstManifest, '--library-dir', libraryDir]);
+    const reverse = path.join(root, 'reverse.xlsx');
+    await writeSellerSpriteWorkbook(reverse, {headers: reverseHeaders, rows: [['safety sign', '10%', 1, null, 1000]]});
+    const secondManifest = path.join(root, 'second.json');
+    await writeFile(secondManifest, JSON.stringify({intent: 'safety sign', reports: [{path: reverse, reference_asin: 'B0TEST', export_date: '2026-09-13'}], fit_assessments: {'safety sign': {fit: 'exact', reason: 'match', reason_code: 'direct_match'}}}));
+    await runCli(['analyze-keywords', '--project-dir', second, '--input', secondManifest, '--library-dir', libraryDir]);
+    const profile = JSON.parse(await readFile(path.join(second, 'references', 'keyword-profile.json'), 'utf8'));
+    assert.equal(profile.reports.length, 2);
   });
 });

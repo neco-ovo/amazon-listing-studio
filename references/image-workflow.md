@@ -44,11 +44,13 @@ Before writing a new layout, select at most one matching seller-owned merchant l
 
 After approval, register each accepted secondary and continue the approved gallery plan in the same turn. Do not ask whether to register or continue an already-planned card.
 
-Audit props and visible fasteners as possible included-package claims. Omit screws, hooks, brackets, tools, or accessories unless confirmed, even when a realistic scene would normally show them.
+Audit props and visible fasteners as possible included-package claims. Confirmed absent means strict omission. Confirmed included permits only the exact named `included_components`; confirming screws does not authorize brackets or tools. When package contents are unknown and an approved scene actually needs accessory-like props, include that in the one consolidated pre-generation question; if unresolved, omit the props and continue.
 
 Inspect the saved candidate once for applicable commerce quality: identity and required text, product prominence at thumbnail size, claim-to-visual correspondence, misleading components, and whether a scene is a real use environment rather than only a mounting surface. Run design-differentiation checks only for a source role that requires them. Small precision icons should use deterministic vector/icon composition when available rather than spending another full generation call.
 
 Judge visual deviations by their result: product facts and buyer understanding first, then readability and major composition, and only then fidelity to the prompt or planned layout. A small spacing, line-length, type-size, decoration, or divider-angle difference that does not affect those outcomes remains a passing candidate; record `minor_visual_deviation` in `inspection_findings` when useful. Prompt deviation or an exceeded layout guideline alone does not trigger automatic rejection or regeneration. Before any correction, compare the expected visual benefit with its generation or editing cost and the risk of introducing a new defect. Exact user constraints still take priority.
+
+A minor visual deviation remains a review finding, not a regeneration trigger. Wrong Child identity, size, wording, package contents, or another semantic defect remains a hard failure.
 
 ## Repair ladder
 

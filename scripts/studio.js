@@ -3,6 +3,7 @@ import {createHash} from 'node:crypto';
 import { access, mkdir, open, readFile, readdir, rename, stat, unlink, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
+import {isDeepStrictEqual} from 'node:util';
 import sharp from 'sharp';
 import { classifyChildFactImpact, classifyOperation, validateChangedListing } from './lib/operations.js';
 import { createProjectState, renderProjectSummary, validateProjectState } from './lib/project-state.js';
@@ -26,9 +27,23 @@ import {
   reviseVariationChild
 } from './lib/variation-project.js';
 import {parseSellerSpriteWorkbook} from './lib/sellersprite-workbooks.js';
+import {resolveRules} from './lib/rule-cache.js';
+import {
+  attachHostedUrls,
+  projectUploadPreparation,
+  readVerifiedDelivery
+} from './lib/upload-preparation.js';
+import {
+  inspectUploadTemplate,
+  rangeAffectsRows,
+  requiredForRow,
+  validateRestrictedValues,
+  writeUploadWorkbook
+} from './lib/upload-workbooks.js';
 import {
   buildKeywordProfile,
   isCompatibleKeywordProfile,
+  keywordFactConflict,
   mergeKeywordProfileReports,
   normalizeKeywordPhrase,
   projectKeywordProfilePath,
@@ -109,6 +124,20 @@ function currentSingleFinalApproval(state) {
       && artifactIds.length === selected.length
       && artifactIds.every(id => selected.includes(id));
   });
+  if (matches.length > 1) {
+    const first = matches[0];
+    const sameScope = matches.every(item => (
+      item.product_master_version === first.product_master_version
+      && item.listing_version === first.listing_version
+      && [...item.artifact_ids].sort().join('\0') === [...first.artifact_ids].sort().join('\0')
+      && item.marketplace === first.marketplace
+      && item.product_type === first.product_type
+      && isDeepStrictEqual(item.rule_scope ?? null, first.rule_scope ?? null)
+    ));
+    if (sameScope) return matches.reduce((latest, item) => (
+      Date.parse(item.approved_at ?? '') >= Date.parse(latest.approved_at ?? '') ? item : latest
+    ));
+  }
   if (matches.length !== 1) {
     throw blocking('Finalization requires a single current immutable final approval', {
       matching_approval_ids: matches.map(item => item.id)
@@ -239,16 +268,12 @@ async function withFileLock(lockPath, operation) {
 function assertCurrentKeywordProfile(profile, state) {
   if (!profile) return;
   const currentFacts = publishableFacts(state);
-  const priorFacts = profile.product_facts ?? {};
-  const factConflict = [...new Set([...Object.keys(priorFacts), ...Object.keys(currentFacts)])].some(field => (
-    JSON.stringify(priorFacts[field]) !== JSON.stringify(currentFacts[field])
-  ));
   const compatibility = isCompatibleKeywordProfile(profile, {
     marketplace: state.project.marketplace,
     locale: state.project.language,
     product_type: state.project.product_type,
     intent: profile.normalized_intent,
-    product_fact_conflict: factConflict
+    product_fact_conflict: keywordFactConflict(profile, currentFacts)
   });
   if (!compatibility.compatible) throw blocking('Saved keyword profile is stale; rerun keyword analysis.', {reasons: compatibility.reasons});
 }
@@ -324,11 +349,9 @@ async function analyzeKeywords(options, dependencies = {}) {
     try {
       cached = await readJsonIfExists(cachePath);
       if (cached) {
-        const cachedFacts = cached.product_facts ?? {};
-        const cachedFactConflict = [...new Set([...Object.keys(cachedFacts), ...Object.keys(productFacts)])].some(field => (
-          JSON.stringify(cachedFacts[field]) !== JSON.stringify(productFacts[field])
-        ));
-        const compatibility = isCompatibleKeywordProfile(cached, {...context, product_fact_conflict: cachedFactConflict}, input.now);
+        const compatibility = isCompatibleKeywordProfile(cached, {
+          ...context, product_fact_conflict: keywordFactConflict(cached, productFacts)
+        }, input.now);
         if (!compatibility.compatible) {
           cacheCollision = true;
           warnings.push({code: 'KEYWORD_CACHE_COLLISION'});
@@ -339,11 +362,9 @@ async function analyzeKeywords(options, dependencies = {}) {
     }
   }
   if (existing) {
-    const priorFacts = existing.product_facts ?? {};
-    const factConflict = [...new Set([...Object.keys(priorFacts), ...Object.keys(productFacts)])].some(field => (
-      JSON.stringify(priorFacts[field]) !== JSON.stringify(productFacts[field])
-    ));
-    const compatibility = isCompatibleKeywordProfile(existing, {...context, product_fact_conflict: factConflict}, input.now);
+    const compatibility = isCompatibleKeywordProfile(existing, {
+      ...context, product_fact_conflict: keywordFactConflict(existing, productFacts)
+    }, input.now);
     if (!compatibility.compatible) existing = null;
   }
   if (!existing && cached && !cacheCollision) existing = cached;
@@ -374,16 +395,26 @@ async function analyzeKeywords(options, dependencies = {}) {
   }
   const suppliedAssessments = Object.fromEntries(Object.entries(input.fit_assessments ?? {})
     .map(([phrase, assessment]) => [normalizeKeywordPhrase(phrase), assessment]));
+  const sameProfileIdentity = profile => profile
+    && profile.marketplace === context.marketplace
+    && profile.locale === context.locale
+    && profile.product_type === context.product_type
+    && profile.normalized_intent === normalizeKeywordPhrase(input.intent);
+  const settingsProfile = sameProfileIdentity(projectSnapshot)
+    ? projectSnapshot
+    : (sameProfileIdentity(existing) ? existing : null);
   const profile = buildKeywordProfile({
     project: {
       marketplace: state.project.marketplace,
       locale: state.project.language,
       product_type: state.project.product_type,
-      product_facts: productFacts
+      product_facts: productFacts,
+      keyword_fact_fields: input.keyword_fact_fields ?? settingsProfile?.keyword_fact_fields
     },
     intent: input.intent,
     reports,
     fitAssessments: {...inheritedAssessments, ...suppliedAssessments},
+    listingStrategy: input.listing_strategy ?? settingsProfile?.listing_strategy,
     now: input.now
   });
   if (existing?.generated_at) profile.generated_at = existing.generated_at;
@@ -694,23 +725,24 @@ export async function runApproveVariation({projectDir, approval}, {hashFile} = {
   });
 }
 
-export async function runApproveVariationBatch({projectDir, approvals}, {hashFile} = {}) {
+export async function runApproveVariationBatch({projectDir, approvals, userAction}, {hashFile} = {}) {
   if (!Array.isArray(approvals) || approvals.length < 2) {
     throw blocking('Variation batch approval requires at least two approvals');
   }
-  approvals.forEach(validateVariationApprovalInput);
-  if (approvals.some(item => item.userAction !== 'approved')) {
+  const normalized = approvals.map(item => ({...item, userAction: item.userAction ?? userAction}));
+  normalized.forEach(validateVariationApprovalInput);
+  if (normalized.some(item => item.userAction !== 'approved')) {
     throw blocking('Every batch item requires the same explicit approved user action');
   }
-  const finalIndexes = approvals.map((item, index) => item.scopeType === 'variation_final' ? index : -1)
+  const finalIndexes = normalized.map((item, index) => item.scopeType === 'variation_final' ? index : -1)
     .filter(index => index >= 0);
-  if (finalIndexes.length > 1 || (finalIndexes.length === 1 && finalIndexes[0] !== approvals.length - 1)) {
+  if (finalIndexes.length > 1 || (finalIndexes.length === 1 && finalIndexes[0] !== normalized.length - 1)) {
     throw blocking('Variation final approval may appear only once and last');
   }
   return updateProject(projectDir, async state => {
     let next = state;
     const created = [];
-    for (const approval of approvals) {
+    for (const approval of normalized) {
       const before = next.approvals.length;
       next = await applyVariationApproval(next, approval, {projectDir, hashFile});
       created.push(...next.approvals.slice(before));
@@ -796,9 +828,147 @@ function operationFor(command, input = null) {
     'revise-child': 'child_listing_field_edit',
     'remove-child': 'remove_child',
     'resolve-variation-facts': 'resolve_fact_conflicts',
-    'verify-delivery': 'finalize'
+    'verify-delivery': 'finalize',
+    'prepare-upload': 'finalize'
   };
   return classifyOperation({kind: kinds[command] ?? command});
+}
+
+function uploadRows(projection, input) {
+  const urls = new Map(projection.proposed_images.map(image => [image.source, image.url]));
+  return projection.rows.map(row => {
+    const listing = row.listing ?? {};
+    const overrides = input.rows?.[row.seller_sku] ?? {};
+    return {
+      ...listing.attributes,
+      ...listing,
+      ...row,
+      ...overrides,
+      bullet_points: listing.bullets,
+      main_and_other_image_urls: row.gallery_slots?.map(slot => urls.get(slot.source)).filter(Boolean)
+    };
+  });
+}
+
+function uploadFindings({inspection, rules, rows, checkRules = true}) {
+  const mappedColumns = Object.keys(inspection.columns);
+  const conditions = inspection.unsupported_conditions
+    .map(item => ({code: 'UNSUPPORTED_TEMPLATE_CONDITION', ...item}));
+  const validations = inspection.unsupported_validations
+    .map(item => ({code: 'UNSUPPORTED_TEMPLATE_VALIDATION', ...item}));
+  const templateFindings = [...conditions, ...validations];
+  const findings = [
+    ...templateFindings.filter(item => rangeAffectsRows(item.cells, mappedColumns, rows.length)),
+    ...validateRestrictedValues({inspection, rows})
+  ];
+  if (checkRules && (!rules || rules.status !== 'fresh' || rules.refresh_required)) {
+    findings.push({code: rules?.status === 'stale' ? 'RULES_STALE' : 'RULES_UNAVAILABLE'});
+  }
+  for (const row of rows) {
+    for (const column of requiredForRow(inspection, row)) {
+      const field = inspection.columns[column];
+      if (field && (row[field] === undefined || row[field] === null || row[field] === '')) {
+        findings.push({code: 'REQUIRED_FIELD_MISSING', field, column, seller_sku: row.seller_sku});
+      }
+    }
+    if (row.parentage_level === 'Child' && inspection.validations.shipping_template && !row.shipping_template) {
+      findings.push({code: 'REQUIRED_FIELD_MISSING', field: 'shipping_template', seller_sku: row.seller_sku});
+    }
+  }
+  return {
+    findings,
+    diagnostics: templateFindings.filter(item => !rangeAffectsRows(item.cells, mappedColumns, rows.length))
+  };
+}
+
+export async function prepareUpload({
+  projectDir,
+  deliveryDir,
+  templatePath,
+  inputPath,
+  outputDir,
+  rulesLibrary,
+  verifySingle = verifyDelivery,
+  verifyVariation = verifyVariationDelivery,
+  resolveCurrentRules = resolveRules,
+  now = new Date().toISOString()
+}) {
+  const [state, input, seed, templateBytes] = await Promise.all([
+    readJsonIfExists(path.join(projectDir, 'state.json')),
+    readJsonIfExists(inputPath),
+    readJsonIfExists(new URL('../assets/rule-seeds/amazon-us-signage-upload-fields.json', import.meta.url)),
+    readFile(templatePath)
+  ]);
+  const expectedScope = currentFinalApproval(state);
+  const delivery = await readVerifiedDelivery({deliveryDir, expectedScope, verifySingle, verifyVariation});
+  const inspection = inspectUploadTemplate(templateBytes, seed);
+  const marketplace = delivery.manifest.marketplace ?? delivery.manifest.approval_scope?.marketplace ?? state.project.marketplace;
+  const productType = delivery.manifest.product_type ?? delivery.manifest.approval_scope?.product_type ?? state.project.product_type;
+  const base = projectUploadPreparation({delivery, input});
+  const preliminaryRows = uploadRows(base, input);
+  const preliminary = uploadFindings({inspection, rules: null, rows: preliminaryRows, checkRules: false});
+  const preliminaryFindings = [...base.findings, ...preliminary.findings];
+  if (!input.image_urls) {
+    return {
+      status: 'hosting_required',
+      delivery_identity: base.delivery_identity,
+      proposed_images: base.proposed_images,
+      unresolved: [...preliminaryFindings, {code: 'RULES_CHECK_DEFERRED'}],
+      diagnostics: preliminary.diagnostics
+    };
+  }
+  const hosted = attachHostedUrls(base, input.image_urls);
+  const rows = uploadRows(hosted, input);
+  const local = uploadFindings({inspection, rules: null, rows, checkRules: false});
+  const localFindings = [...hosted.findings, ...local.findings];
+  const rules = localFindings.length ? null : await resolveCurrentRules({
+    libraryDir: rulesLibrary,
+    marketplace,
+    productType,
+    compatibleProductTypes: input.compatible_product_types ?? [],
+    purpose: 'upload_ready',
+    now
+  });
+  const checked = uploadFindings({inspection, rules, rows, checkRules: Boolean(rules)});
+  const findings = [...hosted.findings, ...checked.findings];
+  const diagnostics = [...checked.diagnostics, ...(!rules ? [{code: 'RULES_CHECK_DEFERRED'}] : [])];
+  if (await pathExists(outputDir)) throw Object.assign(new Error('Upload output already exists'), {code: 'OUTPUT_EXISTS'});
+  const stage = `${outputDir}.tmp-${process.pid}-${Date.now()}`;
+  const extension = path.extname(templatePath).toLowerCase();
+  const workbookName = `amazon-upload${extension}`;
+  await mkdir(path.dirname(outputDir), {recursive: true});
+  await mkdir(stage, {recursive: false});
+  try {
+    const workbook = writeUploadWorkbook({templateBytes, inspection, rows});
+    const workbookPath = path.join(stage, workbookName);
+    await writeFile(workbookPath, workbook, {flag: 'wx'});
+    inspectUploadTemplate(await readFile(workbookPath), seed);
+    const status = findings.length ? 'manual-prep' : 'upload-ready';
+    const manifest = {
+      delivery_identity: hosted.delivery_identity,
+      findings,
+      diagnostics,
+      image_urls: Object.fromEntries(hosted.proposed_images.map(item => [item.object_key, item.url])),
+      marketplace,
+      seller_account: input.seller_account ?? null,
+      status,
+      template: path.basename(templatePath)
+    };
+    await writeFile(path.join(stage, 'upload-manifest.json'), `${JSON.stringify(manifest, null, 2)}\n`, {flag: 'wx'});
+    await rename(stage, outputDir);
+    return {
+      status,
+      workbook_path: path.join(outputDir, workbookName),
+      manifest_path: path.join(outputDir, 'upload-manifest.json'),
+      findings,
+      diagnostics,
+      rows
+    };
+  } catch (error) {
+    await unlink(path.join(stage, workbookName)).catch(() => {});
+    await unlink(path.join(stage, 'upload-manifest.json')).catch(() => {});
+    throw error;
+  }
 }
 
 export async function runCli(argv, {
@@ -810,7 +980,8 @@ export async function runCli(argv, {
   buildV2 = buildV2Delivery,
   verifyV2 = verifyDelivery,
   buildVariation = buildVariationDelivery,
-  verifyVariation = verifyVariationDelivery
+  verifyVariation = verifyVariationDelivery,
+  uploadDependencies = {}
 } = {}) {
   const started = clock();
   let parsed;
@@ -884,7 +1055,9 @@ export async function runCli(argv, {
     } else if (command === 'approve-variation-batch') {
       const projectDir = path.resolve(requireOption(options, 'project-dir'));
       const batch = JSON.parse(await readFile(path.resolve(requireOption(options, 'input')), 'utf8'));
-      result = await runApproveVariationBatch({projectDir, approvals: batch.approvals}, {hashFile});
+      result = await runApproveVariationBatch({
+        projectDir, approvals: batch.approvals, userAction: batch.userAction
+      }, {hashFile});
     } else if (command === 'revise-listing') {
       const projectDir = path.resolve(requireOption(options, 'project-dir'));
       const patch = JSON.parse(await readFile(path.resolve(requireOption(options, 'patch')), 'utf8'));
@@ -945,6 +1118,20 @@ export async function runCli(argv, {
       } else {
         throw blocking('Delivery manifest kind is unsupported without a trusted project mode');
       }
+    } else if (command === 'prepare-upload') {
+      const projectDir = path.resolve(requireOption(options, 'project-dir'));
+      result = await prepareUpload({
+        projectDir,
+        deliveryDir: path.resolve(requireOption(options, 'delivery-dir')),
+        templatePath: path.resolve(requireOption(options, 'template')),
+        inputPath: path.resolve(requireOption(options, 'input')),
+        outputDir: projectOutputPath(projectDir, requireOption(options, 'output'), 'Upload output'),
+        rulesLibrary: path.resolve(requireOption(options, 'rules-library')),
+        verifySingle: uploadDependencies.verifySingle ?? verifyV2,
+        verifyVariation: uploadDependencies.verifyVariation ?? verifyVariation,
+        resolveCurrentRules: uploadDependencies.resolveRules ?? resolveRules,
+        now: options.now
+      });
     } else {
       return {ok: false, code: 'UNKNOWN_COMMAND', message: `Unknown command: ${command ?? ''}`};
     }

@@ -427,6 +427,18 @@ test('reports visible distortion only from an explicit inspection finding', () =
   assert.ok(result.failures.some(item => item.code === 'VISIBLE_DISTORTION'));
 });
 
+test('keeps explicitly minor visual deviations as review-only findings', () => {
+  const result = validateVariationImageObservation({
+    brief: horseBrief(),
+    observation: {
+      visible_text: ['HORSE CROSSING'], pattern_name: 'Horse Crossing',
+      size_name: '12 x 16 in', orientation: 'landscape',
+      inspection_findings: [{code: 'VISIBLE_DISTORTION', severity: 'review', note: 'Slight perspective variance.'}]
+    }
+  });
+  assert.equal(result.ok, true);
+});
+
 test('limits subset-shared assets to their named Children', () => {
   const result = evaluateSharedAssetApplicability({
     asset: {

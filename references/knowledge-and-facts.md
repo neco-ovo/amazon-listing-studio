@@ -38,4 +38,4 @@ Include related marketing expressions in that same consolidated question. Keep t
 
 Product identity includes construction, dimensions and orientation, count, front/back appearance, printed copy, defining colors, mounting features, and included components. A user-authorized redesign may change specified identity fields. After Product Master lock, an identity change creates a new Product Master and stales dependent secondary images and Listing claims; a presentation-only change does not.
 
-Do not treat visible screws, hooks, props, tools, brackets, or scene accessories as included unless confirmed. Do not infer reflective, certified, compliant, lifespan, thickness, or performance claims from category prevalence alone.
+Read accessory permission only from confirmed `included_components`: confirmed absence forbids accessory-like product props; confirmed presence permits only exact named items; unknown contents are omitted unless one consolidated pre-generation question is needed for the approved scene. Do not infer reflective, certified, compliant, lifespan, thickness, or performance claims from category prevalence alone.

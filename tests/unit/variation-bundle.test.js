@@ -346,14 +346,14 @@ test('builds a Family package with complete Listings and one copy of each physic
     assert.ok(archive['parent/listing.md']);
     assert.ok(archive['children/HORSE-12X16/listing.json']);
     assert.ok(archive['children/KIDS-12X16/listing.json']);
-    assert.ok(archive['children/HORSE-12X16/main.png']);
-    assert.ok(archive['children/HORSE-12X16/secondary/size.png']);
-    assert.ok(archive['shared/material.png']);
-    assert.equal(archive['shared/material-copy.png'], undefined);
-    assert.ok(archive['shared/kids-scene.png']);
+    assert.ok(archive['children/HORSE-12X16/sf-hc-12x16-main.png']);
+    assert.ok(archive['children/HORSE-12X16/secondary/sf-hc-12x16-size.png']);
+    assert.ok(archive['shared/sf-shared-material.png']);
+    assert.equal(archive['shared/sf-shared-material-copy.png'], undefined);
+    assert.ok(archive['shared/sf-shared-kids-scene.png']);
     assert.ok(archive['variation-matrix.json']);
-    assert.equal(Object.keys(archive).filter(name => name.endsWith('/material.png')).length, 1);
-    assert.equal(Object.keys(archive).filter(name => name.endsWith('/kids-scene.png')).length, 1);
+    assert.equal(Object.keys(archive).filter(name => name.endsWith('/sf-shared-material.png')).length, 1);
+    assert.equal(Object.keys(archive).filter(name => name.endsWith('/sf-shared-kids-scene.png')).length, 1);
     assert.equal(Object.keys(archive).some(name => /\.(?:xlsx|xls|csv|tsv)$/i.test(name)), false);
 
     const childListing = JSON.parse(textEntry(archive, 'children/HORSE-12X16/listing.json'));
@@ -376,11 +376,16 @@ test('builds a Family package with complete Listings and one copy of each physic
         shared: ['material-v1', 'material-copy-v1']
       },
       asset_paths: [
-        'children/HORSE-12X16/main.png',
-        'children/HORSE-12X16/secondary/size.png',
-        'shared/material.png'
+        'children/HORSE-12X16/sf-hc-12x16-main.png',
+        'children/HORSE-12X16/secondary/sf-hc-12x16-size.png',
+        'shared/sf-shared-material.png'
       ]
     });
+    const imageNames = result.manifest.artifacts
+      .filter(item => item.media_type.startsWith('image/'))
+      .map(item => path.posix.basename(item.archive_path));
+    assert.equal(new Set(imageNames.map(name => name.toLowerCase())).size, imageNames.length);
+    assert.ok(imageNames.every(name => name.length <= 40));
     assert.equal(result.verification.ok, true);
   });
 });
@@ -512,10 +517,10 @@ test('Child-only delivery excludes unrelated Child artifacts and rows', async ()
     assert.ok(archive['parent/listing.json']);
     assert.ok(archive['children/HORSE-12X16/listing.json']);
     assert.equal(archive['children/KIDS-12X16/listing.json'], undefined);
-    assert.equal(archive['children/KIDS-12X16/main.png'], undefined);
-    assert.ok(archive['shared/material.png']);
-    assert.equal(archive['shared/material-copy.png'], undefined);
-    assert.equal(archive['shared/kids-scene.png'], undefined);
+    assert.equal(archive['children/KIDS-12X16/sf-kap-12x16-main.png'], undefined);
+    assert.ok(archive['shared/sf-shared-material.png']);
+    assert.equal(archive['shared/sf-shared-material-copy.png'], undefined);
+    assert.equal(archive['shared/sf-shared-kids-scene.png'], undefined);
     assert.deepEqual(matrix.children.map(row => row.child_sku), ['HORSE-12X16']);
     assert.deepEqual(result.manifest.delivery_scope, {
       type: 'child', child_skus: ['HORSE-12X16']
@@ -737,7 +742,7 @@ test('verification rejects incomplete, stale, conflicting, or changed Variation 
     });
     const cases = [
       ['duplicate tuple', ({matrix}) => matrix.children.push(structuredClone(matrix.children[0])), 'DUPLICATE_VARIATION_TUPLE'],
-      ['missing Child main', ({files}) => { delete files['children/HORSE-12X16/main.png']; }, 'MISSING_FILE'],
+      ['missing Child main', ({files}) => { delete files['children/HORSE-12X16/sf-hc-12x16-main.png']; }, 'MISSING_FILE'],
       ['stale Child Listing', ({matrix}) => { matrix.children[0].listing_version = 99; }, 'APPROVAL_SCOPE_MISMATCH'],
       ['changed Child rule scope', ({files, manifest}) => {
         const archivePath = 'children/HORSE-12X16/listing.json';
@@ -750,21 +755,21 @@ test('verification rejects incomplete, stale, conflicting, or changed Variation 
         artifact.byte_size = files[archivePath].length;
         artifact.sha256 = digest(files[archivePath]);
       }, 'APPROVAL_SCOPE_MISMATCH'],
-      ['changed shared asset', ({files}) => { files['shared/material.png'] = Buffer.from('changed'); }, 'HASH_MISMATCH'],
+      ['changed shared asset', ({files}) => { files['shared/sf-shared-material.png'] = Buffer.from('changed'); }, 'HASH_MISMATCH'],
       ['rehashed changed shared asset', ({files, manifest}) => {
-        const archivePath = 'shared/material.png';
-        files[archivePath] = Buffer.from(files['shared/kids-scene.png']);
+        const archivePath = 'shared/sf-shared-material.png';
+        files[archivePath] = Buffer.from(files['shared/sf-shared-kids-scene.png']);
         const artifact = manifest.artifacts.find(item => item.archive_path === archivePath);
         artifact.byte_size = files[archivePath].length;
         artifact.sha256 = digest(files[archivePath]);
       }, 'HASH_MISMATCH'],
       ['image media type downgrade', ({manifest}) => {
-        const artifact = manifest.artifacts.find(item => item.archive_path === 'shared/material.png');
+        const artifact = manifest.artifacts.find(item => item.archive_path === 'shared/sf-shared-material.png');
         artifact.media_type = 'application/octet-stream';
       }, 'MANIFEST_INVALID'],
       ['changed image hidden by media type downgrade', ({files, manifest}) => {
-        const archivePath = 'shared/material.png';
-        files[archivePath] = Buffer.from(files['shared/kids-scene.png']);
+        const archivePath = 'shared/sf-shared-material.png';
+        files[archivePath] = Buffer.from(files['shared/sf-shared-kids-scene.png']);
         const artifact = manifest.artifacts.find(item => item.archive_path === archivePath);
         artifact.media_type = 'application/octet-stream';
         artifact.byte_size = files[archivePath].length;
@@ -806,11 +811,11 @@ test('verification rejects incomplete, stale, conflicting, or changed Variation 
       ['incomplete immutable scope', ({manifest}) => { delete manifest.approval_scope.child_skus; }, 'MANIFEST_INVALID'],
       ['absent mapped member', ({matrix}) => { matrix.children[0].asset_paths.push('children/HORSE-12X16/missing.png'); }, 'APPROVAL_SCOPE_MISMATCH'],
       ['missing shared row mapping', ({matrix}) => {
-        matrix.children[0].asset_paths = matrix.children[0].asset_paths.filter(item => item !== 'shared/material.png');
+        matrix.children[0].asset_paths = matrix.children[0].asset_paths.filter(item => item !== 'shared/sf-shared-material.png');
       }, 'APPROVAL_SCOPE_MISMATCH'],
       ['injected mapped asset', ({files, matrix, manifest}) => {
         const archivePath = 'shared/injected.png';
-        const source = manifest.artifacts.find(item => item.archive_path === 'shared/material.png');
+        const source = manifest.artifacts.find(item => item.archive_path === 'shared/sf-shared-material.png');
         files[archivePath] = Buffer.from(files[source.archive_path]);
         manifest.artifacts.push({
           ...structuredClone(source), relative_path: archivePath, archive_path: archivePath,
@@ -819,22 +824,22 @@ test('verification rejects incomplete, stale, conflicting, or changed Variation 
         matrix.children[0].asset_paths.push(archivePath);
       }, 'APPROVAL_SCOPE_MISMATCH'],
       ['unrelated Child artifact', ({files, manifest}) => {
-        const source = manifest.artifacts.find(item => item.archive_path === 'children/HORSE-12X16/main.png');
-        const archivePath = 'children/UNRELATED/main.png';
+        const source = manifest.artifacts.find(item => item.archive_path === 'children/HORSE-12X16/sf-hc-12x16-main.png');
+        const archivePath = 'children/UNRELATED/sf-hc-12x16-main.png';
         files[archivePath] = Buffer.from(files[source.archive_path]);
         manifest.artifacts.push({...structuredClone(source), relative_path: archivePath, archive_path: archivePath});
       }, 'MANIFEST_INVALID'],
       ['unsafe relative traversal hidden by safe archive path', ({manifest}) => {
-        manifest.artifacts.find(item => item.archive_path === 'shared/material.png').relative_path = '../outside.png';
+        manifest.artifacts.find(item => item.archive_path === 'shared/sf-shared-material.png').relative_path = '../outside.png';
       }, 'UNSAFE_PATH'],
       ['unsafe absolute archive path hidden by safe relative path', ({manifest}) => {
-        manifest.artifacts.find(item => item.archive_path === 'shared/material.png').archive_path = 'C:/outside.png';
+        manifest.artifacts.find(item => item.archive_path === 'shared/sf-shared-material.png').archive_path = 'C:/outside.png';
       }, 'UNSAFE_PATH'],
       ['unsafe backslash relative path', ({manifest}) => {
-        manifest.artifacts.find(item => item.archive_path === 'shared/material.png').relative_path = 'shared\\material.png';
+        manifest.artifacts.find(item => item.archive_path === 'shared/sf-shared-material.png').relative_path = 'shared\\material.png';
       }, 'UNSAFE_PATH'],
       ['encoded traversal relative path', ({manifest}) => {
-        manifest.artifacts.find(item => item.archive_path === 'shared/material.png').relative_path = 'shared/%2e%2e/outside.png';
+        manifest.artifacts.find(item => item.archive_path === 'shared/sf-shared-material.png').relative_path = 'shared/%2e%2e/outside.png';
       }, 'UNSAFE_PATH']
     ];
     for (const [name, mutate, reason] of cases) {
@@ -867,8 +872,8 @@ test('Family verification rejects a package that consistently drops one approved
         delete files[artifact.archive_path];
         manifest.artifacts.splice(manifest.artifacts.indexOf(artifact), 1);
       }
-      delete files['shared/kids-scene.png'];
-      manifest.artifacts = manifest.artifacts.filter(item => item.archive_path !== 'shared/kids-scene.png');
+      delete files['shared/sf-shared-kids-scene.png'];
+      manifest.artifacts = manifest.artifacts.filter(item => item.archive_path !== 'shared/sf-shared-kids-scene.png');
     });
     await assert.rejects(
       verifyVariationDelivery({deliveryDir}),

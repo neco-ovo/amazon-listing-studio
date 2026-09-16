@@ -159,8 +159,11 @@ test('secondary-image guidance prevents scene props from implying included acces
   const skill = await readFile(path.join(root, 'SKILL.md'), 'utf8');
 
   assert.match(imageWorkflow, /props.+included-package claims/i);
-  assert.match(imageWorkflow, /(?:screws|fasteners).+(?:unless confirmed|unconfirmed)/i);
+  assert.match(imageWorkflow, /(?:screws|fasteners).+confirmed included.+exact|confirmed included.+exact.+(?:screws|fasteners)/i);
   assert.match(skill, /(?:scene props|fasteners).+imply included package contents/i);
+  assert.match(imageWorkflow, /minor.+visual.+review.+not.+regenerat/is);
+  assert.match(imageWorkflow, /confirmed absent.+strict.+confirmed included.+exact|confirmed included.+exact.+confirmed absent.+strict/is);
+  assert.match(imageWorkflow, /unknown.+consolidated.+question.+omit/is);
 });
 
 test('infographic repair anchors dimensions and checks regional balance', async () => {
@@ -260,6 +263,29 @@ test('SIGNAGE upload seed separates reusable defaults from account and product f
   assert.match(listingWorkflow, /upload-blocking missing.+autofill from confirmed facts.+user confirmation required.+correctly blank/is);
   assert.match(listingWorkflow, /Parent.+offer.+package.+image.+correctly blank/is);
   assert.match(listingWorkflow, /successful uploaded workbook.+regression reference/i);
+});
+
+test('delivery guidance keeps legacy product-type compatibility explicit and image names short', async () => {
+  const delivery = await readFile(path.join(root, 'references', 'delivery-and-compliance.md'), 'utf8');
+  assert.match(delivery, /compatibleProductTypes.+explicitly confirmed/is);
+  assert.match(delivery, /skp-rwb-8x12-main\.png/);
+  assert.match(delivery, /destination object already exists.+stop/is);
+});
+
+test('optional upload preparation asks once and preserves exact template semantics', async () => {
+  const skill = await readFile(path.join(root, 'SKILL.md'), 'utf8');
+  const delivery = await readFile(path.join(root, 'references', 'delivery-and-compliance.md'), 'utf8');
+  const listing = await readFile(path.join(root, 'references', 'listing-workflow.md'), 'utf8');
+  assert.match(skill, /prepare-upload/);
+  assert.match(delivery, /hosting_required.+one consolidated question/is);
+  assert.match(delivery, /same delivery identity.+exact object keys/is);
+  assert.match(delivery, /do not.+download.+hash/is);
+  assert.match(delivery, /verified delivery\.zip.+current final approval/is);
+  assert.match(listing, /shipping template.+marketplace.+seller account/is);
+  assert.match(listing, /unsupported.+manual-prep/is);
+  assert.match(listing, /exact.+validation.+record action.+Variation Theme.+shipping template/is);
+  assert.match(listing, /package_contains_sku.+Variation Child/is);
+  assert.match(listing, /root cause.+cascade/is);
 });
 
 test('approval and delivery guidance expose shared preflight and direct ZIP verification', async () => {

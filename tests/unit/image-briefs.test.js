@@ -98,3 +98,52 @@ test('third-party product design reference keeps differentiation requirements', 
 
   assert.ok(brief.difference_requirements.length >= 2);
 });
+
+test('binds only confirmed included accessories into the image brief', () => {
+  const brief = compileImageBrief({
+    ...fixtureInput,
+    master: {
+      ...fixtureInput.master,
+      identity: {
+        ...fixtureInput.master.identity,
+        included_components: {value: ['mounting screws'], status: 'user_confirmed', publishable: true}
+      }
+    },
+    galleryItem: {...fixtureInput.galleryItem, uses_accessory_like_props: true}
+  });
+
+  assert.equal(brief.accessory_status, 'confirmed-present');
+  assert.deepEqual(brief.included_accessories, ['mounting screws']);
+  assert.deepEqual(brief.pre_generation_questions, []);
+  assert.equal(brief.included_accessories.includes('bracket'), false);
+  assert.equal(brief.included_accessories.includes('tool'), false);
+});
+
+test('omits unknown accessories unless one consolidated intake question is needed', () => {
+  const ordinary = compileImageBrief(fixtureInput);
+  const accessoryScene = compileImageBrief({
+    ...fixtureInput,
+    galleryItem: {...fixtureInput.galleryItem, uses_accessory_like_props: true}
+  });
+
+  assert.equal(ordinary.accessory_status, 'unknown');
+  assert.deepEqual(ordinary.included_accessories, []);
+  assert.deepEqual(ordinary.pre_generation_questions, []);
+  assert.deepEqual(accessoryScene.pre_generation_questions, [{field: 'included_components'}]);
+});
+
+test('keeps confirmed absence strict', () => {
+  const brief = compileImageBrief({
+    ...fixtureInput,
+    master: {
+      ...fixtureInput.master,
+      identity: {
+        ...fixtureInput.master.identity,
+        included_components: {value: [], status: 'user_confirmed', publishable: true}
+      }
+    }
+  });
+
+  assert.equal(brief.accessory_status, 'confirmed-absent');
+  assert.deepEqual(brief.included_accessories, []);
+});

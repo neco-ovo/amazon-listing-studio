@@ -36,5 +36,6 @@ Use at most one domain reference for ordinary work; add delivery guidance only w
 - When SellerSprite exports are supplied, analyze them once into the product’s references/keyword-profile.json; reuse an exact compatible profile and keep web keyword research as fallback.
 - A micro revision changes only requested fields and direct dependents. Formal versions and hashes are created only on explicit approval. Approval must derive system scope from current state and use the shared finalization preflight.
 - Require final approval bound to the current Product Master, selected images, Listing version, marketplace, product type, and rule status. Finalization rehashes selected artifacts and verifies the new package once.
+- Run `scripts/studio.js prepare-upload` only for a requested upload workbook. On `hosting_required`, ask once about hosting and unresolved account/offer values; after exact URL mapping, report `upload-ready` or `manual-prep`. Never claim publication.
 
 Route `intake -> main image -> Product Master -> secondary images -> Listing -> delivery`. Resume from `project.md` and `state.json`; never infer approval from files. Stop only for the exact blocking fact, conflict, capability failure, hard QA defect, or stale dependency. A stale rule snapshot warns during drafting and blocks only current upload-ready verification.

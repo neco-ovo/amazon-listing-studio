@@ -45,6 +45,8 @@ For a Variation Parent, offer, inventory, package measurement, and image cells a
 
 Use a successful uploaded workbook only as a regression reference for field presence, Parent/Child scope, and known accepted blanks; never copy its product or account values into another project. The SIGNAGE seed's `upload_field_map` connects common upload columns to their required fact sources. Package measurements are conditional: treat an empty Child package field as blocking only when the current template condition or Seller Central feedback activates that requirement.
 
+For optional upload preparation, use the exact current template validation values for record action, Variation Theme, and shipping template; never translate or approximate a dropdown label. A shipping template may be reused only when it matches the current marketplace and seller account. Unsupported validation sources or conditional formulas keep the result at `manual-prep`. Variation Child rows never populate `package_contains_sku`; a separately confirmed bundle row may reference a SKU that is also sold as a Variation Child. Keep fields unavailable to the current Product Type blank. When Amazon returns a processing summary, identify the earliest restricted-value or relationship failure as the root cause and group later cascade errors beneath it.
+
 ## Review and revision
 
 Present one consolidated Listing review. A small requested change uses `scripts/studio.js revise-listing --project-dir <dir> --patch <patch.json>` and validates only changed paths plus direct fact/keyword dependencies. Do not repeat market research, rule refresh, image generation, or repository tests.

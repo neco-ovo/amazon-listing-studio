@@ -37,6 +37,26 @@ function permittedClaims(claims) {
   );
 }
 
+function accessoryDecision(identity, galleryItem) {
+  const fact = identity?.included_components;
+  const confirmed = Array.isArray(fact)
+    || (fact && typeof fact === 'object'
+      && ['confirmed', 'user_confirmed'].includes(fact.status)
+      && fact.publishable !== false);
+  const value = Array.isArray(fact) ? fact : fact?.value;
+  const included = confirmed
+    ? (Array.isArray(value) ? value : value == null ? [] : [value]).filter(item => String(item).trim())
+    : [];
+  const status = !confirmed ? 'unknown' : included.length ? 'confirmed-present' : 'confirmed-absent';
+  return {
+    accessory_status: status,
+    included_accessories: structuredClone(included),
+    pre_generation_questions: status === 'unknown' && galleryItem?.uses_accessory_like_props === true
+      ? [{field: 'included_components'}]
+      : []
+  };
+}
+
 export function compileImageBrief({
   kind,
   master,
@@ -65,8 +85,10 @@ export function compileImageBrief({
     && layoutSeed?.reuse_policy === 'FIXED_LAYOUT_ALLOWED';
   const differenceRequirements = fixedMerchantLayout ? [] : differences(userRequest, master);
   const compiledLayoutSeed = layoutSeed ? structuredClone(layoutSeed) : null;
+  const accessories = accessoryDecision(master.identity, galleryItem);
 
   return {
+    ...accessories,
     identity,
     goal: galleryItem.goal ?? userRequest.goal ?? kind,
     source_roles: {

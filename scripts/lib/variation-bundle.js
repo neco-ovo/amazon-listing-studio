@@ -471,16 +471,35 @@ async function loadImage(projectDir, asset, archivePath, hashFile) {
   };
 }
 
-function safeOutputName(sourcePath, fallbackId, used) {
-  let filename = path.posix.basename(sourcePath);
-  if (!filename || used.has(filename.toLocaleLowerCase('en-US'))) {
-    const extension = path.posix.extname(filename) || '.png';
-    filename = `${String(fallbackId).replace(/[^a-z0-9._-]/gi, '-')}${extension}`;
+function uniqueImageName(filename, used) {
+  const extension = path.posix.extname(filename);
+  const stem = path.posix.basename(filename, extension);
+  let candidate = `${stem}${extension}`;
+  for (let suffix = 2; used.has(candidate.toLocaleLowerCase('en-US')); suffix += 1) {
+    candidate = `${stem}-${suffix}${extension}`;
   }
-  const key = filename.toLocaleLowerCase('en-US');
-  if (used.has(key)) throw invalid('APPROVAL_SCOPE_MISMATCH', 'Approved assets collide in the delivery archive.', {filename});
-  used.add(key);
-  return filename;
+  used.add(candidate.toLocaleLowerCase('en-US'));
+  return candidate;
+}
+
+function compactCode(value, maxTokens = 4) {
+  const tokens = String(value ?? '').toLowerCase().match(/[a-z0-9]+/g) ?? [];
+  if (tokens.length === 1) return tokens[0].slice(0, 4);
+  return tokens.slice(0, maxTokens).map(token => token[0]).join('');
+}
+
+function childImageName(scope, projectCode, sku, purpose, sourcePath, used) {
+  const row = scope.child_variations.find(item => item.child_sku === sku);
+  const entries = Object.entries(row?.variation_values ?? {});
+  const size = entries.find(([field]) => /size/i.test(field))?.[1] ?? sku.match(/\d+\D+\d+/)?.[0];
+  const variant = entries.filter(([field]) => !/size/i.test(field)).map(([, value]) => compactCode(value)).join('-') || 'v';
+  const sizeCode = (String(size ?? '').match(/\d+(?:\.\d+)?/g) ?? []).join('x');
+  const extension = path.posix.extname(sourcePath) || '.png';
+  return uniqueImageName(`${projectCode}-${variant}-${sizeCode}-${compactPurpose(purpose)}${extension}`, used);
+}
+
+function compactPurpose(value) {
+  return (String(value).toLowerCase().match(/[a-z0-9]+/g) ?? ['image']).join('-').slice(0, 12);
 }
 
 function assertFrozenAsset(id, asset) {
@@ -523,10 +542,11 @@ function validateFrozenScopePaths(scope) {
   }
 }
 
-function deriveAssetLayout(scope, selectedSkus) {
+function deriveAssetLayout(scope, selectedSkus, projectId) {
+  const projectCode = compactCode(projectId);
+  const usedImageNames = new Set();
   const sharedPaths = {};
   const physicalShared = new Map();
-  const sharedUsedNames = new Set();
   for (const [artifactId, asset] of Object.entries(scope.asset_map.shared)) {
     assertFrozenAsset(artifactId, {...asset, artifact_id: artifactId});
     if (!Array.isArray(asset.child_skus) || asset.child_skus.some(sku => !scope.child_skus.includes(sku))) {
@@ -535,7 +555,8 @@ function deriveAssetLayout(scope, selectedSkus) {
     if (!asset.child_skus.some(sku => selectedSkus.includes(sku))) continue;
     let physical = physicalShared.get(asset.sha256);
     if (!physical) {
-      const filename = safeOutputName(asset.path, artifactId, sharedUsedNames);
+      const purpose = compactPurpose(path.posix.basename(asset.path, path.posix.extname(asset.path)));
+      const filename = uniqueImageName(`${projectCode}-shared-${purpose}${path.posix.extname(asset.path) || '.png'}`, usedImageNames);
       physical = {
         archivePath: `shared/${filename}`,
         sha256: asset.sha256,
@@ -559,8 +580,8 @@ function deriveAssetLayout(scope, selectedSkus) {
   for (const sku of selectedSkus) {
     const main = scope.asset_map.child_main[sku];
     assertFrozenAsset(main?.artifact_id, main);
-    const mainExtension = path.posix.extname(main.path).toLowerCase() || '.png';
-    const mainPath = `children/${sku}/main${mainExtension}`;
+    const mainName = childImageName(scope, projectCode, sku, 'main', main.path, usedImageNames);
+    const mainPath = `children/${sku}/${mainName}`;
     physicalChildren.push({
       archivePath: mainPath, sha256: main.sha256,
       mediaType: mediaType(main.path),
@@ -571,11 +592,11 @@ function deriveAssetLayout(scope, selectedSkus) {
     if (!Array.isArray(secondaries)) {
       throw invalid('APPROVAL_SCOPE_MISMATCH', 'Frozen Child secondary mapping is invalid.', {child_sku: sku});
     }
-    const usedSecondaryNames = new Set();
     const secondaryPaths = [];
     for (const secondary of secondaries) {
       assertFrozenAsset(secondary.artifact_id, secondary);
-      const filename = safeOutputName(secondary.path, secondary.artifact_id, usedSecondaryNames);
+      const purpose = path.posix.basename(secondary.path, path.posix.extname(secondary.path)).slice(0, 12);
+      const filename = childImageName(scope, projectCode, sku, purpose, secondary.path, usedImageNames);
       const archivePath = `children/${sku}/secondary/${filename}`;
       physicalChildren.push({
         archivePath, sha256: secondary.sha256,
@@ -695,7 +716,7 @@ export async function buildVariationDelivery({
   const selectedSkus = selected.map(child => child.sku);
   const {parentSnapshot} = validateCurrentScope(state, approval, new Set(selectedSkus));
   const deliveryScope = projectDeliveryScope(approval, selectedSkus);
-  const layout = deriveAssetLayout(deliveryScope, selectedSkus);
+  const layout = deriveAssetLayout(deliveryScope, selectedSkus, state.project.product_id);
   const artifacts = listingArtifacts('parent', parentSnapshot);
   const rows = [];
 
@@ -847,15 +868,17 @@ function validManifestScope(manifest) {
     && (delivery.type === 'family' || delivery.child_skus.length === 1);
 }
 
-export async function verifyVariationDelivery({deliveryDir, expectedScope = null}) {
+export async function verifyVariationDelivery({
+  deliveryDir, expectedScope = null, manifestBytes: suppliedManifestBytes = null, archiveBytes = null
+}) {
   const root = path.resolve(deliveryDir);
-  let manifestBytes;
+  let manifestBytes = suppliedManifestBytes;
   let manifest;
   let archive;
   try {
-    manifestBytes = await readFile(path.join(root, 'delivery-manifest.json'));
+    manifestBytes ??= await readFile(path.join(root, 'delivery-manifest.json'));
     manifest = JSON.parse(manifestBytes.toString('utf8'));
-    archive = unzipSync(await readFile(path.join(root, 'delivery.zip')));
+    archive = unzipSync(archiveBytes ?? await readFile(path.join(root, 'delivery.zip')));
   } catch (cause) {
     const error = invalid('DELIVERY_READ_FAILED', 'Variation delivery manifest or ZIP cannot be read.');
     error.cause = cause;
@@ -889,7 +912,7 @@ export async function verifyVariationDelivery({deliveryDir, expectedScope = null
   }
   const scope = manifest.approval_scope;
   const selected = manifest.delivery_scope.child_skus;
-  const layout = deriveAssetLayout(scope, selected);
+  const layout = deriveAssetLayout(scope, selected, manifest.project_id);
   const expectedArtifacts = new Set(['parent/listing.json', 'parent/listing.md', 'variation-matrix.json']);
   for (const sku of selected) {
     expectedArtifacts.add(`children/${sku}/listing.json`);

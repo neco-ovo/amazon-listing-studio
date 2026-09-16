@@ -83,6 +83,40 @@ test('single-field revision leaves the saved keyword profile untouched', async (
   });
 });
 
+test('keyword profiles ignore unrelated facts but honor declared keyword facts', async () => {
+  const state = {
+    project: {marketplace: 'amazon.com', language: 'en-US', product_type: 'METAL_SIGN'},
+    facts: {
+      purpose: {status: 'confirmed', publishable: true, value: 'warn drivers'},
+      item_weight: {status: 'confirmed', publishable: true, value: '0.13 kg'},
+      included_components: {status: 'confirmed', publishable: true, value: ['sign']}
+    },
+    listing: {draft: {revision: 1, content: {title: 'Before'}}, approved: []}
+  };
+  const dependencies = recordingDependencies([]);
+  dependencies.loadState = async () => state;
+  dependencies.patchDraft = () => ({...state, listing: {draft: {revision: 2, content: {title: 'After'}}, approved: []}});
+  dependencies.validateChanged = () => ({ok: true});
+  dependencies.renderMarkdown = () => '# After\n';
+  dependencies.writeTransaction = async transaction => ({state: transaction.state});
+  dependencies.loadKeywordProfile = async () => ({
+    marketplace: 'amazon.com', locale: 'en-US', product_type: 'METAL_SIGN',
+    normalized_intent: 'safety sign',
+    product_facts: {purpose: 'warn drivers', item_weight: '0.2 kg'}
+  });
+  await runListingRevision({projectDir: 'fixture', patch: {fields: {title: 'After'}}}, dependencies);
+
+  dependencies.loadKeywordProfile = async () => ({
+    marketplace: 'amazon.com', locale: 'en-US', product_type: 'METAL_SIGN',
+    normalized_intent: 'safety sign', keyword_fact_fields: ['included_components'],
+    product_facts: {included_components: ['sign', 'screws']}
+  });
+  await assert.rejects(
+    () => runListingRevision({projectDir: 'fixture', patch: {fields: {title: 'After'}}}, dependencies),
+    error => error.code === 'BLOCKING_INPUT' && /stale/i.test(error.message)
+  );
+});
+
 test('fast Listing validation blocks saved exclusions and changed backend duplicates', () => {
   const profile = {groups: {excluded: [{phrase: 'vinyl kids decal'}]}};
   assert.throws(

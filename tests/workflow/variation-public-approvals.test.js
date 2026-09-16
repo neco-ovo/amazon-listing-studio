@@ -119,20 +119,22 @@ test('public CLI adds a Child, records scoped candidates, approves every Variati
     const statePathBeforeBatch = path.join(projectDir, 'state.json');
     const beforeRejectedBatch = await readFile(statePathBeforeBatch);
     const rejectedBatch = await runInput(root, 'approve-variation-batch', projectDir, 'rejected-batch.json', {
+      userAction: 'approved',
       approvals: [
-        {scopeType: 'parent_listing', content: listing('Aluminum Safety Sign'), userAction: 'approved', now: '2026-08-28T01:07:30.000Z'},
-        {scopeType: 'child_listing', childSku: 'MISSING-SKU', content: listing('Missing Child'), userAction: 'approved', now: '2026-08-28T01:07:31.000Z'}
+        {scopeType: 'parent_listing', content: listing('Aluminum Safety Sign'), now: '2026-08-28T01:07:30.000Z'},
+        {scopeType: 'child_listing', childSku: 'MISSING-SKU', content: listing('Missing Child'), now: '2026-08-28T01:07:31.000Z'}
       ]
     });
     assert.equal(rejectedBatch.ok, false);
     assert.deepEqual(await readFile(statePathBeforeBatch), beforeRejectedBatch);
 
     const batchApproved = await runInput(root, 'approve-variation-batch', projectDir, 'listing-batch.json', {
+      userAction: 'approved',
       approvals: [
-        {scopeType: 'parent_listing', content: listing('Aluminum Safety Sign'), userAction: 'approved', now: '2026-08-28T01:08:00.000Z'},
-        {scopeType: 'child_listing', childSku: 'SKU-12X16', content: listing('Aluminum Safety Sign 12 x 16 in', '12 x 16 in'), userAction: 'approved', now: '2026-08-28T01:09:00.000Z'},
-        {scopeType: 'child_listing', childSku: 'SKU-8X12', content: listing('Aluminum Safety Sign 8 x 12 in', '8 x 12 in'), userAction: 'approved', now: '2026-08-28T01:10:00.000Z'},
-        {scopeType: 'variation_final', userAction: 'approved', now: '2026-08-28T01:11:00.000Z'}
+        {scopeType: 'parent_listing', content: listing('Aluminum Safety Sign'), now: '2026-08-28T01:08:00.000Z'},
+        {scopeType: 'child_listing', childSku: 'SKU-12X16', content: listing('Aluminum Safety Sign 12 x 16 in', '12 x 16 in'), now: '2026-08-28T01:09:00.000Z'},
+        {scopeType: 'child_listing', childSku: 'SKU-8X12', content: listing('Aluminum Safety Sign 8 x 12 in', '8 x 12 in'), now: '2026-08-28T01:10:00.000Z'},
+        {scopeType: 'variation_final', now: '2026-08-28T01:11:00.000Z'}
       ]
     });
     assert.equal(batchApproved.ok, true, batchApproved.message);
