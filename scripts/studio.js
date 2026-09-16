@@ -395,18 +395,26 @@ async function analyzeKeywords(options, dependencies = {}) {
   }
   const suppliedAssessments = Object.fromEntries(Object.entries(input.fit_assessments ?? {})
     .map(([phrase, assessment]) => [normalizeKeywordPhrase(phrase), assessment]));
+  const sameProfileIdentity = profile => profile
+    && profile.marketplace === context.marketplace
+    && profile.locale === context.locale
+    && profile.product_type === context.product_type
+    && profile.normalized_intent === normalizeKeywordPhrase(input.intent);
+  const settingsProfile = sameProfileIdentity(projectSnapshot)
+    ? projectSnapshot
+    : (sameProfileIdentity(existing) ? existing : null);
   const profile = buildKeywordProfile({
     project: {
       marketplace: state.project.marketplace,
       locale: state.project.language,
       product_type: state.project.product_type,
       product_facts: productFacts,
-      keyword_fact_fields: input.keyword_fact_fields ?? projectSnapshot?.keyword_fact_fields ?? existing?.keyword_fact_fields
+      keyword_fact_fields: input.keyword_fact_fields ?? settingsProfile?.keyword_fact_fields
     },
     intent: input.intent,
     reports,
     fitAssessments: {...inheritedAssessments, ...suppliedAssessments},
-    listingStrategy: input.listing_strategy ?? projectSnapshot?.listing_strategy ?? existing?.listing_strategy,
+    listingStrategy: input.listing_strategy ?? settingsProfile?.listing_strategy,
     now: input.now
   });
   if (existing?.generated_at) profile.generated_at = existing.generated_at;

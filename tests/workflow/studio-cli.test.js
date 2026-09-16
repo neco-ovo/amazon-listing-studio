@@ -208,6 +208,20 @@ test('analyze-keywords parses once and writes project and optional reusable prof
     const changedProfile = JSON.parse(await readFile(path.join(projectDir, 'references', 'keyword-profile.json'), 'utf8'));
     assert.deepEqual(changedProfile.listing_strategy, projectProfile.listing_strategy);
     assert.deepEqual(changedProfile.keyword_fact_fields, ['included_components']);
+
+    const newIntentManifest = path.join(root, 'new-intent.json');
+    await writeFile(newIntentManifest, JSON.stringify({
+      intent: 'driveway safety sign',
+      reports: [{path: newerReverse, reference_asin: 'B0FQ1RL7YK', export_date: '2026-09-15'}],
+      fit_assessments: {
+        'slow down kids at play sign': {fit: 'high', reason: 'related safety sign', reason_code: 'related_intent'}
+      }
+    }));
+    const newIntent = await runCli(['analyze-keywords', '--project-dir', projectDir, '--input', newIntentManifest]);
+    assert.equal(newIntent.ok, true);
+    const newIntentProfile = JSON.parse(await readFile(path.join(projectDir, 'references', 'keyword-profile.json'), 'utf8'));
+    assert.equal(newIntentProfile.listing_strategy, undefined);
+    assert.equal(newIntentProfile.keyword_fact_fields, undefined);
   });
 });
 
