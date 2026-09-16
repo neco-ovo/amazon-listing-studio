@@ -45,6 +45,10 @@ For every sellable Child, check part number, selling price, list price, inventor
 
 For a single-product delivery, populate one sellable product row rather than Parent/Child rows. Offer, inventory, image, and package requirements still follow the selected template and fulfillment conditions.
 
+For every populated field backed by workbook data validation, resolve the current row's allowed list or named range and write one exact allowed value. Do not translate, reorder, change case or separators, or substitute a human-readable approximation. This includes record action, Variation Theme, shipping template, and any other restricted-value field. If the intended value does not resolve uniquely, do not write that candidate value; request confirmation and keep the workbook `manual-prep`.
+
+Keep relationship namespaces separate per projected row. A Variation Parent/Child row must not also populate `package_contains_sku` or another package-relationship field, and a row must never contain its own seller SKU. A distinct, explicitly confirmed bundle row may reference a separately sold Variation Child; do not reject that valid cross-row relationship. Leave fields outside the current Product Type blank, including deprecated fields that Amazon reports as ignored.
+
 ## Conditional requiredness
 
 Determine required fields from the workbook's data definitions, formulas, data validation, and conditional-formatting rules together with the values selected for that row. A red border is a signal to evaluate its formula, not a universal required marker.
@@ -71,6 +75,8 @@ Before handoff, perform one bounded verification pass:
 - formulas contain no errors;
 - the saved workbook can be reopened.
 
+When a processing summary is supplied after an upload attempt, group errors by root cause. Treat downstream offer or catalog errors as consequential when an earlier row-creation, restricted-value, or relationship error explains them; do not create a second repair workflow for the consequential error.
+
 Create the workbook from a copy of the supplied template and modify only mapped cells. Verify that required sheets, hidden-sheet state, formulas, named ranges, data validations, conditional formatting, and any existing macro container remain present. If the selected library cannot preserve a feature used by the template, keep the result `manual-prep` and report that limitation rather than silently dropping it.
 
 Render a visual preview only when workbook structure or formatting may have changed. If Excel holds the output file open, write a new versioned filename or ask the user to close it; do not rerun hosting, research, Listing, or approval work.
@@ -94,4 +100,7 @@ Expose one `prepare-upload` command and keep Cloudflare as an optional harness c
 - Object names omit connector words, combine semantic roles with stable slot identity, remain unique, and stop on destination collisions.
 - Uploaded output verifies the exact proposed key set; reuse is delivery-version scoped without image downloads or per-image hash checks.
 - Both Variation and single-product upload rows follow their applicable template scope.
+- Restricted fields use exact values from the current template's resolved validation source; near matches such as display labels or reordered Variation dimensions remain `manual-prep`.
+- Variation rows never self-populate `package_contains_sku`, and fields rejected as inapplicable to the current Product Type remain blank.
+- Processing-summary diagnostics group dependent offer/catalog failures under the earlier restricted-value or relationship root cause.
 - Workbook output preserves required template structures, reopens, contains no formula errors, and never overwrites an existing version.

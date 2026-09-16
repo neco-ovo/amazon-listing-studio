@@ -16,6 +16,8 @@
 - Require a current delivery manifest, a user-supplied Amazon template, and one compact JSON input for unresolved offer/account values and optional hosted URL mappings.
 - Derive upload rows only from a delivery verified against the current immutable final approval; never merge delivered content with current mutable project facts.
 - Never invent shipping-template, price, inventory, fulfillment, package, identifier, or product-type values.
+- For every restricted field, write only an exact value resolved from the current template's applicable validation source; do not normalize a near match into acceptance.
+- Keep Variation and package-content relationships separate; never self-reference a Child through `package_contains_sku`.
 - Reuse hosted URLs only for the same delivery identity and exact proposed object keys; never download hosted images or add per-image hash verification.
 - Preserve the supplied workbook package and edit mapped cells only; unsupported active workbook conditions keep readiness at `manual-prep`.
 - Write a new versioned output directory and never overwrite an existing workbook.
@@ -31,7 +33,7 @@
 
 **Interfaces:**
 - Consumes: `deliveryDir`, current immutable `expectedScope`, existing `verifyDelivery`/`verifyVariationDelivery`, and `{account, offer, image_urls}` from the upload input JSON.
-- Produces: `readVerifiedDelivery({deliveryDir, expectedScope, verifySingle, verifyVariation}) -> {delivery_identity, manifest, listings, matrix, image_slots}`; `projectUploadPreparation({delivery, input}) -> {delivery_identity, rows, proposed_images, findings}`; and `attachHostedUrls(projection, mappings) -> projection`.
+- Produces: `readVerifiedDelivery({deliveryDir, expectedScope, verifySingle, verifyVariation}) -> {delivery_identity, manifest, listings, matrix, image_slots}`; `projectUploadPreparation({delivery, input}) -> {delivery_identity, rows, proposed_images, findings}`; `validateRelationshipNamespaces(rows) -> findings`; and `attachHostedUrls(projection, mappings) -> projection`.
 
 - [ ] **Step 1: Write failing projection tests**
 
@@ -69,6 +71,15 @@ test('rejects stale, missing, and extra URL mappings and accepts the exact curre
   assert.throws(() => attachHostedUrls(projected, {delivery_identity: projected.delivery_identity, images: {}}), /exact proposed object keys/i);
   assert.throws(() => attachHostedUrls(projected, {delivery_identity: projected.delivery_identity, images: {...exactUrls(), 'extra.png': 'https://img.example/extra.png'}}), /exact proposed object keys/i);
   assert.equal(attachHostedUrls(projected, {delivery_identity: projected.delivery_identity, images: exactUrls()}).proposed_images[0].url, 'https://img.example/main.png');
+});
+
+test('rejects package fields on a Variation row but permits a distinct bundle row', () => {
+  assert.equal(validateRelationshipNamespaces([{
+    seller_sku: 'CHILD-8X12', parentage_level: 'Child', package_contains_sku: 'CHILD-8X12'
+  }])[0].code, 'RELATIONSHIP_CONFLICT');
+  assert.deepEqual(validateRelationshipNamespaces([{
+    seller_sku: 'BUNDLE-1', package_contains_sku: 'CHILD-8X12'
+  }]), []);
 });
 ```
 
@@ -110,6 +121,14 @@ export function attachHostedUrls(projection, mapping) {
   }
   return {...projection, proposed_images: projection.proposed_images.map(item => ({...item, url: mapping.images[item.object_key]}))};
 }
+
+export function validateRelationshipNamespaces(rows) {
+  return rows.flatMap(row => row.parentage_level && row.package_contains_sku
+    ? [finding('RELATIONSHIP_CONFLICT', row.seller_sku, 'Variation row also contains package relationship fields')]
+    : row.seller_sku === row.package_contains_sku
+      ? [finding('RELATIONSHIP_CONFLICT', row.seller_sku, 'Row contains its own SKU')]
+      : []);
+}
 ```
 
 `parseVerifiedMembers` must parse `listing/listing.json` for a single delivery, or `parent/listing.json`, `variation-matrix.json`, and every `children/<sku>/listing.json` for a Variation delivery. Build immutable identity as `single:<approval_id>:<listing_version>` or `variation:<approval_id>:<variation_version>`. Reuse the short project/variant naming logic already used by `scripts/lib/variation-bundle.js`; move only the smallest shared name helper if direct reuse is impossible. Treat each Matrix row's ordered `asset_paths` and its verified approval mapping as the gallery source. Reject duplicate generated keys and non-HTTPS mapped URLs. Add findings rather than guesses for absent offer/account values.
@@ -138,7 +157,7 @@ git commit -m "feat: project upload preparation data"
 
 **Interfaces:**
 - Consumes: `inspectUploadTemplate(templateBytes, seed)`, where `seed.upload_field_map` is the existing SIGNAGE field seed.
-- Produces: `inspectUploadTemplate(...) -> {worksheet, columns, active_requirements, unsupported_conditions}` and `writeUploadWorkbook({templateBytes, inspection, rows}) -> Buffer`.
+- Produces: `inspectUploadTemplate(...) -> {worksheet, columns, validations, active_requirements, unsupported_conditions, unsupported_validations}`; `validateRestrictedValues({inspection, rows}) -> findings`; and `writeUploadWorkbook({templateBytes, inspection, rows}) -> Buffer`.
 
 - [ ] **Step 1: Write failing preservation and requiredness tests**
 
@@ -177,6 +196,29 @@ test('does not trust cached formula values affected by patched cells', () => {
   const inspection = inspectUploadTemplate(uploadTemplate({conditionalFormula: '$FO6="AMAZON_NA"', cachedValue: 0}), signageSeed);
   assert.deepEqual(requiredForRow(inspection, fbaChild()).sort(), ['GZ', 'HA', 'HB', 'HC', 'HD', 'HE', 'HF', 'HG']);
 });
+
+test('requires exact current dropdown values for record action, theme, and shipping template', () => {
+  const inspection = inspectUploadTemplate(uploadTemplate({
+    recordActions: ['Create or Replace (Full Update)', 'Edit (Partial Update)', 'Delete'],
+    themes: ['COLOR/SIZE'], shippingTemplates: ['Migrated Template']
+  }), signageSeed);
+  assert.deepEqual(validateRestrictedValues({inspection, rows: [{
+    record_action: '(Default) Create or Replace', variation_theme: 'Size/Color', shipping_template: 'Default'
+  }]}).map(item => item.field), ['record_action', 'variation_theme', 'shipping_template']);
+  assert.deepEqual(validateRestrictedValues({inspection, rows: [{
+    record_action: 'Create or Replace (Full Update)', variation_theme: 'COLOR/SIZE', shipping_template: 'Migrated Template'
+  }]}), []);
+});
+
+test('resolves a defined name to hidden-sheet cells and defers dynamic validation sources', () => {
+  const inspection = inspectUploadTemplate(uploadTemplate({
+    definedName: {name: 'record_action', target: "'Dropdown Lists'!$C$4:$C$6"},
+    hiddenValues: ['Create or Replace (Full Update)', 'Edit (Partial Update)', 'Delete'],
+    dynamicValidation: 'INDIRECT($B7&"variation_theme1.name")'
+  }), signageSeed);
+  assert.deepEqual(inspection.validations.record_action.values, ['Create or Replace (Full Update)', 'Edit (Partial Update)', 'Delete']);
+  assert.equal(inspection.unsupported_validations[0].formula, 'INDIRECT($B7&"variation_theme1.name")');
+});
 ```
 
 - [ ] **Step 2: Run the focused test and confirm RED**
@@ -196,9 +238,14 @@ export function inspectUploadTemplate(templateBytes, seed) {
   return {
     worksheet,
     columns,
+    ...resolveValidationSources(archive, worksheet, columns),
     active_requirements: conditions.supported,
     unsupported_conditions: conditions.unsupported
   };
+}
+
+export function validateRestrictedValues({inspection, rows}) {
+  return restrictedValueFindings(inspection.validations, rows, {exact: true});
 }
 
 export function writeUploadWorkbook({templateBytes, inspection, rows}) {
@@ -210,7 +257,7 @@ export function writeUploadWorkbook({templateBytes, inspection, rows}) {
 }
 ```
 
-Support only the comparison/`IF` patterns actually found in the supplied Amazon template. Evaluate supported expressions against the values that will be written, never cached formula results. Any other relevant expression must retain the workbook but enter `unsupported_conditions`; do not build a general formula evaluator. Patch only mapped cell value/type nodes in the target worksheet XML, preserving formulas, styles, validations, and conditional-formatting nodes; leave every other ZIP member byte-identical, including content types, relationships, workbook metadata, named ranges, hidden sheets, and VBA. Use inline strings for inserted text so the shared-string table need not be rebuilt.
+Resolve only three bounded validation-source forms: an inline list, a direct worksheet range, or a defined name whose target is a direct worksheet range. Resolve the current Product Type's source only when it reduces to one of those forms. Put `OFFSET`, `INDIRECT`, dynamic formulas, and external references into `unsupported_validations`, which keeps readiness at `manual-prep`; do not evaluate them. Compare resolved strings exactly and do not accept case-folded, reordered, translated, or display-label approximations. Support only the comparison/`IF` patterns actually found in the supplied Amazon template. Evaluate supported expressions against the values that will be written, never cached formula results. Any other relevant expression must retain the workbook but enter `unsupported_conditions`; do not build a general formula evaluator. Patch only mapped cell value/type nodes in the target worksheet XML, preserving formulas, styles, validations, and conditional-formatting nodes; leave every other ZIP member byte-identical, including content types, relationships, workbook metadata, named ranges, hidden sheets, and VBA. Use inline strings for inserted text so the shared-string table need not be rebuilt.
 
 - [ ] **Step 4: Run the focused test and confirm GREEN**
 
@@ -273,12 +320,35 @@ test('keeps stale rules and unsupported affected formulas manual', async () => {
   assert.deepEqual(result.result.findings.map(item => item.code).sort(), ['RULES_STALE', 'UNSUPPORTED_TEMPLATE_CONDITION']);
 });
 
+test('omits non-canonical restricted values and writes exact allowed values', async () => {
+  const bad = await runCli(prepareArgs({output: 'upload-bad', input: inputWithExactUrls({
+    record_action: '(Default) Create or Replace', variation_theme: 'Size/Color', shipping_template: 'Default'
+  })}));
+  assert.equal(bad.result.status, 'manual-prep');
+  assert.deepEqual(await readPatchedCells(bad.result.workbook_path, ['C7', 'F7', 'GS8']), [null, null, null]);
+
+  const good = await runCli(prepareArgs({output: 'upload-good', input: inputWithExactUrls({
+    record_action: 'Create or Replace (Full Update)', variation_theme: 'COLOR/SIZE', shipping_template: 'Migrated Template'
+  })}));
+  assert.equal(good.result.status, 'upload-ready');
+  assert.deepEqual(await readPatchedCells(good.result.workbook_path, ['C7', 'F7', 'GS8']), [
+    'Create or Replace (Full Update)', 'COLOR/SIZE', 'Migrated Template'
+  ]);
+});
+
 test('uses explicit compatible template type without mutating project identity', async () => {
   const input = {...inputWithExactUrls(), compatible_product_types: ['SIGNAGE']};
   const result = await runCli(prepareArgs({projectType: 'METAL_SIGN', templateType: 'SIGNAGE', input}));
   assert.equal(result.ok, true);
   assert.equal(result.result.status, 'upload-ready');
   assert.equal((await readState()).project.product_type, 'METAL_SIGN');
+});
+
+test('derives field applicability from the current Product Type', async () => {
+  const rejected = await runCli(prepareArgs({output: 'upload-rejected', template: templateWithoutNumberOfPieces(), input: inputWithExactUrls({number_of_pieces: 1})}));
+  assert.equal(rejected.result.rows[1].number_of_pieces, undefined);
+  const accepted = await runCli(prepareArgs({output: 'upload-accepted', template: templateWithNumberOfPieces(), input: inputWithExactUrls({number_of_pieces: 1})}));
+  assert.equal(accepted.result.rows[1].number_of_pieces, 1);
 });
 ```
 
@@ -306,14 +376,19 @@ export async function prepareUpload({projectDir, deliveryDir, templatePath, inpu
     productType: delivery.manifest.product_type ?? delivery.manifest.approval_scope.product_type,
     compatibleProductTypes: input.compatible_product_types ?? [], purpose: 'upload_ready', now
   });
-  const projection = applyTemplateAndRuleFindings(projectUploadPreparation({delivery, input}), {inspection, rules, input});
+  const baseProjection = projectUploadPreparation({delivery, input});
+  const projection = applyTemplateAndRuleFindings(baseProjection, {
+    inspection, rules, input,
+    restrictedFindings: validateRestrictedValues({inspection, rows: baseProjection.rows}),
+    relationshipFindings: validateRelationshipNamespaces(baseProjection.rows)
+  });
   if (!input.image_urls) return {status: 'hosting_required', delivery_identity: projection.delivery_identity, proposed_images: projection.proposed_images, unresolved: projection.findings};
   const hosted = attachHostedUrls(projection, input.image_urls);
   return writeUploadOutput({outputDir, templatePath, templateBytes, inspection, projection: hosted, input});
 }
 ```
 
-Inject the existing `verifyDelivery`, `verifyVariationDelivery`, and `resolveRules` functions into `prepareUpload` through `runCli` so tests use the same seams as the existing finalize/verify commands. Add `prepare-upload` to `operationFor` as a fast, optional delivery operation. Resolve the output with the existing `projectOutputPath` containment guard. Copy the template extension (`.xlsx` or `.xlsm`), stage writes, reopen the saved ZIP to verify package readability and preserved members, and rename the stage only after verification. Do not use cached formula values as a readiness check: every relevant formula affected by written values must be evaluated by Task 2's supported-expression logic or add an `UNSUPPORTED_TEMPLATE_CONDITION` finding. A missing, stale, refresh-required, or product-type-inapplicable rule result adds a manual-prep finding. Shipping-template precedence is: matching workbook value, matching saved marketplace/account input, otherwise one `user_confirmation_required` finding; disagreement between the first two is also one finding.
+Inject the existing `verifyDelivery`, `verifyVariationDelivery`, and `resolveRules` functions into `prepareUpload` through `runCli` so tests use the same seams as the existing finalize/verify commands. Add `prepare-upload` to `operationFor` as a fast, optional delivery operation. Resolve the output with the existing `projectOutputPath` containment guard. Copy the template extension (`.xlsx` or `.xlsm`), stage writes, reopen the saved ZIP to verify package readability and preserved members, and rename the stage only after verification. Do not use cached formula values as a readiness check: every relevant formula affected by written values must be evaluated by Task 2's supported-expression logic or add an `UNSUPPORTED_TEMPLATE_CONDITION` finding. Any non-exact restricted value is omitted, adds one `user_confirmation_required` finding, and prevents the write from being labeled `upload-ready`. A missing, stale, refresh-required, or product-type-inapplicable rule result adds a manual-prep finding. Shipping-template precedence is: matching workbook value, matching saved marketplace/account input, otherwise one `user_confirmation_required` finding; disagreement between the first two is also one finding. Derive field applicability from the current Product Type/template mapping: omit rejected fields but retain accepted fields with confirmed values. Before workbook output, add `RELATIONSHIP_CONFLICT` only when one projected Variation row also populates package-relationship fields or self-references its seller SKU; do not reject a distinct confirmed bundle row merely because it contains a SKU sold elsewhere as a Variation Child.
 
 - [ ] **Step 4: Run focused and adjacent workflow tests**
 
@@ -352,6 +427,9 @@ assert.match(delivery, /do not.+download.+hash/is);
 assert.match(listingWorkflow, /shipping template.+marketplace.+seller account/is);
 assert.match(listingWorkflow, /unsupported.+manual-prep/is);
 assert.match(delivery, /verified delivery\.zip.+current final approval/is);
+assert.match(listingWorkflow, /exact.+validation.+record action.+Variation Theme.+shipping template/is);
+assert.match(listingWorkflow, /package_contains_sku.+Variation Child/is);
+assert.match(listingWorkflow, /root cause.+consequential|cascade/is);
 ```
 
 - [ ] **Step 2: Run the contract test and confirm RED**
@@ -364,7 +442,7 @@ Expected: FAIL on the new upload-preparation assertions.
 
 Add one optional paragraph to `SKILL.md`: after approved delivery, invoke `prepare-upload` only when requested. If it returns `hosting_required`, ask once for Cloudflare R2, another host, or stop, together with only the unresolved account/offer values. Use the harness to check every proposed key for collision, upload only after confirmation, and rerun with the exact URL mapping. Present the readiness label and findings; never claim Seller Central publication.
 
-In the two existing references, describe only field/source rules that the agent must apply. Link to the command rather than duplicating workbook internals or adding another checklist.
+In the two existing references, describe only field/source rules that the agent must apply. State that restricted fields use exact values from the current template's validation source, Variation fields never populate `package_contains_sku`, and inapplicable Product Type fields remain blank. When the user supplies an Amazon processing summary, report the earliest restricted-value or relationship failure as the root cause and group resulting offer/catalog messages beneath it. Link to the command rather than duplicating workbook internals or adding another checklist.
 
 - [ ] **Step 4: Run contract and full tests**
 
