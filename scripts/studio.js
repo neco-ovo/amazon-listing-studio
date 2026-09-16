@@ -12,6 +12,7 @@ import {
 } from './lib/project-layout.js';
 import { approveArtifact, approveListingDraft, updateProject } from './lib/transactions.js';
 import { migrateLegacyProject } from './lib/migration.js';
+import {cleanupAfterApproval} from './lib/project-cleanup.js';
 import { validateMainImage } from './lib/images.js';
 import { renderListing, reviseDraft } from './lib/listing-drafts.js';
 import {keywordProfileErrors} from './lib/listing.js';
@@ -544,7 +545,7 @@ export async function runRecordCandidate({projectDir, candidate}, {
 export async function runApprove(input, {hashFile} = {}) {
   if (input.artifactType === 'listing') {
     const profilePath = projectKeywordProfilePath(input.projectDir);
-    return withFileLock(`${profilePath}.lock`, () => updateProject(input.projectDir, async state => {
+    const result = await withFileLock(`${profilePath}.lock`, () => updateProject(input.projectDir, async state => {
       const keywordProfile = await readJsonIfExists(profilePath);
       assertCurrentKeywordProfile(keywordProfile, state);
       const errors = keywordProfileErrors(state?.listing?.draft?.content, keywordProfile);
@@ -561,8 +562,9 @@ export async function runApprove(input, {hashFile} = {}) {
         ]
       };
     }));
+    return cleanupApprovalWork(input.projectDir, result);
   }
-  return updateProject(input.projectDir, async state => {
+  const result = await updateProject(input.projectDir, async state => {
     const result = await approveArtifact(state, {
       artifactId: input.artifactId,
       artifactType: input.artifactType ?? 'image',
@@ -579,6 +581,16 @@ export async function runApprove(input, {hashFile} = {}) {
     result.approval.path = destination;
     return {...result, publications: [publication]};
   });
+  return cleanupApprovalWork(input.projectDir, result, [input.path]);
+}
+
+async function cleanupApprovalWork(projectDir, result, candidatePaths = []) {
+  try {
+    await cleanupAfterApproval(projectDir, {candidatePaths});
+    return result;
+  } catch (error) {
+    return {...result, warnings: [...(result.warnings ?? []), {code: 'CLEANUP_FAILED', message: error.message}]};
+  }
 }
 
 async function defaultLoadState(projectDir) {
@@ -777,11 +789,13 @@ async function publishVariationApproval(projectDir, state, input) {
 }
 
 export async function runApproveVariation({projectDir, approval}, {hashFile} = {}) {
-  return updateProject(projectDir, async state => {
+  const result = await updateProject(projectDir, async state => {
     const next = await applyVariationApproval(state, approval, {projectDir, hashFile});
     const publications = await publishVariationApproval(projectDir, next, approval);
     return {state: next, approval: next.approvals.at(-1), publications};
   });
+  const candidates = ['child_main', 'shared_image'].includes(approval.scopeType) ? [approval.path] : [];
+  return cleanupApprovalWork(projectDir, result, candidates);
 }
 
 export async function runApproveVariationBatch({projectDir, approvals, userAction}, {hashFile} = {}) {
@@ -798,7 +812,7 @@ export async function runApproveVariationBatch({projectDir, approvals, userActio
   if (finalIndexes.length > 1 || (finalIndexes.length === 1 && finalIndexes[0] !== normalized.length - 1)) {
     throw blocking('Variation final approval may appear only once and last');
   }
-  return updateProject(projectDir, async state => {
+  const result = await updateProject(projectDir, async state => {
     let next = state;
     const created = [];
     const publications = [];
@@ -810,6 +824,9 @@ export async function runApproveVariationBatch({projectDir, approvals, userActio
     }
     return {state: next, approvals: created, publications};
   });
+  return cleanupApprovalWork(projectDir, result, normalized
+    .filter(item => ['child_main', 'shared_image'].includes(item.scopeType))
+    .map(item => item.path));
 }
 
 async function ensureChildWorkspace(projectDir, childSku) {

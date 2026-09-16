@@ -171,11 +171,35 @@ export async function readProjectState(projectDir) {
 export async function writeProjectSnapshot(projectDir, state, {publications = []} = {}) {
   const paths = projectPaths(projectDir);
   const nonce = `${process.pid}-${Date.now()}`;
+  const productText = `${JSON.stringify(buildProductDocument(state), null, 2)}\n`;
+  const history = [];
+  for (const publication of publications) {
+    try {
+      const previous = await readFile(publication.target);
+      if (!previous.equals(Buffer.from(publication.content))) {
+        history.push({
+          target: path.join(paths.studio, 'history', path.relative(paths.root, publication.target)),
+          content: previous
+        });
+      }
+    } catch (error) {
+      if (error.code !== 'ENOENT') throw error;
+    }
+  }
+  try {
+    const previousProduct = await readFile(paths.product);
+    if (!previousProduct.equals(Buffer.from(productText))) {
+      history.push({target: path.join(paths.studio, 'history', 'product.json'), content: previousProduct});
+    }
+  } catch (error) {
+    if (error.code !== 'ENOENT') throw error;
+  }
   const files = [
     [paths.state, `${JSON.stringify(state, null, 2)}\n`],
-    [paths.product, `${JSON.stringify(buildProductDocument(state), null, 2)}\n`],
+    [paths.product, productText],
     [paths.summary, renderProjectSummary(state)],
-    ...publications.map(({target, content}) => [target, content])
+    ...publications.map(({target, content}) => [target, content]),
+    ...history.map(({target, content}) => [target, content])
   ].map(([target, content]) => ({
     target,
     content,

@@ -103,6 +103,8 @@ test('approved main candidate hashes once and returns the Product Master lock ac
       check: async () => ({ok: true, failures: []}),
       inspect: async () => ({status: 'pass', findings: []})
     });
+    await mkdir(path.join(root, 'assets'), {recursive: true});
+    await writeFile(path.join(root, 'assets', 'main.png'), Buffer.from('previous-main'));
     const approved = await runApprove({
       projectDir: root,
       artifactId: 'main-v1', artifactType: 'image', path: 'images/main-v1.png',
@@ -112,6 +114,10 @@ test('approved main candidate hashes once and returns the Product Master lock ac
     assert.equal(approved.next_action.kind, 'lock_product_master');
     assert.equal(approved.next_action.approved_main_id, 'main-v1');
     assert.deepEqual(await readFile(path.join(root, 'assets', 'main.png')), Buffer.from('main-candidate'));
+    assert.deepEqual(
+      await readFile(path.join(root, '.studio', 'history', 'assets', 'main.png')),
+      Buffer.from('previous-main')
+    );
     const product = JSON.parse(await readFile(path.join(root, 'product.json'), 'utf8'));
     assert.equal(product.assets[0].path, 'assets/main.png');
   });
