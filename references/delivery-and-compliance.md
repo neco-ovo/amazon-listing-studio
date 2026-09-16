@@ -6,6 +6,8 @@ Read this reference only for current-rule verification, final approval, or packa
 
 Resolve rules for the exact marketplace and product type. Upload-ready output requires an applicable fresh snapshot or verified current Schema. If affected fields remain unverified, preserve `rules_unverified` and `upload_ready=false`; user permission to continue does not convert unknown rules or facts into compliance.
 
+For a legacy product-type label, pass `compatibleProductTypes` only when the current template evidence or user has explicitly confirmed the equivalent current type. This selects applicable rules without silently changing the project product type.
+
 Never add competitor brands, unsupported standards, certification claims, promotional language, contact details, or URLs. Treat product-specific title, image, attribute, and category limits as dynamic rules rather than timeless constants.
 
 ## Final scope

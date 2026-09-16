@@ -76,3 +76,18 @@ test('missing or mismatched rules require refresh only for current verification'
   assert.equal(verify.status, 'missing');
   assert.equal(verify.refresh_required, true);
 });
+
+test('uses an explicitly confirmed compatible product type without changing the project type', async () => {
+  const libraryDir = await ruleLibrary({product_types: ['SIGNAGE']});
+  const unmatched = await resolveRules({
+    libraryDir, marketplace: 'amazon.com', productType: 'SIGNS', now: '2026-10-01T00:00:00Z'
+  });
+  const matched = await resolveRules({
+    libraryDir, marketplace: 'amazon.com', productType: 'SIGNS',
+    compatibleProductTypes: ['SIGNAGE'], now: '2026-10-01T00:00:00Z'
+  });
+
+  assert.equal(unmatched.status, 'missing');
+  assert.equal(matched.status, 'fresh');
+  assert.equal(matched.matched_product_type, 'SIGNAGE');
+});
