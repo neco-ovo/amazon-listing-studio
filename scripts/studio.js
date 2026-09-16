@@ -26,6 +26,18 @@ import {
   reviseVariationChild
 } from './lib/variation-project.js';
 import {parseSellerSpriteWorkbook} from './lib/sellersprite-workbooks.js';
+import {resolveRules} from './lib/rule-cache.js';
+import {
+  attachHostedUrls,
+  projectUploadPreparation,
+  readVerifiedDelivery
+} from './lib/upload-preparation.js';
+import {
+  inspectUploadTemplate,
+  requiredForRow,
+  validateRestrictedValues,
+  writeUploadWorkbook
+} from './lib/upload-workbooks.js';
 import {
   buildKeywordProfile,
   isCompatibleKeywordProfile,
@@ -796,9 +808,131 @@ function operationFor(command, input = null) {
     'revise-child': 'child_listing_field_edit',
     'remove-child': 'remove_child',
     'resolve-variation-facts': 'resolve_fact_conflicts',
-    'verify-delivery': 'finalize'
+    'verify-delivery': 'finalize',
+    'prepare-upload': 'finalize'
   };
   return classifyOperation({kind: kinds[command] ?? command});
+}
+
+function uploadRows(projection, input) {
+  const urls = new Map(projection.proposed_images.map(image => [image.source, image.url]));
+  return projection.rows.map(row => {
+    const listing = row.listing ?? {};
+    const overrides = input.rows?.[row.seller_sku] ?? {};
+    return {
+      ...listing.attributes,
+      ...listing,
+      ...row,
+      ...overrides,
+      bullet_points: listing.bullets,
+      main_and_other_image_urls: row.gallery_slots?.map(slot => urls.get(slot.source)).filter(Boolean)
+    };
+  });
+}
+
+function uploadFindings({inspection, rules, rows}) {
+  const findings = [
+    ...inspection.unsupported_conditions.map(item => ({code: 'UNSUPPORTED_TEMPLATE_CONDITION', ...item})),
+    ...inspection.unsupported_validations.map(item => ({code: 'UNSUPPORTED_TEMPLATE_VALIDATION', ...item})),
+    ...validateRestrictedValues({inspection, rows})
+  ];
+  if (!rules || rules.status !== 'fresh' || rules.refresh_required) {
+    findings.push({code: rules?.status === 'stale' ? 'RULES_STALE' : 'RULES_UNAVAILABLE'});
+  }
+  for (const row of rows) {
+    for (const column of requiredForRow(inspection, row)) {
+      const field = inspection.columns[column];
+      if (field && (row[field] === undefined || row[field] === null || row[field] === '')) {
+        findings.push({code: 'REQUIRED_FIELD_MISSING', field, column, seller_sku: row.seller_sku});
+      }
+    }
+    if (row.parentage_level === 'Child' && inspection.validations.shipping_template && !row.shipping_template) {
+      findings.push({code: 'REQUIRED_FIELD_MISSING', field: 'shipping_template', seller_sku: row.seller_sku});
+    }
+  }
+  return findings;
+}
+
+export async function prepareUpload({
+  projectDir,
+  deliveryDir,
+  templatePath,
+  inputPath,
+  outputDir,
+  rulesLibrary,
+  verifySingle = verifyDelivery,
+  verifyVariation = verifyVariationDelivery,
+  resolveCurrentRules = resolveRules,
+  now = new Date().toISOString()
+}) {
+  const [state, input, seed, templateBytes] = await Promise.all([
+    readJsonIfExists(path.join(projectDir, 'state.json')),
+    readJsonIfExists(inputPath),
+    readJsonIfExists(new URL('../assets/rule-seeds/amazon-us-signage-upload-fields.json', import.meta.url)),
+    readFile(templatePath)
+  ]);
+  const expectedScope = currentFinalApproval(state);
+  const delivery = await readVerifiedDelivery({deliveryDir, expectedScope, verifySingle, verifyVariation});
+  const inspection = inspectUploadTemplate(templateBytes, seed);
+  const marketplace = delivery.manifest.marketplace ?? delivery.manifest.approval_scope?.marketplace ?? state.project.marketplace;
+  const productType = delivery.manifest.product_type ?? delivery.manifest.approval_scope?.product_type ?? state.project.product_type;
+  const rules = await resolveCurrentRules({
+    libraryDir: rulesLibrary,
+    marketplace,
+    productType,
+    compatibleProductTypes: input.compatible_product_types ?? [],
+    purpose: 'upload_ready',
+    now
+  });
+  const base = projectUploadPreparation({delivery, input});
+  const preliminaryRows = uploadRows(base, input);
+  const preliminaryFindings = [...base.findings, ...uploadFindings({inspection, rules, rows: preliminaryRows})];
+  if (!input.image_urls) {
+    return {
+      status: 'hosting_required',
+      delivery_identity: base.delivery_identity,
+      proposed_images: base.proposed_images,
+      unresolved: preliminaryFindings
+    };
+  }
+  const hosted = attachHostedUrls(base, input.image_urls);
+  const rows = uploadRows(hosted, input);
+  const findings = [...hosted.findings, ...uploadFindings({inspection, rules, rows})];
+  if (await pathExists(outputDir)) throw Object.assign(new Error('Upload output already exists'), {code: 'OUTPUT_EXISTS'});
+  const stage = `${outputDir}.tmp-${process.pid}-${Date.now()}`;
+  const extension = path.extname(templatePath).toLowerCase();
+  const workbookName = `amazon-upload${extension}`;
+  await mkdir(path.dirname(outputDir), {recursive: true});
+  await mkdir(stage, {recursive: false});
+  try {
+    const workbook = writeUploadWorkbook({templateBytes, inspection, rows});
+    const workbookPath = path.join(stage, workbookName);
+    await writeFile(workbookPath, workbook, {flag: 'wx'});
+    inspectUploadTemplate(await readFile(workbookPath), seed);
+    const status = findings.length ? 'manual-prep' : 'upload-ready';
+    const manifest = {
+      delivery_identity: hosted.delivery_identity,
+      findings,
+      image_urls: Object.fromEntries(hosted.proposed_images.map(item => [item.object_key, item.url])),
+      marketplace,
+      seller_account: input.seller_account ?? null,
+      status,
+      template: path.basename(templatePath)
+    };
+    await writeFile(path.join(stage, 'upload-manifest.json'), `${JSON.stringify(manifest, null, 2)}\n`, {flag: 'wx'});
+    await rename(stage, outputDir);
+    return {
+      status,
+      workbook_path: path.join(outputDir, workbookName),
+      manifest_path: path.join(outputDir, 'upload-manifest.json'),
+      findings,
+      rows
+    };
+  } catch (error) {
+    await unlink(path.join(stage, workbookName)).catch(() => {});
+    await unlink(path.join(stage, 'upload-manifest.json')).catch(() => {});
+    throw error;
+  }
 }
 
 export async function runCli(argv, {
@@ -810,7 +944,8 @@ export async function runCli(argv, {
   buildV2 = buildV2Delivery,
   verifyV2 = verifyDelivery,
   buildVariation = buildVariationDelivery,
-  verifyVariation = verifyVariationDelivery
+  verifyVariation = verifyVariationDelivery,
+  uploadDependencies = {}
 } = {}) {
   const started = clock();
   let parsed;
@@ -945,6 +1080,20 @@ export async function runCli(argv, {
       } else {
         throw blocking('Delivery manifest kind is unsupported without a trusted project mode');
       }
+    } else if (command === 'prepare-upload') {
+      const projectDir = path.resolve(requireOption(options, 'project-dir'));
+      result = await prepareUpload({
+        projectDir,
+        deliveryDir: path.resolve(requireOption(options, 'delivery-dir')),
+        templatePath: path.resolve(requireOption(options, 'template')),
+        inputPath: path.resolve(requireOption(options, 'input')),
+        outputDir: projectOutputPath(projectDir, requireOption(options, 'output'), 'Upload output'),
+        rulesLibrary: path.resolve(requireOption(options, 'rules-library')),
+        verifySingle: uploadDependencies.verifySingle ?? verifyV2,
+        verifyVariation: uploadDependencies.verifyVariation ?? verifyVariation,
+        resolveCurrentRules: uploadDependencies.resolveRules ?? resolveRules,
+        now: options.now
+      });
     } else {
       return {ok: false, code: 'UNKNOWN_COMMAND', message: `Unknown command: ${command ?? ''}`};
     }
