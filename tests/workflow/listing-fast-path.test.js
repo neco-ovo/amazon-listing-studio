@@ -167,5 +167,9 @@ test('Listing approval freezes the current draft without image-path arguments', 
     assert.equal(result.state.listing.approved[0].version, 1);
     assert.equal(result.state.listing.draft, null);
     assert.equal(result.next_action.kind, 'finalize');
+    assert.equal(JSON.parse(await readFile(path.join(projectDir, 'listing', 'listing.json'), 'utf8')).title, 'Approved title');
+    assert.match(await readFile(path.join(projectDir, 'listing', 'listing.md'), 'utf8'), /^# Approved title/m);
+    const product = JSON.parse(await readFile(path.join(projectDir, 'product.json'), 'utf8'));
+    assert.equal(product.listing.product, 'listing/listing.json');
   });
 });

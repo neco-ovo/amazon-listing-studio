@@ -116,6 +116,9 @@ test('public CLI adds a Child, records scoped candidates, approves every Variati
       now: '2026-08-28T01:07:00.000Z'
     });
     assert.equal(sharedApproved.ok, true, sharedApproved.message);
+    await access(path.join(projectDir, 'assets', 'children', 'SKU-12X16', 'main.png'));
+    await access(path.join(projectDir, 'assets', 'children', 'SKU-8X12', 'main.png'));
+    await access(path.join(projectDir, 'assets', 'shared', 'material-v1.png'));
 
     const statePathBeforeBatch = path.join(projectDir, '.studio', 'state.json');
     const beforeRejectedBatch = await readFile(statePathBeforeBatch);
@@ -140,6 +143,9 @@ test('public CLI adds a Child, records scoped candidates, approves every Variati
     });
     assert.equal(batchApproved.ok, true, batchApproved.message);
     assert.equal(batchApproved.result.approvals.length, 4);
+    await access(path.join(projectDir, 'listing', 'parent', 'listing.json'));
+    await access(path.join(projectDir, 'listing', 'children', 'SKU-12X16', 'listing.json'));
+    await access(path.join(projectDir, 'listing', 'children', 'SKU-8X12', 'listing.json'));
 
     const saved = JSON.parse(await readFile(path.join(projectDir, '.studio', 'state.json'), 'utf8'));
     const finalApproval = saved.approvals.at(-1);

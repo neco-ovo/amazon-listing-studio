@@ -7,7 +7,9 @@ import {isDeepStrictEqual} from 'node:util';
 import sharp from 'sharp';
 import { classifyChildFactImpact, classifyOperation, validateChangedListing } from './lib/operations.js';
 import { createProjectState, renderProjectSummary, validateProjectState } from './lib/project-state.js';
-import {projectPaths, readProjectState, writeProjectSnapshot} from './lib/project-layout.js';
+import {
+  projectPaths, publishApprovedFile, publishedAssetPath, readProjectState, writeProjectSnapshot
+} from './lib/project-layout.js';
 import { approveArtifact, approveListingDraft, updateProject } from './lib/transactions.js';
 import { migrateLegacyProject } from './lib/migration.js';
 import { validateMainImage } from './lib/images.js';
@@ -547,16 +549,36 @@ export async function runApprove(input, {hashFile} = {}) {
       assertCurrentKeywordProfile(keywordProfile, state);
       const errors = keywordProfileErrors(state?.listing?.draft?.content, keywordProfile);
       if (errors.length) throw blocking('Listing conflicts with the saved keyword profile', {errors});
-      return approveListingDraft(state, {userAction: 'approved', now: input.now});
+      const result = approveListingDraft(state, {userAction: 'approved', now: input.now});
+      const snapshot = result.state.listing.approved.at(-1);
+      snapshot.json_path = 'listing/listing.json';
+      snapshot.markdown_path = 'listing/listing.md';
+      return {
+        ...result,
+        publications: [
+          {target: path.join(input.projectDir, 'listing', 'listing.json'), content: `${JSON.stringify(snapshot.content, null, 2)}\n`},
+          {target: path.join(input.projectDir, 'listing', 'listing.md'), content: renderListing(snapshot.content)}
+        ]
+      };
     }));
   }
-  return updateProject(input.projectDir, state => approveArtifact(state, {
+  return updateProject(input.projectDir, async state => {
+    const result = await approveArtifact(state, {
       artifactId: input.artifactId,
       artifactType: input.artifactType ?? 'image',
       path: input.path,
       userAction: 'approved',
       now: input.now
-    }, {projectDir: input.projectDir, hashFile}));
+    }, {projectDir: input.projectDir, hashFile});
+    const asset = result.state.gallery.assets[input.artifactId];
+    const destination = publishedAssetPath({
+      scope: 'product', role: asset.kind === 'main' ? 'main' : asset.id, sourcePath: input.path
+    });
+    const publication = await publishApprovedFile(input.projectDir, input.path, destination);
+    asset.path = destination;
+    result.approval.path = destination;
+    return {...result, publications: [publication]};
+  });
 }
 
 async function defaultLoadState(projectDir) {
@@ -712,10 +734,53 @@ async function applyVariationApproval(state, approval, {projectDir, hashFile} = 
   return approveVariationVersion(state, approval);
 }
 
+async function publishVariationApproval(projectDir, state, input) {
+  if (input.scopeType === 'variation_final') return [];
+  const approval = state.approvals.at(-1);
+  if (input.scopeType === 'child_main' || input.scopeType === 'shared_image') {
+    const childSku = input.scopeType === 'child_main' ? input.childSku : null;
+    const asset = input.scopeType === 'child_main'
+      ? (state.variation.children[childSku].assets?.[input.artifactId]
+        ?? state.variation.children[childSku].gallery?.assets?.[input.artifactId])
+      : state.variation.shared_assets[input.artifactId];
+    const destination = publishedAssetPath({
+      scope: input.scopeType === 'child_main' ? 'child' : 'shared',
+      childSku,
+      role: asset.kind === 'main' ? 'main' : asset.id,
+      sourcePath: input.path
+    });
+    const publication = await publishApprovedFile(projectDir, input.path, destination);
+    asset.path = destination;
+    approval.path = destination;
+    if (approval.inspection_binding) approval.inspection_binding.path = destination;
+    if (input.scopeType === 'child_main') {
+      const child = state.variation.children[childSku];
+      child.main_image.path = destination;
+      child.product_master.approved_main_path = destination;
+      approval.approved_main_path = destination;
+    }
+    return [publication];
+  }
+
+  const childSku = input.scopeType === 'child_listing' ? input.childSku : null;
+  const listing = childSku
+    ? state.variation.children[childSku].listing
+    : state.variation.parent.listing;
+  const snapshot = listing.approved.at(-1);
+  const directory = childSku ? `listing/children/${childSku}` : 'listing/parent';
+  snapshot.json_path = `${directory}/listing.json`;
+  snapshot.markdown_path = `${directory}/listing.md`;
+  return [
+    {target: path.join(projectDir, ...snapshot.json_path.split('/')), content: `${JSON.stringify(snapshot.content, null, 2)}\n`},
+    {target: path.join(projectDir, ...snapshot.markdown_path.split('/')), content: renderListing(snapshot.content)}
+  ];
+}
+
 export async function runApproveVariation({projectDir, approval}, {hashFile} = {}) {
   return updateProject(projectDir, async state => {
     const next = await applyVariationApproval(state, approval, {projectDir, hashFile});
-    return {state: next, approval: next.approvals.at(-1)};
+    const publications = await publishVariationApproval(projectDir, next, approval);
+    return {state: next, approval: next.approvals.at(-1), publications};
   });
 }
 
@@ -736,12 +801,14 @@ export async function runApproveVariationBatch({projectDir, approvals, userActio
   return updateProject(projectDir, async state => {
     let next = state;
     const created = [];
+    const publications = [];
     for (const approval of normalized) {
       const before = next.approvals.length;
       next = await applyVariationApproval(next, approval, {projectDir, hashFile});
       created.push(...next.approvals.slice(before));
+      publications.push(...await publishVariationApproval(projectDir, next, approval));
     }
-    return {state: next, approvals: created};
+    return {state: next, approvals: created, publications};
   });
 }
 

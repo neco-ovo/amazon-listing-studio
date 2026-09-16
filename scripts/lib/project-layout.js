@@ -43,6 +43,27 @@ export function assertProjectPath(projectDir, relativePath) {
   return resolved;
 }
 
+function safeSegment(value, field) {
+  const segment = requiredText(value, field);
+  if (!/^[a-z0-9][a-z0-9_-]*$/i.test(segment)) throw invalid(`${field} is not a safe path segment`);
+  return segment;
+}
+
+export function publishedAssetPath({scope, childSku, role, sourcePath}) {
+  const extension = path.extname(requiredText(sourcePath, 'sourcePath')).toLowerCase() || '.png';
+  const name = safeSegment(role, 'role');
+  if (scope === 'product') return `assets/${name}${extension}`;
+  if (scope === 'shared') return `assets/shared/${name}${extension}`;
+  if (scope === 'child') return `assets/children/${safeSegment(childSku, 'childSku')}/${name}${extension}`;
+  throw invalid(`Unknown publication scope: ${scope}`);
+}
+
+export async function publishApprovedFile(projectDir, sourceRelativePath, destinationRelativePath) {
+  const source = assertProjectPath(projectDir, sourceRelativePath);
+  const destination = assertProjectPath(projectDir, destinationRelativePath);
+  return {target: destination, content: await readFile(source)};
+}
+
 function factValue(record) {
   return record && typeof record === 'object' && Object.hasOwn(record, 'value') ? record.value : record;
 }
@@ -82,13 +103,14 @@ export async function readProjectState(projectDir) {
   return JSON.parse(await readFile(projectPaths(projectDir).state, 'utf8'));
 }
 
-export async function writeProjectSnapshot(projectDir, state) {
+export async function writeProjectSnapshot(projectDir, state, {publications = []} = {}) {
   const paths = projectPaths(projectDir);
   const nonce = `${process.pid}-${Date.now()}`;
   const files = [
     [paths.state, `${JSON.stringify(state, null, 2)}\n`],
     [paths.product, `${JSON.stringify(buildProductDocument(state), null, 2)}\n`],
-    [paths.summary, renderProjectSummary(state)]
+    [paths.summary, renderProjectSummary(state)],
+    ...publications.map(({target, content}) => [target, content])
   ].map(([target, content]) => ({
     target,
     content,
@@ -97,6 +119,9 @@ export async function writeProjectSnapshot(projectDir, state) {
     backedUp: false,
     installed: false
   }));
+  if (new Set(files.map(file => file.target.toLowerCase())).size !== files.length) {
+    throw invalid('Snapshot contains duplicate output paths');
+  }
 
   for (const file of files) {
     await mkdir(path.dirname(file.target), {recursive: true});

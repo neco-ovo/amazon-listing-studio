@@ -116,8 +116,9 @@ export async function updateProject(projectDir, mutator, {clock = () => Date.now
   const validation = validateProjectState(next);
   if (!validation.valid) fail('BLOCKING_INPUT', 'Mutation produced an invalid project state', {errors: validation.errors});
 
-  const result = mutation?.state ? {...mutation, state: next} : {state: next};
+  const {publications = [], ...metadata} = mutation?.state ? mutation : {};
+  const result = mutation?.state ? {...metadata, state: next} : {state: next};
   result.duration_ms = Math.max(0, clock() - started);
-  await writeProjectSnapshot(projectDir, next);
+  await writeProjectSnapshot(projectDir, next, {publications});
   return result;
 }

@@ -75,6 +75,9 @@ test('passing candidate defers hashing until approval and advances the gallery p
     assert.equal(hashCalls, 1);
     assert.equal(approved.next_action.kind, 'generate_gallery_item');
     assert.equal(approved.next_action.gallery_item_id, 'size-1');
+    assert.deepEqual(await readFile(path.join(root, 'assets', 'scene-1.png')), Buffer.from('candidate'));
+    const product = JSON.parse(await readFile(path.join(root, 'product.json'), 'utf8'));
+    assert.equal(product.assets[0].path, 'assets/scene-1.png');
   });
 });
 
@@ -108,5 +111,8 @@ test('approved main candidate hashes once and returns the Product Master lock ac
 
     assert.equal(approved.next_action.kind, 'lock_product_master');
     assert.equal(approved.next_action.approved_main_id, 'main-v1');
+    assert.deepEqual(await readFile(path.join(root, 'assets', 'main.png')), Buffer.from('main-candidate'));
+    const product = JSON.parse(await readFile(path.join(root, 'product.json'), 'utf8'));
+    assert.equal(product.assets[0].path, 'assets/main.png');
   });
 });
