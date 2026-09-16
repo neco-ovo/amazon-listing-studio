@@ -248,19 +248,25 @@ async function withFileLock(lockPath, operation) {
   }
 }
 
+const DEFAULT_KEYWORD_FACT_FIELDS = ['purpose', 'warning_semantics', 'pattern', 'core_function'];
+
+function keywordFactConflict(profile, currentFacts) {
+  const fields = profile?.keyword_fact_fields?.length
+    ? profile.keyword_fact_fields
+    : DEFAULT_KEYWORD_FACT_FIELDS;
+  const priorFacts = profile?.product_facts ?? {};
+  return fields.some(field => JSON.stringify(priorFacts[field]) !== JSON.stringify(currentFacts[field]));
+}
+
 function assertCurrentKeywordProfile(profile, state) {
   if (!profile) return;
   const currentFacts = publishableFacts(state);
-  const priorFacts = profile.product_facts ?? {};
-  const factConflict = [...new Set([...Object.keys(priorFacts), ...Object.keys(currentFacts)])].some(field => (
-    JSON.stringify(priorFacts[field]) !== JSON.stringify(currentFacts[field])
-  ));
   const compatibility = isCompatibleKeywordProfile(profile, {
     marketplace: state.project.marketplace,
     locale: state.project.language,
     product_type: state.project.product_type,
     intent: profile.normalized_intent,
-    product_fact_conflict: factConflict
+    product_fact_conflict: keywordFactConflict(profile, currentFacts)
   });
   if (!compatibility.compatible) throw blocking('Saved keyword profile is stale; rerun keyword analysis.', {reasons: compatibility.reasons});
 }
@@ -336,11 +342,9 @@ async function analyzeKeywords(options, dependencies = {}) {
     try {
       cached = await readJsonIfExists(cachePath);
       if (cached) {
-        const cachedFacts = cached.product_facts ?? {};
-        const cachedFactConflict = [...new Set([...Object.keys(cachedFacts), ...Object.keys(productFacts)])].some(field => (
-          JSON.stringify(cachedFacts[field]) !== JSON.stringify(productFacts[field])
-        ));
-        const compatibility = isCompatibleKeywordProfile(cached, {...context, product_fact_conflict: cachedFactConflict}, input.now);
+        const compatibility = isCompatibleKeywordProfile(cached, {
+          ...context, product_fact_conflict: keywordFactConflict(cached, productFacts)
+        }, input.now);
         if (!compatibility.compatible) {
           cacheCollision = true;
           warnings.push({code: 'KEYWORD_CACHE_COLLISION'});
@@ -351,11 +355,9 @@ async function analyzeKeywords(options, dependencies = {}) {
     }
   }
   if (existing) {
-    const priorFacts = existing.product_facts ?? {};
-    const factConflict = [...new Set([...Object.keys(priorFacts), ...Object.keys(productFacts)])].some(field => (
-      JSON.stringify(priorFacts[field]) !== JSON.stringify(productFacts[field])
-    ));
-    const compatibility = isCompatibleKeywordProfile(existing, {...context, product_fact_conflict: factConflict}, input.now);
+    const compatibility = isCompatibleKeywordProfile(existing, {
+      ...context, product_fact_conflict: keywordFactConflict(existing, productFacts)
+    }, input.now);
     if (!compatibility.compatible) existing = null;
   }
   if (!existing && cached && !cacheCollision) existing = cached;

@@ -157,6 +157,10 @@ test('analyze-keywords parses once and writes project and optional reusable prof
     assert.deepEqual(await readFile(statePath), stateBefore);
     assert.deepEqual(await readFile(approvedImage), imageBefore);
 
+    const stateWithUnrelatedChange = JSON.parse(await readFile(statePath, 'utf8'));
+    stateWithUnrelatedChange.facts.item_weight = {status: 'confirmed', publishable: true, value: '0.13 kg'};
+    await writeFile(statePath, `${JSON.stringify(stateWithUnrelatedChange, null, 2)}\n`);
+
     const newerReverse = path.join(root, 'reverse-new.xlsx');
     await writeSellerSpriteWorkbook(newerReverse, {
       headers: reverseHeaders,
@@ -457,5 +461,34 @@ test('finalize rejects a delivery output outside the product root', async () => 
     assert.equal(result.ok, false);
     assert.equal(result.code, 'BLOCKING_INPUT');
     assert.match(result.message, /delivery.+product root|outside.+project/i);
+  });
+});
+
+test('analyze-keywords reuses shared evidence across unrelated product fact changes', async () => {
+  await withTempWorkspace(async root => {
+    const libraryDir = path.join(root, 'library');
+    const first = path.join(root, 'first');
+    const second = path.join(root, 'second');
+    for (const projectDir of [first, second]) {
+      await runCli(['init', '--project-dir', projectDir, '--project-id', path.basename(projectDir), '--product-name', 'Safety Sign', '--marketplace', 'amazon.com', '--language', 'en-US', '--product-type', 'METAL_SIGN']);
+    }
+    for (const [projectDir, weight] of [[first, '0.2 kg'], [second, '0.13 kg']]) {
+      const statePath = path.join(projectDir, 'state.json');
+      const state = JSON.parse(await readFile(statePath, 'utf8'));
+      state.facts.item_weight = {status: 'confirmed', publishable: true, value: weight};
+      await writeFile(statePath, JSON.stringify(state));
+    }
+    const mining = path.join(root, 'mining.xlsx');
+    await writeSellerSpriteWorkbook(mining, {headers: miningHeaders, rows: [['safety sign', 100, 1000]]});
+    const firstManifest = path.join(root, 'first.json');
+    await writeFile(firstManifest, JSON.stringify({intent: 'safety sign', reports: [{path: mining, seed_query: 'safety sign', export_date: '2026-09-12'}], fit_assessments: {'safety sign': {fit: 'exact', reason: 'match', reason_code: 'direct_match'}}}));
+    await runCli(['analyze-keywords', '--project-dir', first, '--input', firstManifest, '--library-dir', libraryDir]);
+    const reverse = path.join(root, 'reverse.xlsx');
+    await writeSellerSpriteWorkbook(reverse, {headers: reverseHeaders, rows: [['safety sign', '10%', 1, null, 1000]]});
+    const secondManifest = path.join(root, 'second.json');
+    await writeFile(secondManifest, JSON.stringify({intent: 'safety sign', reports: [{path: reverse, reference_asin: 'B0TEST', export_date: '2026-09-13'}], fit_assessments: {'safety sign': {fit: 'exact', reason: 'match', reason_code: 'direct_match'}}}));
+    await runCli(['analyze-keywords', '--project-dir', second, '--input', secondManifest, '--library-dir', libraryDir]);
+    const profile = JSON.parse(await readFile(path.join(second, 'references', 'keyword-profile.json'), 'utf8'));
+    assert.equal(profile.reports.length, 2);
   });
 });
