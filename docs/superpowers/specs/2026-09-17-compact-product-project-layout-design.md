@@ -79,13 +79,13 @@ Cleanup happens at successful lifecycle transitions without another approval ste
 - ZIP extraction copies, spreadsheet lock files, inspection logs, and generated previews are removed after successful validation.
 - Empty directories are removed.
 
-Never automatically delete current approved artifacts, `product.json`, the current delivery, user-supplied source files, or user-marked notes. Retain at most one prior approved image per role and one prior approved Listing in `.studio/history/`. Retain delivery metadata, not old delivery binaries.
+Never automatically delete current approved artifacts, `product.json`, the current delivery, user-supplied source files, user-marked notes, or unknown files. Retain at most one prior approved artifact per scope: product plus image role; shared or subset identity plus image role; Parent Listing; or Child SKU plus image role or Listing. Retain delivery metadata, not old delivery binaries.
 
 ## Fact changes and invalidation
 
 `product.json` is the formal fact source. `.studio/state.json` stores workflow state and unresolved evidence, not a second publishable fact ledger.
 
-A fact edit updates only that fact and invalidates artifacts that explicitly depend on it. Unrelated images, Listings, and Children remain current. Before replacing formal facts, retain one previous `product.json` under `.studio/history/`.
+A fact edit updates only that fact. `.studio/state.json` records each image and Listing's fact dependencies, which drive targeted invalidation; unrelated images, Listings, and Children remain current. When imported legacy data has no dependency record, conservatively invalidate current artifacts in the affected product, shared, or Child scope rather than guessing a narrower dependency or widening to unrelated Children. Before replacing formal facts, retain one previous `product.json` under `.studio/history/`.
 
 ## Delivery
 
@@ -99,7 +99,9 @@ Provide one command:
 studio compact-project --project-dir <old-project>
 ```
 
-It first produces a dry-run report, then stages the compact layout, validates every indexed formal artifact, and swaps layouts only after validation succeeds. It preserves user inputs and current approved artifacts while removing project-local dependencies, temporary scripts, rejected candidates, extracted deliveries, previews, lock files, and empty directories.
+It first produces a dry-run report, then builds the compact project in a sibling staging directory, validates every indexed formal artifact, and swaps directories only after validation succeeds. A failed validation removes only the staging directory and leaves the original project unchanged.
+
+The compactor deletes only recognized generated artifacts on an explicit allowlist, such as project-local `node_modules`, spreadsheet lock files, known inspection output, generated previews, extracted delivery copies, rejected candidates registered in state, and empty directories. It moves unknown files and scripts to `.studio/legacy/`; filenames or locations alone never prove that a file is generated. Current approved artifacts and user inputs are preserved.
 
 The new runtime does not maintain two ordinary path systems. Old-layout support exists only inside this one-time compactor.
 

@@ -8,7 +8,7 @@ The input is the product project root. Read `product.json` first. It is the only
 
 Do not read `.studio/`, infer facts from filenames, scan candidate directories, or replace a missing indexed file with another file found in the project.
 
-All paths are POSIX-style paths relative to the project root. Reject absolute paths and paths that escape the project root.
+All paths are POSIX-style paths relative to the project root. Reject absolute paths and traversal. Resolve links before reading and reject a file whose real path is outside the real project root.
 
 ## Required root files
 
@@ -111,11 +111,13 @@ Variation example:
 
 Unknown, conflicted, suggested, and observation-only facts are absent. Absence means unknown, not false.
 
+Validate the document boundary before use: the root and each structured member must have the object, array, string, or integer type shown by this specification; Child SKUs must be non-empty and unique; every `child_sku` and `child_skus` reference must name a listed active Child; and `scope: "product"` is valid only when `variation` is absent.
+
 ## Variation resolution
 
 For a Child, combine top-level `facts` with that Child's `facts`; the Child value wins only for a key explicitly present in the Child. `variation.children[].values` supplies the exact purchasable variation tuple.
 
-Do not synthesize missing Child combinations. Process only listed Children. Do not use one Child's main image, wording, color, pattern, size, or scenario for another Child unless an indexed asset has `scope: "shared"` or explicitly lists that Child.
+Do not synthesize missing Child combinations. The listed Children are the complete active set, including sparse compound Variation families. A valid in-progress project may omit a Parent Listing, a Child Listing, or some Child assets. Process only listed Children and fail only when an artifact required for the user's requested scope is absent. Do not use one Child's main image, wording, color, pattern, size, or scenario for another Child unless an indexed asset has `scope: "shared"` or explicitly lists that Child.
 
 ## Asset resolution
 
@@ -132,9 +134,11 @@ The consumer may select the image roles needed for its output, but it must not t
 
 ## Listing resolution
 
-- Single product: read `listing.product`.
-- Variation Parent: read `listing.parent`.
-- Variation Child: read the exact entry in `listing.children`.
+- Single product: read `listing.product` when the requested task needs Listing copy.
+- Variation Parent: read `listing.parent` when present and required by the requested task.
+- Variation Child: read the exact entry in `listing.children` when that Child's Listing is required.
+
+The `listing` object and individual entries may be absent while the project is in progress. Their absence is blocking only when the requested downstream output requires that scope's Listing.
 
 Listing copy is marketing language, not independent proof of a product fact. Factual A+ claims must be supported by `facts` or `approved_claims`. `excluded_claims` always wins over Listing wording.
 
@@ -156,4 +160,5 @@ A producer claiming Amazon Product Project Input v1 must ensure:
 - every indexed Listing is the current approved Listing;
 - `product.json` contains no unresolved or observation-only facts;
 - removed or replaced artifacts are no longer indexed;
+- Child SKUs and all Child asset or Listing references satisfy the active-set constraints;
 - updating one Child does not silently change another Child's index.
