@@ -7,6 +7,17 @@ const FIT_VALUES = new Set(Object.keys(FIT_ORDER));
 const REASON_CODES = new Set([
   'direct_match', 'related_intent', 'product_mismatch', 'unsupported_attribute', 'weak_or_duplicate'
 ]);
+const DEFAULT_KEYWORD_FACT_FIELDS = ['purpose', 'warning_semantics', 'pattern', 'core_function'];
+
+const factValue = fact => fact && typeof fact === 'object' && Object.hasOwn(fact, 'value') ? fact.value : fact;
+
+export function keywordFactConflict(profile, currentFacts) {
+  const fields = profile?.keyword_fact_fields?.length
+    ? profile.keyword_fact_fields
+    : DEFAULT_KEYWORD_FACT_FIELDS;
+  const priorFacts = profile?.product_facts ?? {};
+  return fields.some(field => JSON.stringify(factValue(priorFacts[field])) !== JSON.stringify(factValue(currentFacts[field])));
+}
 
 export function normalizeKeywordPhrase(value) {
   return String(value ?? '')
@@ -116,7 +127,25 @@ function assessedEvidence(evidence, fitAssessments) {
   });
 }
 
-export function buildKeywordProfile({project = {}, intent = '', reports = [], fitAssessments = {}, now} = {}) {
+function normalizeListingStrategy(strategy) {
+  if (strategy == null) return null;
+  if (typeof strategy !== 'object' || Array.isArray(strategy)) {
+    fail('INVALID_LISTING_STRATEGY', 'Listing strategy must be an object.');
+  }
+  const normalized = {};
+  for (const field of ['target_customers', 'use_contexts', 'purchase_motivations', 'benefit_order']) {
+    const values = strategy[field] ?? [];
+    if (!Array.isArray(values) || values.some(value => typeof value !== 'string')) {
+      fail('INVALID_LISTING_STRATEGY', `Listing strategy ${field} must be an array of strings.`);
+    }
+    normalized[field] = [...new Set(values.map(value => value.trim()).filter(Boolean))];
+  }
+  return normalized;
+}
+
+export function buildKeywordProfile({
+  project = {}, intent = '', reports = [], fitAssessments = {}, listingStrategy = null, now
+} = {}) {
   const evaluated = assessedEvidence(mergeKeywordEvidence(reports), fitAssessments).sort(compareEvidence);
   const eligible = evaluated.filter(item => item.fit === 'exact' || item.fit === 'high');
   const core = eligible.slice(0, 3);
@@ -134,9 +163,11 @@ export function buildKeywordProfile({project = {}, intent = '', reports = [], fi
     normalized_intent: normalizeKeywordPhrase(intent),
     intent_slug: slug(intent),
     product_facts: {...(project.product_facts ?? {})},
+    ...(project.keyword_fact_fields?.length ? {keyword_fact_fields: [...project.keyword_fact_fields]} : {}),
     analysis_scope: analysisScopes.length === 1 ? analysisScopes[0] : 'mixed_partial',
     scope_provenance: scopeProvenances.length === 1 ? scopeProvenances[0] : 'mixed',
     market_size_complete: false,
+    ...(listingStrategy == null ? {} : {listing_strategy: normalizeListingStrategy(listingStrategy)}),
     reports: reports.map(report => ({
       report_type: report.report_type,
       source: {...report.source},

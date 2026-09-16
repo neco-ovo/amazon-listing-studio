@@ -100,6 +100,12 @@ test('applies product fit before deterministic evidence ordering', () => {
     intent: 'slow down kids at play warning sign',
     reports: [reverseReport, miningReport],
     fitAssessments: assessments,
+    listingStrategy: {
+      target_customers: ['homeowners', 'property managers'],
+      use_contexts: ['driveways', 'residential roads'],
+      purchase_motivations: ['encourage drivers to slow down'],
+      benefit_order: ['clear warning visibility', 'outdoor durability']
+    },
     now: '2026-09-13T00:00:00.000Z'
   });
   assert.equal(profile.groups.core[0].phrase, 'Slow Down Kids at Play Sign');
@@ -114,6 +120,8 @@ test('applies product fit before deterministic evidence ordering', () => {
   assert.deepEqual(profile.advertising.cautious_tests, profile.groups.backend.map(item => item.phrase));
   assert.deepEqual(profile.advertising.negative_candidates, ['vinyl kids decal']);
   assert.doesNotMatch(JSON.stringify(profile.advertising), /bid|budget|forecast|profit/i);
+  assert.deepEqual(profile.listing_strategy.target_customers, ['homeowners', 'property managers']);
+  assert.deepEqual(profile.listing_strategy.benefit_order, ['clear warning visibility', 'outdoor durability']);
 });
 
 test('records mixed profile-level scope provenance', () => {
@@ -123,6 +131,13 @@ test('records mixed profile-level scope provenance', () => {
     project: {}, intent: 'sign', reports: [mixedMining, mixedReverse], fitAssessments: assessments
   });
   assert.equal(profile.scope_provenance, 'mixed');
+});
+
+test('preserves explicit keyword fact dependencies in built profiles', () => {
+  const profile = buildKeywordProfile({
+    project: {keyword_fact_fields: ['included_components']}, intent: 'sign', reports: [], fitAssessments: {}
+  });
+  assert.deepEqual(profile.keyword_fact_fields, ['included_components']);
 });
 
 test('requires one fit assessment for every merged phrase', () => {

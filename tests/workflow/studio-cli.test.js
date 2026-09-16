@@ -137,7 +137,14 @@ test('analyze-keywords parses once and writes project and optional reusable prof
       ],
       fit_assessments: {
         'slow down kids at play sign': {fit: 'exact', reason: 'exact product intent', reason_code: 'direct_match'}
-      }
+      },
+      listing_strategy: {
+        target_customers: ['homeowners'],
+        use_contexts: ['driveways'],
+        purchase_motivations: ['encourage drivers to slow down'],
+        benefit_order: ['clear warning visibility', 'outdoor durability']
+      },
+      keyword_fact_fields: ['included_components']
     }));
 
     const result = await runCli([
@@ -152,6 +159,8 @@ test('analyze-keywords parses once and writes project and optional reusable prof
     assert.equal(result.result.market_size_complete, false);
     const projectProfile = JSON.parse(await readFile(path.join(projectDir, 'references', 'keyword-profile.json'), 'utf8'));
     assert.equal(projectProfile.scope_provenance, 'user_declared');
+    assert.deepEqual(projectProfile.listing_strategy.target_customers, ['homeowners']);
+    assert.deepEqual(projectProfile.keyword_fact_fields, ['included_components']);
     const reusableProfile = JSON.parse(await readFile(result.result.cache_path, 'utf8'));
     assert.deepEqual(reusableProfile.groups, projectProfile.groups);
     assert.deepEqual(await readFile(statePath), stateBefore);
@@ -180,6 +189,8 @@ test('analyze-keywords parses once and writes project and optional reusable prof
     assert.equal(refreshedProfile.reports.length, 2);
     assert.equal(refreshedProfile.reports.find(item => item.report_type === 'reverse_asin').source.export_date, '2026-09-13');
     assert.equal(refreshedProfile.reports.find(item => item.report_type === 'keyword_mining').source.export_date, '2026-09-12');
+    assert.deepEqual(refreshedProfile.listing_strategy, projectProfile.listing_strategy);
+    assert.deepEqual(refreshedProfile.keyword_fact_fields, ['included_components']);
   });
 });
 

@@ -86,11 +86,15 @@ function parseVerifiedMembers({manifest, matrix, archive}) {
 
 export async function readVerifiedDelivery({deliveryDir, expectedScope, verifySingle, verifyVariation}) {
   const manifestPath = path.join(path.resolve(deliveryDir), 'delivery-manifest.json');
-  const manifest = JSON.parse(await readFile(manifestPath, 'utf8'));
+  const [manifestBytes, archiveBytes] = await Promise.all([
+    readFile(manifestPath), readFile(path.join(path.resolve(deliveryDir), 'delivery.zip'))
+  ]);
+  const manifest = JSON.parse(manifestBytes.toString('utf8'));
+  const verificationInput = {deliveryDir, expectedScope, manifestBytes, archiveBytes};
   const verified = manifest.delivery_kind === 'variation'
-    ? await verifyVariation({deliveryDir, expectedScope})
-    : await verifySingle({deliveryDir, expectedScope});
-  const archive = unzipSync(await readFile(path.join(path.resolve(deliveryDir), 'delivery.zip')));
+    ? await verifyVariation(verificationInput)
+    : await verifySingle(verificationInput);
+  const archive = unzipSync(archiveBytes);
   return parseVerifiedMembers({manifest: verified.manifest ?? manifest, matrix: verified.matrix, archive});
 }
 

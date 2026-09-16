@@ -210,15 +210,17 @@ async function writeDeliveryOutput({outputDir, manifest, artifacts}) {
   }
 }
 
-export async function verifyDelivery({deliveryDir, expectedScope = null}) {
+export async function verifyDelivery({
+  deliveryDir, expectedScope = null, manifestBytes: suppliedManifestBytes = null, archiveBytes = null
+}) {
   const root = path.resolve(deliveryDir);
-  let manifestBytes;
+  let manifestBytes = suppliedManifestBytes;
   let archive;
   let manifest;
   try {
-    manifestBytes = await readFile(path.join(root, 'delivery-manifest.json'));
+    manifestBytes ??= await readFile(path.join(root, 'delivery-manifest.json'));
     manifest = JSON.parse(manifestBytes.toString('utf8'));
-    archive = unzipSync(await readFile(path.join(root, 'delivery.zip')));
+    archive = unzipSync(archiveBytes ?? await readFile(path.join(root, 'delivery.zip')));
   } catch (cause) {
     const error = invalid('DELIVERY_READ_FAILED', 'Delivery manifest or ZIP cannot be read.');
     error.cause = cause;
@@ -230,6 +232,14 @@ export async function verifyDelivery({deliveryDir, expectedScope = null}) {
   const scope = expectedScope ?? manifest.approval_scope;
   if (!scope || !scope.project_id || !scope.marketplace || !scope.product_type || manifest.listing_version === null) {
     throw invalid('MANIFEST_INVALID', 'Delivery manifest approval scope is incomplete.');
+  }
+  if (expectedScope && (
+    manifest.approval_id !== expectedScope.id
+    || manifest.product_master_version !== expectedScope.product_master_version
+    || manifest.listing_version !== expectedScope.listing_version
+    || ['project_id', 'marketplace', 'product_type'].some(field => manifest.approval_scope?.[field] !== expectedScope[field])
+  )) {
+    throw invalid('APPROVAL_SCOPE_MISMATCH', 'Delivery manifest does not match the supplied final approval.');
   }
   const archivePaths = manifest.artifacts.map(item => item.archive_path ?? item.relative_path);
   if (archivePaths.some(item => !isSafeArchivePath(item)) || new Set(archivePaths).size !== archivePaths.length) {

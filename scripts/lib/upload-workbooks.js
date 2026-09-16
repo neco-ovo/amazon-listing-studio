@@ -87,7 +87,8 @@ export function inspectUploadTemplate(templateBytes, seed) {
   const validations = {};
   const unsupported_validations = [];
   for (const match of xml.matchAll(/<dataValidation\b[^>]*sqref="([^"]+)"[^>]*>[\s\S]*?<formula1>([\s\S]*?)<\/formula1>[\s\S]*?<\/dataValidation>/g)) {
-    const column = /^[A-Z]+/.exec(match[1])?.[0];
+    const column = match[1].trim().split(/\s+/).flatMap(rangeColumns)
+      .find(item => validationField(item) ?? columns[item]);
     const field = validationField(column) ?? columns[column];
     if (!field) continue;
     const values = resolveList(match[2], archive, parts);
@@ -124,6 +125,9 @@ function setCell(xml, reference, value) {
   const cell = `<c r="${reference}"${style ? ` s="${style}"` : ''} t="inlineStr"><is><t>${encodeXml(value)}</t></is></c>`;
   if (existing) return xml.replace(cellPattern, cell);
   const rowNumber = /\d+$/.exec(reference)[0];
+  if (!new RegExp(`<row\\b[^>]*r="${rowNumber}"[^>]*>`).test(xml)) {
+    return xml.replace('</sheetData>', `<row r="${rowNumber}">${cell}</row></sheetData>`);
+  }
   return xml.replace(new RegExp(`(<row\\b[^>]*r="${rowNumber}"[^>]*>)`), `$1${cell}`);
 }
 

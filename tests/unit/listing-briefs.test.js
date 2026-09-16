@@ -31,6 +31,11 @@ test('brief requires benefit-led Bullet headings and natural fact synthesis', ()
 
 test('keyword profile supplies bounded Listing and advertising candidates', () => {
   const keywordProfile = {
+    listing_strategy: {
+      target_customers: ['homeowners'], use_contexts: ['driveways'],
+      purchase_motivations: ['encourage drivers to slow down'],
+      benefit_order: ['clear warning visibility', 'outdoor durability']
+    },
     groups: {
       core: [{phrase: 'slow down kids at play sign'}, {phrase: 'kids at play sign'}],
       supporting: [{phrase: 'children playing sign'}],
@@ -48,6 +53,7 @@ test('keyword profile supplies bounded Listing and advertising candidates', () =
   assert.deepEqual(brief.fields.backend_search_terms.candidates, ['slow down signs']);
   assert.deepEqual(brief.advertising.exact_candidates, ['slow down kids at play sign']);
   assert.deepEqual(brief.keyword_profile, keywordProfile);
+  assert.deepEqual(brief.listing_strategy, keywordProfile.listing_strategy);
   assert.ok(brief.self_audit.checks.includes('excluded_keywords_absent'));
   assert.ok(brief.self_audit.checks.includes('frontend_backend_keyword_deduplication'));
   assert.ok(brief.self_audit.checks.includes('keyword_product_fit_and_naturalness'));
@@ -65,10 +71,22 @@ test('profile exclusions cannot re-enter through legacy market language', () => 
   assert.deepEqual(brief.fields.backend_search_terms.candidates, []);
 });
 
-test('brief rejects a saved profile after publishable product facts change', () => {
-  const keywordProfile = {product_facts: {material: {value: 'Aluminum'}}, groups: {core: [], supporting: [], backend: [], excluded: []}};
+test('brief ignores unrelated fact changes but rejects keyword-identity changes', () => {
+  const groups = {core: [], supporting: [], backend: [], excluded: []};
+  assert.doesNotThrow(() => compileListingBrief({
+    facts: {item_weight: {value: '0.13 kg', publishable: true}},
+    keywordProfile: {product_facts: {item_weight: '0.2 kg'}, groups}
+  }));
+  const keywordProfile = {product_facts: {purpose: 'warn drivers'}, groups};
   assert.throws(
-    () => compileListingBrief({facts: {material: {value: 'Vinyl', publishable: true}}, keywordProfile}),
+    () => compileListingBrief({facts: {purpose: {value: 'identify rooms', publishable: true}}, keywordProfile}),
+    error => error.code === 'STALE_KEYWORD_PROFILE'
+  );
+  assert.throws(
+    () => compileListingBrief({
+      facts: {included_components: {value: ['sign'], publishable: true}},
+      keywordProfile: {...keywordProfile, keyword_fact_fields: ['included_components'], product_facts: {included_components: ['sign', 'screws']}}
+    }),
     error => error.code === 'STALE_KEYWORD_PROFILE'
   );
 });

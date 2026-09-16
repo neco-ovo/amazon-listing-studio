@@ -43,6 +43,7 @@ import {
 import {
   buildKeywordProfile,
   isCompatibleKeywordProfile,
+  keywordFactConflict,
   mergeKeywordProfileReports,
   normalizeKeywordPhrase,
   projectKeywordProfilePath,
@@ -264,16 +265,6 @@ async function withFileLock(lockPath, operation) {
   }
 }
 
-const DEFAULT_KEYWORD_FACT_FIELDS = ['purpose', 'warning_semantics', 'pattern', 'core_function'];
-
-function keywordFactConflict(profile, currentFacts) {
-  const fields = profile?.keyword_fact_fields?.length
-    ? profile.keyword_fact_fields
-    : DEFAULT_KEYWORD_FACT_FIELDS;
-  const priorFacts = profile?.product_facts ?? {};
-  return fields.some(field => JSON.stringify(priorFacts[field]) !== JSON.stringify(currentFacts[field]));
-}
-
 function assertCurrentKeywordProfile(profile, state) {
   if (!profile) return;
   const currentFacts = publishableFacts(state);
@@ -409,11 +400,13 @@ async function analyzeKeywords(options, dependencies = {}) {
       marketplace: state.project.marketplace,
       locale: state.project.language,
       product_type: state.project.product_type,
-      product_facts: productFacts
+      product_facts: productFacts,
+      keyword_fact_fields: input.keyword_fact_fields ?? existing?.keyword_fact_fields
     },
     intent: input.intent,
     reports,
     fitAssessments: {...inheritedAssessments, ...suppliedAssessments},
+    listingStrategy: input.listing_strategy ?? existing?.listing_strategy,
     now: input.now
   });
   if (existing?.generated_at) profile.generated_at = existing.generated_at;

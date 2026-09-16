@@ -1,3 +1,5 @@
+import {keywordFactConflict} from './keyword-profiles.js';
+
 export function compileListingBrief({
   facts = {}, marketLanguage = [], keywordProfile, rules = {}, marketingExpressions = []
 } = {}) {
@@ -62,15 +64,12 @@ export function compileListingBrief({
     }
   };
   if (!keywordProfile) return brief;
-  if (keywordProfile.product_facts) {
-    const currentFacts = Object.fromEntries(Object.entries(publishableFacts).map(([id, fact]) => [id, fact.value]));
-    const expectedFacts = Object.fromEntries(Object.entries(keywordProfile.product_facts).map(([id, fact]) => [id, fact?.value ?? fact]));
-    if (JSON.stringify(currentFacts) !== JSON.stringify(expectedFacts)) {
-      throw Object.assign(new Error('Keyword profile no longer matches current publishable facts.'), {code: 'STALE_KEYWORD_PROFILE'});
-    }
+  if (keywordProfile.product_facts && keywordFactConflict(keywordProfile, publishableFacts)) {
+    throw Object.assign(new Error('Keyword profile no longer matches current publishable facts.'), {code: 'STALE_KEYWORD_PROFILE'});
   }
   const phrases = group => (keywordProfile.groups?.[group] ?? []).map(item => item.phrase).filter(Boolean);
   brief.keyword_profile = structuredClone(keywordProfile);
+  if (keywordProfile.listing_strategy) brief.listing_strategy = structuredClone(keywordProfile.listing_strategy);
   brief.keyword_groups = {
     core: phrases('core'),
     supporting: phrases('supporting'),

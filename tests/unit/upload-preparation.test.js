@@ -86,6 +86,24 @@ test('reads Listing rows from the verified delivery instead of mutable project s
   });
 });
 
+test('parses the exact delivery bytes supplied to verification', async () => {
+  await withTempWorkspace(async root => {
+    const deliveryDir = await variationDelivery(root);
+    const delivery = await readVerifiedDelivery({
+      deliveryDir,
+      expectedScope: {id: 'final-v2'},
+      verifyVariation: async ({manifestBytes, archiveBytes}) => {
+        assert.ok(Buffer.isBuffer(manifestBytes));
+        assert.ok(Buffer.isBuffer(archiveBytes));
+        await writeFile(path.join(deliveryDir, 'delivery.zip'), 'replaced after verification started');
+        return {ok: true, manifest, matrix};
+      },
+      verifySingle: async () => assert.fail('single verifier should not run')
+    });
+    assert.equal(delivery.listings.children['RWB-8X12'].title, 'Delivered title');
+  });
+});
+
 test('projects repeated gallery roles with stable unique delivered object keys', async () => {
   await withTempWorkspace(async root => {
     const deliveryDir = await variationDelivery(root);

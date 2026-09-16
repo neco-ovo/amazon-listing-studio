@@ -340,7 +340,7 @@ export function validateVariationImageObservation({brief, observation = {}} = {}
   }
 
   for (const finding of observation.inspection_findings ?? []) {
-    if (finding?.code === 'VISIBLE_DISTORTION') {
+    if (finding?.code === 'VISIBLE_DISTORTION' && finding.severity !== 'review' && finding.semantic !== false) {
       failures.push({code: 'VISIBLE_DISTORTION', ...structuredClone(finding)});
     }
   }

@@ -72,6 +72,23 @@ test('builds an integrity manifest and ZIP with approved artifacts only', async 
   });
 });
 
+test('verifyDelivery binds the manifest to the supplied final approval versions', async () => {
+  await withTempWorkspace(async root => {
+    const projectDir = await mutableProject(root);
+    const deliveryDir = path.join(root, 'delivery');
+    const approval = await readApproval(projectDir);
+    await buildDelivery({projectDir, outputDir: deliveryDir, approval});
+    await assert.rejects(
+      verifyDelivery({deliveryDir, expectedScope: {...approval, id: 'newer-final'}}),
+      error => error.details?.reason === 'APPROVAL_SCOPE_MISMATCH'
+    );
+    await assert.rejects(
+      verifyDelivery({deliveryDir, expectedScope: {...approval, listing_version: approval.listing_version + 1}}),
+      error => error.details?.reason === 'APPROVAL_SCOPE_MISMATCH'
+    );
+  });
+});
+
 test('validateApprovalScope rejects stale, unapproved, mismatched, and ambiguous scope', async t => {
   const state = await readState(fixtureRoot);
   const approval = await readApproval(fixtureRoot);

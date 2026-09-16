@@ -63,3 +63,23 @@ test('resolves a defined name to hidden-sheet cells and defers dynamic validatio
   assert.deepEqual(inspection.validations.record_action.values, ['Create or Replace (Full Update)', 'Edit (Partial Update)', 'Delete']);
   assert.equal(inspection.unsupported_validations[0].formula, 'INDIRECT($B7&"variation_theme1.name")');
 });
+
+test('checks every area in a multi-area validation range', () => {
+  const inspection = inspectUploadTemplate(uploadTemplate({
+    dynamicValidation: 'INDIRECT($B7&"variation_theme1.name")',
+    dynamicValidationRange: 'HZ6:HZ20 T6:T20'
+  }), signageSeed);
+  assert.equal(inspection.unsupported_validations[0].cells, 'HZ6:HZ20 T6:T20');
+});
+
+test('creates missing worksheet rows before writing additional Children', () => {
+  const template = uploadTemplate();
+  const inspection = inspectUploadTemplate(template, signageSeed);
+  const output = writeUploadWorkbook({
+    templateBytes: template,
+    inspection,
+    rows: [{seller_sku: 'CHILD-1'}, {seller_sku: 'CHILD-2'}]
+  });
+  const sheet = strFromU8(unzipSync(output)[inspection.worksheet.path]);
+  assert.match(sheet, /<row r="7">[\s\S]*r="A7"[\s\S]*CHILD-2/);
+});

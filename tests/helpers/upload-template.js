@@ -12,7 +12,7 @@ export function uploadTemplate(options = {}) {
     ['F6:F20', `"${themes.join(',')}"`],
     ['GS6:GS20', `"${shipping.join(',')}"`]
   ];
-  if (options.dynamicValidation) validations.push(['AW6:AW20', options.dynamicValidation]);
+  if (options.dynamicValidation) validations.push([options.dynamicValidationRange ?? 'AW6:AW20', options.dynamicValidation]);
   const validationXml = validations.map(([sqref, formula]) => `<dataValidation type="list" sqref="${sqref}"><formula1>${esc(formula)}</formula1></dataValidation>`).join('');
   const condition = options.conditionalFormula ?? '$FO6="AMAZON_NA"';
   const worksheet = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
