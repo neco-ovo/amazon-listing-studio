@@ -69,7 +69,7 @@ test('single-field revision calls only patch, changed validation, render, and wr
 
 test('single-field revision leaves the saved keyword profile untouched', async () => {
   await withTempWorkspace(async projectDir => {
-    const profilePath = path.join(projectDir, 'references', 'keyword-profile.json');
+    const profilePath = path.join(projectDir, '.studio', 'sources', 'keyword-profile.json');
     await mkdir(path.dirname(profilePath), {recursive: true});
     await writeFile(profilePath, '{"groups":{"core":[]}}\n');
     const beforeBytes = await readFile(profilePath);
@@ -137,8 +137,9 @@ test('Listing approval blocks content excluded by the saved keyword profile', as
     await mkdir(path.join(projectDir, '.studio'), {recursive: true});
     await writeFile(path.join(projectDir, '.studio', 'state.json'), `${JSON.stringify(state, null, 2)}\n`);
     await writeFile(path.join(projectDir, 'project.md'), renderProjectSummary(state));
-    await mkdir(path.join(projectDir, 'references'), {recursive: true});
-    await writeFile(path.join(projectDir, 'references', 'keyword-profile.json'), JSON.stringify({groups: {excluded: [{phrase: 'vinyl kids decal'}]}}));
+    const profilePath = path.join(projectDir, '.studio', 'sources', 'keyword-profile.json');
+    await mkdir(path.dirname(profilePath), {recursive: true});
+    await writeFile(profilePath, JSON.stringify({groups: {excluded: [{phrase: 'vinyl kids decal'}]}}));
     await assert.rejects(
       () => runApprove({projectDir, artifactType: 'listing'}),
       error => error.code === 'BLOCKING_INPUT'

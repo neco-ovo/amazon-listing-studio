@@ -189,7 +189,7 @@ test('analyze-keywords parses once and writes project and optional reusable prof
     assert.equal(result.result.analysis_passes, 1);
     assert.equal(result.result.web_research_used, false);
     assert.equal(result.result.market_size_complete, false);
-    const projectProfile = JSON.parse(await readFile(path.join(projectDir, 'references', 'keyword-profile.json'), 'utf8'));
+    const projectProfile = JSON.parse(await readFile(path.join(projectDir, '.studio', 'sources', 'keyword-profile.json'), 'utf8'));
     assert.equal(projectProfile.scope_provenance, 'user_declared');
     assert.deepEqual(projectProfile.listing_strategy.target_customers, ['homeowners']);
     assert.deepEqual(projectProfile.keyword_fact_fields, ['included_components']);
@@ -217,7 +217,7 @@ test('analyze-keywords parses once and writes project and optional reusable prof
       'analyze-keywords', '--project-dir', projectDir, '--input', refreshManifest
     ]);
     assert.equal(refreshed.ok, true);
-    const refreshedProfile = JSON.parse(await readFile(path.join(projectDir, 'references', 'keyword-profile.json'), 'utf8'));
+    const refreshedProfile = JSON.parse(await readFile(path.join(projectDir, '.studio', 'sources', 'keyword-profile.json'), 'utf8'));
     assert.equal(refreshedProfile.reports.length, 2);
     assert.equal(refreshedProfile.reports.find(item => item.report_type === 'reverse_asin').source.export_date, '2026-09-13');
     assert.equal(refreshedProfile.reports.find(item => item.report_type === 'keyword_mining').source.export_date, '2026-09-12');
@@ -237,7 +237,7 @@ test('analyze-keywords parses once and writes project and optional reusable prof
     }));
     const changed = await runCli(['analyze-keywords', '--project-dir', projectDir, '--input', changedManifest]);
     assert.equal(changed.ok, true);
-    const changedProfile = JSON.parse(await readFile(path.join(projectDir, 'references', 'keyword-profile.json'), 'utf8'));
+    const changedProfile = JSON.parse(await readFile(path.join(projectDir, '.studio', 'sources', 'keyword-profile.json'), 'utf8'));
     assert.deepEqual(changedProfile.listing_strategy, projectProfile.listing_strategy);
     assert.deepEqual(changedProfile.keyword_fact_fields, ['included_components']);
 
@@ -251,7 +251,7 @@ test('analyze-keywords parses once and writes project and optional reusable prof
     }));
     const newIntent = await runCli(['analyze-keywords', '--project-dir', projectDir, '--input', newIntentManifest]);
     assert.equal(newIntent.ok, true);
-    const newIntentProfile = JSON.parse(await readFile(path.join(projectDir, 'references', 'keyword-profile.json'), 'utf8'));
+    const newIntentProfile = JSON.parse(await readFile(path.join(projectDir, '.studio', 'sources', 'keyword-profile.json'), 'utf8'));
     assert.equal(newIntentProfile.listing_strategy, undefined);
     assert.equal(newIntentProfile.keyword_fact_fields, undefined);
   });
@@ -278,7 +278,7 @@ test('analyze-keywords never overwrites an incompatible cache slug collision', a
     assert.equal(result.result.cache_path, null);
     assert.ok(result.result.warnings.some(item => item.code === 'KEYWORD_CACHE_COLLISION'));
     assert.equal(await readFile(cachePath, 'utf8'), sentinel);
-    const profile = JSON.parse(await readFile(path.join(projectDir, 'references', 'keyword-profile.json'), 'utf8'));
+    const profile = JSON.parse(await readFile(path.join(projectDir, '.studio', 'sources', 'keyword-profile.json'), 'utf8'));
     assert.equal(profile.normalized_intent, '警告 sign');
   });
 });
@@ -324,7 +324,7 @@ test('analyze-keywords keeps the project profile when optional caching fails', a
     ], {keywordDependencies: {writeCache: async () => { throw new Error('cache unavailable'); }}});
     assert.equal(result.ok, true);
     assert.deepEqual(result.result.warnings, [{code: 'KEYWORD_CACHE_NOT_WRITTEN'}]);
-    await access(path.join(projectDir, 'references', 'keyword-profile.json'));
+    await access(path.join(projectDir, '.studio', 'sources', 'keyword-profile.json'));
   });
 });
 
@@ -342,7 +342,7 @@ test('analyze-keywords rejects unsupported input without creating a profile', as
     const result = await runCli(['analyze-keywords', '--project-dir', projectDir, '--input', manifest]);
     assert.equal(result.ok, false);
     assert.equal(result.code, 'UNSUPPORTED_KEYWORD_WORKBOOK');
-    await assert.rejects(() => access(path.join(projectDir, 'references', 'keyword-profile.json')));
+    await assert.rejects(() => access(path.join(projectDir, '.studio', 'sources', 'keyword-profile.json')));
   });
 });
 
@@ -375,7 +375,7 @@ test('analyze-keywords rejects conflicting duplicate identities in an initial ba
     const result = await runCli(['analyze-keywords', '--project-dir', projectDir, '--input', manifest]);
     assert.equal(result.ok, false);
     assert.equal(result.code, 'UNRESOLVED_KEYWORD_IMPORT');
-    await assert.rejects(() => access(path.join(projectDir, 'references', 'keyword-profile.json')));
+    await assert.rejects(() => access(path.join(projectDir, '.studio', 'sources', 'keyword-profile.json')));
   });
 });
 
@@ -579,7 +579,7 @@ test('analyze-keywords reuses shared evidence across unrelated product fact chan
     const secondManifest = path.join(root, 'second.json');
     await writeFile(secondManifest, JSON.stringify({intent: 'safety sign', reports: [{path: reverse, reference_asin: 'B0TEST', export_date: '2026-09-13'}], fit_assessments: {'safety sign': {fit: 'exact', reason: 'match', reason_code: 'direct_match'}}}));
     await runCli(['analyze-keywords', '--project-dir', second, '--input', secondManifest, '--library-dir', libraryDir]);
-    const profile = JSON.parse(await readFile(path.join(second, 'references', 'keyword-profile.json'), 'utf8'));
+    const profile = JSON.parse(await readFile(path.join(second, '.studio', 'sources', 'keyword-profile.json'), 'utf8'));
     assert.equal(profile.reports.length, 2);
   });
 });
