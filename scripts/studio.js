@@ -13,6 +13,7 @@ import {
 import { approveArtifact, approveListingDraft, updateProject } from './lib/transactions.js';
 import { migrateLegacyProject } from './lib/migration.js';
 import {cleanupAfterApproval} from './lib/project-cleanup.js';
+import {compactProject} from './lib/project-compactor.js';
 import { validateMainImage } from './lib/images.js';
 import { renderListing, reviseDraft } from './lib/listing-drafts.js';
 import {keywordProfileErrors} from './lib/listing.js';
@@ -57,10 +58,17 @@ import {
 function parseArgs(argv) {
   const [command, ...rest] = argv;
   const options = {};
-  for (let index = 0; index < rest.length; index += 2) {
+  for (let index = 0; index < rest.length;) {
     const flag = rest[index];
-    if (!flag?.startsWith('--') || rest[index + 1] === undefined) throw new Error(`Invalid argument: ${flag ?? ''}`);
-    options[flag.slice(2)] = rest[index + 1];
+    if (!flag?.startsWith('--')) throw new Error(`Invalid argument: ${flag ?? ''}`);
+    if (flag === '--apply') {
+      options.apply = true;
+      index += 1;
+    } else {
+      if (rest[index + 1] === undefined) throw new Error(`Invalid argument: ${flag}`);
+      options[flag.slice(2)] = rest[index + 1];
+      index += 2;
+    }
   }
   return {command, options};
 }
@@ -1063,6 +1071,9 @@ export async function runCli(argv, {
     let result;
     let routeInput = null;
     if (command === 'init') result = await initProject(options);
+    else if (command === 'compact-project') result = await compactProject(
+      path.resolve(requireOption(options, 'project-dir')), {apply: options.apply === true}
+    );
     else if (command === 'learn-category') result = await learnCategory(options);
     else if (command === 'analyze-keywords') result = await analyzeKeywords(options, keywordDependencies);
     else if (command === 'promote-variation') {

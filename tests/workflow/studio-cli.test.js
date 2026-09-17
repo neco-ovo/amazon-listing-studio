@@ -70,6 +70,29 @@ test('init preserves an approved design in a pre-existing product directory', as
   });
 });
 
+test('compact-project previews by default and applies only with --apply', async () => {
+  await withTempWorkspace(async root => {
+    const projectDir = path.join(root, 'legacy-sign');
+    const state = (await runCli([
+      'init', '--project-dir', path.join(root, 'source'), '--project-id', 'legacy-sign',
+      '--product-name', 'Legacy Sign', '--product-type', 'METAL_SIGN'
+    ])).result;
+    const sourceState = JSON.parse(await readFile(path.join(root, 'source', '.studio', 'state.json'), 'utf8'));
+    await mkdir(projectDir);
+    await writeFile(path.join(projectDir, 'state.json'), `${JSON.stringify(sourceState, null, 2)}\n`);
+
+    const preview = await runCli(['compact-project', '--project-dir', projectDir]);
+    assert.equal(preview.ok, true);
+    assert.equal(preview.result.applied, false);
+    await access(path.join(projectDir, 'state.json'));
+
+    const applied = await runCli(['compact-project', '--project-dir', projectDir, '--apply']);
+    assert.equal(applied.ok, true);
+    assert.equal(applied.result.applied, true);
+    await access(path.join(projectDir, '.studio', 'state.json'));
+  });
+});
+
 test('init rejects unsafe slugs and unexpected files in a pre-existing product directory', async () => {
   await withTempWorkspace(async root => {
     const projectsRoot = path.join(root, 'amazon-listing-projects');
