@@ -91,6 +91,9 @@ test('v2 delivery renders the approved Listing and preserves unverified readines
     assert.deepEqual(listing.rules_unverified, ['attributes']);
     assert.equal(listing.upload_ready, false);
     assert.equal(delivery.manifest.artifacts.length, 4);
+    await writeFile(path.join(root, 'delivery', 'obsolete.bin'), 'old');
+    await buildV2Delivery({...project, outputDir: path.join(root, 'delivery')});
+    await assert.rejects(readFile(path.join(root, 'delivery', 'obsolete.bin')), error => error.code === 'ENOENT');
   });
 });
 

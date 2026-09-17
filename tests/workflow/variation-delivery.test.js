@@ -47,7 +47,7 @@ test('finalize dispatches Variation projects and forwards a single Child selecti
     assert.equal(legacyCalls, 0);
     assert.deepEqual(variationInput.childSkus, ['HORSE-12X16']);
     assert.equal(variationInput.projectDir, projectDir);
-    assert.equal(variationInput.outputDir, path.join(projectDir, 'delivery', 'horse-v1'));
+    assert.equal(variationInput.outputDir, path.join(projectDir, 'delivery'));
   });
 });
 

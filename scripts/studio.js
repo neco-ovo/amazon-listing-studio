@@ -1010,17 +1010,11 @@ export async function prepareUpload({
   const checked = uploadFindings({inspection, rules, rows, checkRules: Boolean(rules)});
   const findings = [...hosted.findings, ...checked.findings];
   const diagnostics = [...checked.diagnostics, ...(!rules ? [{code: 'RULES_CHECK_DEFERRED'}] : [])];
-  if (await pathExists(outputDir)) throw Object.assign(new Error('Upload output already exists'), {code: 'OUTPUT_EXISTS'});
-  const stage = `${outputDir}.tmp-${process.pid}-${Date.now()}`;
   const extension = path.extname(templatePath).toLowerCase();
-  const workbookName = `amazon-upload${extension}`;
-  await mkdir(path.dirname(outputDir), {recursive: true});
-  await mkdir(stage, {recursive: false});
+  const workbookName = `upload-template${extension}`;
+  const workbook = writeUploadWorkbook({templateBytes, inspection, rows});
+  inspectUploadTemplate(workbook, seed);
   try {
-    const workbook = writeUploadWorkbook({templateBytes, inspection, rows});
-    const workbookPath = path.join(stage, workbookName);
-    await writeFile(workbookPath, workbook, {flag: 'wx'});
-    inspectUploadTemplate(await readFile(workbookPath), seed);
     const status = findings.length ? 'manual-prep' : 'upload-ready';
     const manifest = {
       delivery_identity: hosted.delivery_identity,
@@ -1032,8 +1026,10 @@ export async function prepareUpload({
       status,
       template: path.basename(templatePath)
     };
-    await writeFile(path.join(stage, 'upload-manifest.json'), `${JSON.stringify(manifest, null, 2)}\n`, {flag: 'wx'});
-    await rename(stage, outputDir);
+    await writeProjectSnapshot(projectDir, state, {publications: [
+      {target: path.join(outputDir, workbookName), content: workbook},
+      {target: path.join(outputDir, 'upload-manifest.json'), content: `${JSON.stringify(manifest, null, 2)}\n`}
+    ]});
     return {
       status,
       workbook_path: path.join(outputDir, workbookName),
@@ -1043,8 +1039,6 @@ export async function prepareUpload({
       rows
     };
   } catch (error) {
-    await unlink(path.join(stage, workbookName)).catch(() => {});
-    await unlink(path.join(stage, 'upload-manifest.json')).catch(() => {});
     throw error;
   }
 }
@@ -1150,7 +1144,7 @@ export async function runCli(argv, {
       });
     } else if (command === 'finalize') {
       const projectDir = path.resolve(requireOption(options, 'project-dir'));
-      const outputDir = projectOutputPath(projectDir, requireOption(options, 'output'), 'Delivery output');
+      const outputDir = projectPaths(projectDir).delivery;
       const state = await readProjectState(projectDir);
       const finalApproval = options.approval
         ? JSON.parse(await readFile(path.resolve(options.approval), 'utf8'))
@@ -1198,12 +1192,13 @@ export async function runCli(argv, {
       }
     } else if (command === 'prepare-upload') {
       const projectDir = path.resolve(requireOption(options, 'project-dir'));
+      const deliveryDir = projectPaths(projectDir).delivery;
       result = await prepareUpload({
         projectDir,
-        deliveryDir: path.resolve(requireOption(options, 'delivery-dir')),
+        deliveryDir,
         templatePath: path.resolve(requireOption(options, 'template')),
         inputPath: path.resolve(requireOption(options, 'input')),
-        outputDir: projectOutputPath(projectDir, requireOption(options, 'output'), 'Upload output'),
+        outputDir: deliveryDir,
         rulesLibrary: path.resolve(requireOption(options, 'rules-library')),
         verifySingle: uploadDependencies.verifySingle ?? verifyV2,
         verifyVariation: uploadDependencies.verifyVariation ?? verifyVariation,

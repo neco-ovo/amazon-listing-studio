@@ -154,7 +154,7 @@ test('public CLI adds a Child, records scoped candidates, approves every Variati
       'finalize', '--project-dir', projectDir, '--output', 'delivery/family-v1'
     ]);
     assert.equal(finalized.ok, true, finalized.message);
-    await access(path.join(projectDir, 'delivery', 'family-v1', 'delivery.zip'));
+    await access(path.join(projectDir, 'delivery', 'delivery.zip'));
   });
 });
 

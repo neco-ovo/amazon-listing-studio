@@ -500,7 +500,7 @@ test('relative finalize output resolves from the product directory', async () =>
     ], {buildV2: async input => { received = input; return {zipPath: 'delivery.zip'}; }});
 
     assert.equal(result.ok, true);
-    assert.equal(received.outputDir, path.join(projectDir, 'delivery', 'final-v1'));
+    assert.equal(received.outputDir, path.join(projectDir, 'delivery'));
   });
 });
 
@@ -514,20 +514,21 @@ test('verify-delivery exposes direct archive verification', async () => {
   assert.equal(received.deliveryDir, path.resolve('D:/fixture-delivery'));
 });
 
-test('finalize rejects a delivery output outside the product root', async () => {
+test('finalize always targets the one current project delivery', async () => {
   await withTempWorkspace(async root => {
     const projectDir = path.join(root, 'product');
     const approvalPath = path.join(projectDir, 'final-approval.json');
     await mkdir(projectDir);
+    await writeState(projectDir, {schema_version: 2, project: {product_id: 'sign-1', marketplace: 'amazon.com', product_type: 'METAL_SIGN'}});
     await writeFile(approvalPath, JSON.stringify({id: 'final-1', finalized: true}));
+    let received;
 
     const result = await runCli([
       'finalize', '--project-dir', projectDir, '--output', path.join(root, 'outside-delivery'), '--approval', approvalPath
-    ], {buildV2: async () => ({zipPath: 'must-not-run.zip'})});
+    ], {buildV2: async input => { received = input; return {zipPath: 'delivery.zip'}; }});
 
-    assert.equal(result.ok, false);
-    assert.equal(result.code, 'BLOCKING_INPUT');
-    assert.match(result.message, /delivery.+product root|outside.+project/i);
+    assert.equal(result.ok, true);
+    assert.equal(received.outputDir, path.join(projectDir, 'delivery'));
   });
 });
 

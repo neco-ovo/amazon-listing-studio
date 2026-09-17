@@ -7,6 +7,7 @@ import test from 'node:test';
 import {strToU8, zipSync} from 'fflate';
 
 import {runCli} from '../../scripts/studio.js';
+import {createProjectState} from '../../scripts/lib/project-state.js';
 import {uploadTemplate} from '../helpers/upload-template.js';
 
 async function fixture() {
@@ -21,13 +22,18 @@ async function fixture() {
     project_id: 'slow-kids-pets', marketplace: 'amazon.com', product_type: 'SIGNAGE',
     product_master_version: 1, listing_version: 1, artifact_ids: ['main']
   };
+  const state = createProjectState({
+    projectId: 'slow-kids-pets', marketplace: 'amazon.com', language: 'en-US', productType: 'SIGNAGE'
+  });
+  state.project.mode = 'single_product';
+  state.product_master = {version: 1, status: 'locked', approved_main_id: 'main'};
+  state.gallery.plan = [{id: 'main', kind: 'main', status: 'approved'}];
+  state.gallery.assets.main = {id: 'main', kind: 'main', status: 'approved', path: 'assets/main.png'};
+  state.gallery.selected = ['main'];
+  state.listing.approved = [{id: 'listing-v1', version: 1, status: 'approved'}];
+  state.approvals.push(approval);
   await mkdir(path.join(projectDir, '.studio'), {recursive: true});
-  await writeFile(path.join(projectDir, '.studio', 'state.json'), JSON.stringify({
-    schema_version: 2,
-    project: {mode: 'single_product', product_id: 'slow-kids-pets', marketplace: 'amazon.com', product_type: 'SIGNAGE'},
-    product_master: {version: 1}, gallery: {selected: ['main']},
-    listing: {approved: [{version: 1}]}, approvals: [approval]
-  }));
+  await writeFile(path.join(projectDir, '.studio', 'state.json'), JSON.stringify(state));
   const manifest = {
     approval_id: 'final-1', listing_version: 1, marketplace: 'amazon.com', product_type: 'SIGNAGE',
     artifacts: [{archive_path: 'images/main.png', media_type: 'image/png'}]
@@ -69,7 +75,7 @@ test('returns one hosting request without creating the output directory', async 
   await assert.rejects(access(path.join(item.projectDir, 'outputs/upload-1')));
 });
 
-test('writes a preserved workbook once exact hosted URLs arrive and never overwrites it', async () => {
+test('atomically replaces the one current upload workbook', async () => {
   const item = await fixture();
   await writeFile(item.inputPath, JSON.stringify({
     offer: {record_action: 'Create or Replace (Full Update)'},
@@ -82,8 +88,8 @@ test('writes a preserved workbook once exact hosted URLs arrive and never overwr
   const saved = JSON.parse(await readFile(first.result.manifest_path, 'utf8'));
   assert.deepEqual(Object.keys(saved.image_urls), ['skp-main.png']);
   const second = await runCli(args(item), dependencies(item.manifest));
-  assert.equal(second.ok, false);
-  assert.equal(second.code, 'OUTPUT_EXISTS');
+  assert.equal(second.ok, true);
+  assert.equal(second.result.workbook_path, first.result.workbook_path);
 });
 
 test('unrelated template formulas are diagnostics while mapped formulas block readiness', async () => {

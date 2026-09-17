@@ -1,5 +1,5 @@
 import path from 'node:path';
-import {mkdir, readFile, realpath, rename, unlink, writeFile} from 'node:fs/promises';
+import {access, mkdir, readFile, realpath, rename, rm, unlink, writeFile} from 'node:fs/promises';
 import {isDeepStrictEqual} from 'node:util';
 import {renderProjectSummary} from './project-state.js';
 import {computeCommonFacts} from './variations.js';
@@ -64,6 +64,25 @@ export async function publishApprovedFile(projectDir, sourceRelativePath, destin
   const source = assertProjectPath(projectDir, sourceRelativePath);
   const destination = assertProjectPath(projectDir, destinationRelativePath);
   return {target: destination, content: await readFile(source)};
+}
+
+export async function promoteVerifiedDirectory(stage, destination) {
+  const backup = `${destination}.previous-${process.pid}-${Date.now()}`;
+  let backedUp = false;
+  try {
+    await access(destination);
+    await rename(destination, backup);
+    backedUp = true;
+  } catch (error) {
+    if (error.code !== 'ENOENT') throw error;
+  }
+  try {
+    await rename(stage, destination);
+    if (backedUp) await rm(backup, {recursive: true, force: true});
+  } catch (error) {
+    if (backedUp) await rename(backup, destination);
+    throw error;
+  }
 }
 
 function factValue(record) {

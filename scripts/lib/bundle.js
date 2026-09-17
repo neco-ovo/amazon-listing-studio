@@ -1,5 +1,5 @@
 import {createHash, randomUUID} from 'node:crypto';
-import {access, mkdir, mkdtemp, readFile, rename, rm, writeFile} from 'node:fs/promises';
+import {mkdir, mkdtemp, readFile, rm, writeFile} from 'node:fs/promises';
 import path from 'node:path';
 
 import {unzipSync, zipSync} from 'fflate';
@@ -9,7 +9,7 @@ import {DomainError} from './errors.js';
 import {isSchemaAuthorizationCurrent} from './listing.js';
 import {preflightListingScope} from './listing-audit.js';
 import {renderListing} from './listing-drafts.js';
-import {readProjectState} from './project-layout.js';
+import {promoteVerifiedDirectory, readProjectState} from './project-layout.js';
 
 function invalid(reason, message, details = {}) {
   return new DomainError('BUNDLE_INVALID', message, {reason, ...details});
@@ -171,15 +171,6 @@ async function listingArtifact(projectDir, listing, kind) {
   };
 }
 
-async function outputExists(outputDir) {
-  try {
-    await access(outputDir);
-    return true;
-  } catch {
-    return false;
-  }
-}
-
 async function writeDeliveryOutput({outputDir, manifest, artifacts}) {
   const manifestBytes = Buffer.from(`${JSON.stringify(manifest, null, 2)}\n`);
   const archiveEntries = Object.fromEntries(artifacts.map(artifact => [artifact.relative_path, artifact.bytes]));
@@ -189,7 +180,6 @@ async function writeDeliveryOutput({outputDir, manifest, artifacts}) {
   const absoluteOutput = path.resolve(outputDir);
   const outputParent = path.dirname(absoluteOutput);
   await mkdir(outputParent, {recursive: true});
-  if (await outputExists(absoluteOutput)) throw invalid('OUTPUT_EXISTS', 'Delivery output path already exists.', {outputDir: absoluteOutput});
   const stage = await mkdtemp(path.join(outputParent, `.${path.basename(absoluteOutput)}-staging-`));
   try {
     const manifestPath = path.join(stage, 'delivery-manifest.json');
@@ -197,7 +187,7 @@ async function writeDeliveryOutput({outputDir, manifest, artifacts}) {
     await writeFile(manifestPath, manifestBytes);
     await writeFile(zipPath, archiveBytes);
     const verification = await verifyDelivery({deliveryDir: stage});
-    await rename(stage, absoluteOutput);
+    await promoteVerifiedDirectory(stage, absoluteOutput);
     return {
       outputDir: absoluteOutput,
       manifest,
