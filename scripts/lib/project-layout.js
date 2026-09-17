@@ -187,8 +187,9 @@ export async function readProjectState(projectDir) {
   return JSON.parse(await readFile(projectPaths(projectDir).state, 'utf8'));
 }
 
-export async function writeProjectSnapshot(projectDir, state, {publications = []} = {}) {
+export async function writeProjectSnapshot(projectDir, state, {publications = [], operations = {}} = {}) {
   const paths = projectPaths(projectDir);
+  const move = operations.rename ?? rename;
   const nonce = `${process.pid}-${Date.now()}`;
   const productText = `${JSON.stringify(buildProductDocument(state), null, 2)}\n`;
   const history = [];
@@ -235,29 +236,40 @@ export async function writeProjectSnapshot(projectDir, state, {publications = []
     await mkdir(path.dirname(file.target), {recursive: true});
     await writeFile(file.temporary, file.content, {encoding: 'utf8', flag: 'wx'});
   }
+  let committed = false;
   try {
     for (const file of files) {
       try {
-        await rename(file.target, file.backup);
+        await move(file.target, file.backup);
         file.backedUp = true;
       } catch (error) {
         if (error.code !== 'ENOENT') throw error;
       }
     }
     for (const file of files) {
-      await rename(file.temporary, file.target);
+      await move(file.temporary, file.target);
       file.installed = true;
     }
+    committed = true;
   } catch (error) {
+    let rollbackError = null;
     for (const file of files.toReversed()) {
       if (file.installed) await unlink(file.target).catch(() => {});
-      if (file.backedUp) await rename(file.backup, file.target);
+      if (file.backedUp) {
+        try {
+          await move(file.backup, file.target);
+          file.backedUp = false;
+        } catch (restoreError) {
+          rollbackError ??= restoreError;
+        }
+      }
     }
+    if (rollbackError) throw new AggregateError([error, rollbackError], 'Snapshot failed and a backup could not be restored');
     throw error;
   } finally {
     for (const file of files) {
       await unlink(file.temporary).catch(() => {});
-      await unlink(file.backup).catch(() => {});
+      if (committed) await unlink(file.backup).catch(() => {});
     }
   }
 }

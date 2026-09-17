@@ -1,12 +1,14 @@
 import {access, cp, mkdir, readFile, readdir, rename, rm} from 'node:fs/promises';
+import {createHash} from 'node:crypto';
 import path from 'node:path';
+import sharp from 'sharp';
 import {
   assertProjectPath, buildProductDocument, projectPaths, publishedAssetPath,
   validateProductDocument, writeProjectSnapshot
 } from './project-layout.js';
 import {validateProjectState} from './project-state.js';
 
-const GENERATED = new Set(['node_modules', 'outputs', 'transactions', 'verification']);
+const GENERATED = new Set(['node_modules']);
 
 async function exists(target) {
   try { await access(target); return true; }
@@ -50,10 +52,16 @@ function formalDestinations(state) {
     }
     replacements.set(asset.path.replaceAll('\\', '/'), unique(destination));
   }
-  if (document.listing?.product) replacements.set(document.listing.product.replaceAll('\\', '/'), 'listing/listing.json');
-  if (document.listing?.parent) replacements.set(document.listing.parent.replaceAll('\\', '/'), 'listing/parent.json');
-  for (const [sku, source] of Object.entries(document.listing?.children ?? {})) {
-    replacements.set(source.replaceAll('\\', '/'), `listing/children/${safe(sku)}.json`);
+  const addListing = (listing, directory) => {
+    const approved = listing?.approved?.at(-1);
+    if (approved?.status !== 'approved') return;
+    if (approved.json_path) replacements.set(approved.json_path.replaceAll('\\', '/'), `${directory}/listing.json`);
+    if (approved.markdown_path) replacements.set(approved.markdown_path.replaceAll('\\', '/'), `${directory}/listing.md`);
+  };
+  addListing(state.listing, 'listing');
+  addListing(state.variation?.parent?.listing, 'listing/parent');
+  for (const child of Object.values(state.variation?.children ?? {}).filter(item => item.active !== false)) {
+    addListing(child.listing, `listing/children/${safe(child.sku)}`);
   }
   return replacements;
 }
@@ -87,6 +95,31 @@ async function validateCompactProject(projectDir) {
   if (!stateResult.valid) throw new Error(`Invalid compact state: ${stateResult.errors.join('; ')}`);
   const product = JSON.parse(await readFile(projectPaths(projectDir).product, 'utf8'));
   await validateProductDocument(product, {projectDir});
+  const hash = bytes => createHash('sha256').update(bytes).digest('hex');
+  const records = new Map();
+  const indexRecords = value => {
+    if (!value || typeof value !== 'object') return;
+    if (typeof value.path === 'string') records.set(value.path, value.sha256);
+    if (typeof value.json_path === 'string') records.set(value.json_path, value.json_sha256);
+    if (typeof value.markdown_path === 'string') records.set(value.markdown_path, value.markdown_sha256);
+    for (const child of Object.values(value)) indexRecords(child);
+  };
+  indexRecords(state);
+  const readChecked = async relative => {
+    const bytes = await readFile(assertProjectPath(projectDir, relative));
+    const expected = records.get(relative);
+    if (expected && hash(bytes) !== expected) throw new Error(`Hash mismatch: ${relative}`);
+    return bytes;
+  };
+  for (const asset of product.assets) await sharp(await readChecked(asset.path)).metadata();
+  const listingPaths = [
+    product.listing?.product, product.listing?.parent,
+    ...Object.values(product.listing?.children ?? {})
+  ].filter(Boolean);
+  for (const listingPath of listingPaths) JSON.parse((await readChecked(listingPath)).toString('utf8'));
+  for (const [relative] of records) {
+    if (relative.startsWith('listing/') && relative.endsWith('.md')) await readChecked(relative);
+  }
 }
 
 export async function compactProject(projectDir, {apply = false, operations = {}} = {}) {
@@ -95,6 +128,7 @@ export async function compactProject(projectDir, {apply = false, operations = {}
   if (!apply || plan.already_compact) return {...plan, applied: false};
 
   const move = operations.rename ?? rename;
+  const removeBackup = operations.rm ?? rm;
   const staging = `${root}.compact-staging`;
   const backup = `${root}.compact-backup`;
   if (await exists(staging) || await exists(backup)) throw new Error('Compaction staging or backup already exists');
@@ -126,8 +160,12 @@ export async function compactProject(projectDir, {apply = false, operations = {}
       await move(backup, root);
       throw error;
     }
-    await rm(backup, {recursive: true});
-    return {...plan, applied: true};
+    try {
+      await removeBackup(backup, {recursive: true});
+      return {...plan, applied: true, backup_retained: false};
+    } catch {
+      return {...plan, applied: true, backup_retained: true, backup_path: backup};
+    }
   } catch (error) {
     await rm(staging, {recursive: true, force: true});
     throw error;

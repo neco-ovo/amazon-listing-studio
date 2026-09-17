@@ -6,8 +6,11 @@ import {
   assertProjectPath,
   buildProductDocument,
   projectPaths,
-  validateProductDocument
+  validateProductDocument, writeProjectSnapshot
 } from '../../scripts/lib/project-layout.js';
+import {mkdir, readFile, readdir, rename, writeFile} from 'node:fs/promises';
+import {withTempWorkspace} from '../helpers/temp-workspace.js';
+import {createProjectState} from '../../scripts/lib/project-state.js';
 
 function singleState() {
   return {
@@ -30,6 +33,32 @@ function singleState() {
     }
   };
 }
+
+test('snapshot rollback retains a backup when restoration is blocked', async () => {
+  await withTempWorkspace(async root => {
+    const state = createProjectState({projectId: 'sign-1', productName: 'Sign', productType: 'METAL_SIGN'});
+    await mkdir(path.join(root, '.studio'), {recursive: true});
+    await writeFile(path.join(root, '.studio', 'state.json'), 'prior-state');
+    let restoreBlocked = false;
+    await assert.rejects(writeProjectSnapshot(root, state, {
+      operations: {
+        rename: async (from, to) => {
+          if (from.includes('.tmp-') && to.endsWith('product.json')) throw new Error('injected install failure');
+          if (from.includes('.bak-') && to.endsWith('state.json')) {
+            restoreBlocked = true;
+            throw new Error('locked restore');
+          }
+          return rename(from, to);
+        }
+      }
+    }));
+    assert.equal(restoreBlocked, true);
+    const backups = (await readdir(path.join(root, '.studio')))
+      .filter(name => name.startsWith('state.json.bak-'));
+    assert.equal(backups.length, 1);
+    assert.equal(await readFile(path.join(root, '.studio', backups[0]), 'utf8'), 'prior-state');
+  });
+});
 
 function variationDocument() {
   return {

@@ -54,6 +54,73 @@ test('apply preserves unknown files under .studio/legacy', async () => {
   });
 });
 
+test('preserves unknown files inside old generated-looking directories', async () => {
+  await withTempWorkspace(async root => {
+    const projectDir = await legacyProject(root);
+    await mkdir(path.join(projectDir, 'outputs'), {recursive: true});
+    await writeFile(path.join(projectDir, 'outputs', 'seller-note.txt'), 'keep me');
+    await compactProject(projectDir, {apply: true});
+    assert.equal(
+      await readFile(path.join(projectDir, '.studio', 'legacy', 'outputs', 'seller-note.txt'), 'utf8'),
+      'keep me'
+    );
+  });
+});
+
+test('migrates and validates the approved Listing JSON and Markdown pair', async () => {
+  await withTempWorkspace(async root => {
+    const projectDir = await legacyProject(root);
+    const statePath = path.join(projectDir, 'state.json');
+    const state = JSON.parse(await readFile(statePath, 'utf8'));
+    const content = {title: 'Direct title'};
+    const json = `${JSON.stringify(content, null, 2)}\n`;
+    const markdown = '# Direct title\n';
+    state.listing.approved = [{
+      status: 'approved', content,
+      json_path: 'listing/approved.json', markdown_path: 'listing/approved.md'
+    }];
+    await mkdir(path.join(projectDir, 'listing'));
+    await writeFile(path.join(projectDir, 'listing', 'approved.json'), json);
+    await writeFile(path.join(projectDir, 'listing', 'approved.md'), markdown);
+    await writeFile(statePath, `${JSON.stringify(state, null, 2)}\n`);
+    await compactProject(projectDir, {apply: true});
+    assert.deepEqual(JSON.parse(await readFile(path.join(projectDir, 'listing', 'listing.json'), 'utf8')), content);
+    assert.equal(await readFile(path.join(projectDir, 'listing', 'listing.md'), 'utf8'), markdown);
+  });
+});
+
+test('rejects an approved Listing whose recorded hash does not match', async () => {
+  await withTempWorkspace(async root => {
+    const projectDir = await legacyProject(root);
+    const statePath = path.join(projectDir, 'state.json');
+    const state = JSON.parse(await readFile(statePath, 'utf8'));
+    state.listing.approved = [{
+      status: 'approved', json_path: 'listing/approved.json', json_sha256: '0'.repeat(64)
+    }];
+    await mkdir(path.join(projectDir, 'listing'));
+    await writeFile(path.join(projectDir, 'listing', 'approved.json'), '{"title":"Direct"}\n');
+    await writeFile(statePath, `${JSON.stringify(state, null, 2)}\n`);
+    const before = await tree(projectDir);
+    await assert.rejects(compactProject(projectDir, {apply: true}), /Hash mismatch/);
+    assert.deepEqual(await tree(projectDir), before);
+  });
+});
+
+test('rejects a corrupt indexed image before swapping the original', async () => {
+  await withTempWorkspace(async root => {
+    const projectDir = await legacyProject(root);
+    const statePath = path.join(projectDir, 'state.json');
+    const state = JSON.parse(await readFile(statePath, 'utf8'));
+    state.gallery.assets.main = {id: 'main', kind: 'main', status: 'approved', path: 'images/main.png'};
+    state.gallery.selected = ['main'];
+    await writeFile(path.join(projectDir, 'images', 'main.png'), 'not an image');
+    await writeFile(statePath, `${JSON.stringify(state, null, 2)}\n`);
+    const before = await tree(projectDir);
+    await assert.rejects(compactProject(projectDir, {apply: true}));
+    assert.deepEqual(await tree(projectDir), before);
+  });
+});
+
 test('promotion failure restores every original byte', async () => {
   await withTempWorkspace(async root => {
     const projectDir = await legacyProject(root);
@@ -74,5 +141,19 @@ test('promotion failure restores every original byte', async () => {
     );
     assert.deepEqual(await tree(projectDir), before);
     await assert.rejects(stat(`${projectDir}.compact-staging`), error => error.code === 'ENOENT');
+  });
+});
+
+test('backup cleanup failure reports success and retains the recovery copy', async () => {
+  await withTempWorkspace(async root => {
+    const projectDir = await legacyProject(root);
+    const report = await compactProject(projectDir, {
+      apply: true,
+      operations: {rm: async () => { throw new Error('locked backup'); }}
+    });
+    assert.equal(report.applied, true);
+    assert.equal(report.backup_retained, true);
+    await access(`${projectDir}.compact-backup`);
+    await access(path.join(projectDir, '.studio', 'state.json'));
   });
 });
