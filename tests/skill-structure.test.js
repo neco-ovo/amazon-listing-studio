@@ -340,3 +340,11 @@ test('keyword research guidance stays lightweight and data-backed', async () => 
   assert.match(combined, /keyword.+failure.+(?:does not|must not).+block.+(?:image|Product Master)/is);
   assert.match(combined, /market_language.+fallback/i);
 });
+
+test('Listing guidance keeps title attributes prioritized and punctuation scoped to Bullets', async () => {
+  const listing = await readFile(path.join(root, 'references', 'listing-workflow.md'), 'utf8');
+  assert.match(listing, /Generic.+(?:unbranded|catalog attribute).+(?:not|never).+title/is);
+  assert.match(listing, /secondary.+(?:finish|attribute).+(?:primary|buyer value|purchase intent).+title/is);
+  assert.match(listing, /Bullet.+(?:sentence-ending|terminal).+punctuation/is);
+  assert.match(listing, /Description.+normal punctuation/is);
+});

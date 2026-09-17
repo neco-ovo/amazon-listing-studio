@@ -251,3 +251,53 @@ test('Variation approval rejects files changed after scoped candidate inspection
     });
   }
 });
+
+test('shared candidate records from staging and rejects unrelated paths atomically', async () => {
+  await withTempWorkspace(async root => {
+    const projectDir = path.join(root, 'family');
+    await mkdir(path.join(projectDir, '.studio'), {recursive: true});
+    const state = createProjectState({projectId: 'sign-family', productType: 'METAL_SIGN', now: firstNow});
+    state.project.mode = 'variation_family';
+    state.variation = createVariationExtension({
+      parentSku: 'SIGN-PARENT', dimensions: ['size_name'], firstChildSku: 'SKU-12X16',
+      firstChildFacts: {size_name: '12 x 16 in'}, now: firstNow
+    });
+    state.variation.children['SKU-12X16'].facts.mounting_holes = fact({
+      count: 4, placement: 'one at each corner', pre_drilled: true
+    });
+    const statePath = path.join(projectDir, '.studio', 'state.json');
+    await writeFile(statePath, `${JSON.stringify(state, null, 2)}\n`);
+    await writeFile(path.join(projectDir, 'project.md'), renderProjectSummary(state));
+    const fixtures = await createMainImageFixtures(path.join(root, 'fixtures'));
+    const staged = path.join(projectDir, '.studio', 'work', 'secondary', 'mounting-package-v2.png');
+    await mkdir(path.dirname(staged), {recursive: true});
+    await copyFile(fixtures.valid, staged);
+
+    const recorded = await runInput(root, 'record-variation-candidate', projectDir, 'staged-shared.json', {
+      scopeType: 'shared_image', artifactId: 'mounting-package-v2', kind: 'mounting_package',
+      path: '.studio/work/secondary/mounting-package-v2.png',
+      scope: {type: 'subset_shared', child_skus: ['SKU-12X16']},
+      factDependencies: {
+        mounting_holes: {count: 4, placement: 'one at each corner', pre_drilled: true}
+      },
+      inspection_status: 'pass'
+    });
+    assert.equal(recorded.ok, true, recorded.message);
+    assert.deepEqual(recorded.result.candidate.scope, {
+      type: 'subset_shared', child_skus: ['SKU-12X16']
+    });
+    assert.deepEqual(recorded.result.candidate.fact_dependencies.mounting_holes, {
+      count: 4, placement: 'one at each corner', pre_drilled: true
+    });
+
+    const before = await readFile(statePath);
+    const rejected = await runInput(root, 'record-variation-candidate', projectDir, 'bad-shared-path.json', {
+      scopeType: 'shared_image', artifactId: 'bad-path', kind: 'secondary',
+      path: 'tmp/bad.png', scope: 'shared_asset', factDependencies: {material: 'aluminum'}
+    });
+    assert.equal(rejected.ok, false);
+    assert.equal(rejected.code, 'BLOCKING_INPUT');
+    assert.match(rejected.message, /shared image path.+staging or legacy shared-assets directory/i);
+    assert.deepEqual(await readFile(statePath), before);
+  });
+});

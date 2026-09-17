@@ -221,6 +221,7 @@ export function validateListing(input, context = {}) {
   if (listing.bullets.length !== 5) errors.push({field: 'bullets', code: 'BULLET_COUNT', actual: listing.bullets.length, expected: 5});
   listing.bullets.forEach((bullet, index) => {
     if (!BULLET_FORMAT.test(bullet)) errors.push({field: `bullets[${index}]`, code: 'BULLET_FORMAT'});
+    if (/[.!?。！？]\s*$/u.test(bullet)) errors.push({field: `bullets[${index}]`, code: 'BULLET_TERMINAL_PUNCTUATION'});
     addLimitError(errors, `bullets[${index}]`, counts.bullet_chars[index], limits.bullet_chars);
   });
   if (counts.bullets_combined_chars > limits.bullets_combined_chars) {

@@ -227,6 +227,85 @@ test('Child main approval hashes and freezes the exact Child scope', async () =>
   assert.equal(state.variation.children['HORSE-12X16'].assets['horse-12x16-main'].status, 'candidate');
 });
 
+test('stale Child Product Master refresh creates the next version and stales direct dependents', async () => {
+  const state = await fullyApprovedState();
+  const childRecord = state.variation.children['HORSE-12X16'];
+  const priorApprovals = structuredClone(state.approvals);
+  childRecord.product_master.status = 'stale';
+  childRecord.product_master.stale_reason = 'CHILD_FACTS_CHANGED';
+  childRecord.assets['horse-12x16-main-v2'] = {
+    id: 'horse-12x16-main-v2', kind: 'main', child_sku: 'HORSE-12X16', status: 'candidate',
+    inspection_status: 'pass', path: 'children/HORSE-12X16/assets/main-v2.png',
+    candidate_sha256: hash('f'),
+    inspection_binding: {
+      scope_type: 'child_main', kind: 'main',
+      path: 'children/HORSE-12X16/assets/main-v2.png', child_sku: 'HORSE-12X16'
+    }
+  };
+
+  const next = await approveVariationArtifact(state, {
+    artifactId: 'horse-12x16-main-v2', artifactType: 'child_main', childSku: 'HORSE-12X16',
+    path: 'children/HORSE-12X16/assets/main-v2.png', userAction: 'approved', now
+  }, {hashFile: async () => hash('f')});
+
+  const refreshed = next.variation.children['HORSE-12X16'];
+  assert.deepEqual(next.approvals.slice(0, priorApprovals.length), priorApprovals);
+  assert.equal(refreshed.product_master.version, 2);
+  assert.equal(refreshed.product_master.status, 'locked');
+  assert.equal(refreshed.product_master.approved_main_id, 'horse-12x16-main-v2');
+  assert.equal(refreshed.product_master.approved_main_path, 'children/HORSE-12X16/assets/main-v2.png');
+  assert.equal(refreshed.product_master.approved_main_sha256, hash('f'));
+  assert.equal(next.approvals.at(-1).product_master_version, 2);
+  assert.equal(refreshed.assets['horse-12x16-size'].status, 'stale');
+  assert.equal(refreshed.listing.status, 'stale');
+  assert.equal(state.variation.children['HORSE-12X16'].product_master.status, 'stale');
+});
+
+test('locked Child Product Master still rejects a different main artifact', async () => {
+  const state = variationState();
+  const childRecord = state.variation.children['HORSE-12X16'];
+  childRecord.assets['horse-12x16-main-v2'] = {
+    id: 'horse-12x16-main-v2', kind: 'main', child_sku: 'HORSE-12X16', status: 'candidate',
+    inspection_status: 'pass', path: 'children/HORSE-12X16/assets/main-v2.png',
+    candidate_sha256: hash('f'),
+    inspection_binding: {
+      scope_type: 'child_main', kind: 'main',
+      path: 'children/HORSE-12X16/assets/main-v2.png', child_sku: 'HORSE-12X16'
+    }
+  };
+
+  await assert.rejects(
+    approveVariationArtifact(state, {
+      artifactId: 'horse-12x16-main-v2', artifactType: 'child_main', childSku: 'HORSE-12X16',
+      path: 'children/HORSE-12X16/assets/main-v2.png', userAction: 'approved', now
+    }, {hashFile: async () => hash('f')}),
+    error => error.code === 'BLOCKING_INPUT' && /cannot replace/.test(error.message)
+  );
+});
+
+test('stale Product Master refresh does not stale an unbound empty Listing', async () => {
+  const state = variationState();
+  const childRecord = state.variation.children['HORSE-12X16'];
+  childRecord.product_master.status = 'stale';
+  childRecord.listing = {status: 'draft', draft: null, approved: []};
+  childRecord.assets['horse-12x16-main-v2'] = {
+    id: 'horse-12x16-main-v2', kind: 'main', child_sku: 'HORSE-12X16', status: 'candidate',
+    inspection_status: 'pass', path: 'children/HORSE-12X16/assets/main-v2.png',
+    candidate_sha256: hash('f'),
+    inspection_binding: {
+      scope_type: 'child_main', kind: 'main',
+      path: 'children/HORSE-12X16/assets/main-v2.png', child_sku: 'HORSE-12X16'
+    }
+  };
+
+  const next = await approveVariationArtifact(state, {
+    artifactId: 'horse-12x16-main-v2', artifactType: 'child_main', childSku: 'HORSE-12X16',
+    path: 'children/HORSE-12X16/assets/main-v2.png', userAction: 'approved', now
+  }, {hashFile: async () => hash('f')});
+
+  assert.deepEqual(next.variation.children['HORSE-12X16'].listing, childRecord.listing);
+});
+
 test('shared approval freezes dependencies and applicable Children', async () => {
   const state = variationState();
   const next = await approveVariationArtifact(state, {

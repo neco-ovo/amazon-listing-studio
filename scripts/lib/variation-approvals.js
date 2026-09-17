@@ -207,20 +207,24 @@ async function approveChildMain(state, input, options) {
   }
 
   const currentMaster = child.product_master;
+  const refreshStaleMaster = currentMaster?.status === 'stale';
   if (currentMaster !== null && currentMaster !== undefined
-      && (currentMaster.status !== 'locked' || !(Number(currentMaster.version) > 0)
-        || currentMaster.approved_main_id !== input.artifactId)) {
-    fail('BLOCKING_INPUT', 'Child main approval cannot replace a stale or different Product Master binding');
+      && (!(Number(currentMaster.version) > 0)
+        || !['locked', 'stale'].includes(currentMaster.status)
+        || (currentMaster.status === 'locked' && currentMaster.approved_main_id !== input.artifactId))) {
+    fail('BLOCKING_INPUT', 'Child main approval cannot replace the current Product Master binding');
   }
 
   const sha256 = await hashApprovalFile(input.path, options);
   assertInspectedCandidate(candidate, input, sha256, {
     scope_type: 'child_main', kind: 'main', path: input.path, child_sku: child.sku
   });
-  const masterVersion = Number(currentMaster?.version ?? 1);
-  const masterPath = currentMaster?.approved_main_path;
-  const masterHash = currentMaster?.approved_main_sha256?.toLowerCase();
-  if ((masterPath && masterPath !== input.path) || (masterHash && masterHash !== sha256)) {
+  const masterVersion = refreshStaleMaster
+    ? Number(currentMaster.version) + 1
+    : Number(currentMaster?.version ?? 1);
+  const masterPath = refreshStaleMaster ? input.path : currentMaster?.approved_main_path;
+  const masterHash = refreshStaleMaster ? sha256 : currentMaster?.approved_main_sha256?.toLowerCase();
+  if (!refreshStaleMaster && ((masterPath && masterPath !== input.path) || (masterHash && masterHash !== sha256))) {
     fail('BLOCKING_INPUT', 'Child main does not match the locked Product Master binding');
   }
   const now = input.now ?? new Date().toISOString();
@@ -247,6 +251,30 @@ async function approveChildMain(state, input, options) {
 
   const next = structuredClone(state);
   const nextChild = next.variation.children[child.sku];
+  if (refreshStaleMaster) {
+    for (const assets of [
+      nextChild.assets,
+      nextChild.gallery?.assets,
+      next.variation.child_assets?.[child.sku]
+    ]) {
+      for (const [artifactId, asset] of Object.entries(assets ?? {})) {
+        if (artifactId !== input.artifactId && (asset.kind === 'main'
+          || (Number(asset.product_master_version) > 0 && asset.product_master_version !== masterVersion))) {
+          assets[artifactId] = {
+            ...asset, status: 'stale', stale_at: now, stale_reason: 'PRODUCT_MASTER_REFRESHED'
+          };
+        }
+      }
+    }
+    const priorMasterVersion = Number(currentMaster.version);
+    const listingBindsPriorMaster = nextChild.listing?.draft?.content?.product_master_version === priorMasterVersion
+      || nextChild.listing?.approved?.some(item => item?.content?.product_master_version === priorMasterVersion);
+    if (listingBindsPriorMaster) {
+      nextChild.listing = {
+        ...nextChild.listing, status: 'stale', stale_at: now, stale_reason: 'PRODUCT_MASTER_REFRESHED'
+      };
+    }
+  }
   const nextLocation = childArtifactLocation(next, nextChild, input.artifactId);
   nextLocation.assets[input.artifactId] = {
     ...nextLocation.assets[input.artifactId], status: 'approved', sha256, approval_id: id, approved_at: now

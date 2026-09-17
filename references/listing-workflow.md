@@ -8,10 +8,10 @@ After the selected image set is current, compile a brief with `compileListingBri
 
 Field priorities:
 
-- Title: product identity, purchase intent, differentiator, then size or variant.
+- Title: product identity, purchase intent, differentiator, then size or variant. Treat `Generic` as an unbranded catalog attribute, never as customer-facing Title copy. A secondary finish or attribute must not displace stronger purchase-intent or buyer-value language.
 - Item Highlights: purchase intent and primary buyer benefit before material detail or mounting surfaces.
-- Bullets: benefit-led heading, supported fact, then a concrete use or buyer outcome. Do not use a raw size label as the entire heading when a meaningful benefit is available.
-- Description: naturally connect material/performance, suitable environment, and mounting surface instead of stacking facts or mixing those logical dimensions.
+- Bullets: benefit-led heading, supported fact, then a concrete use or buyer outcome. Do not use a raw size label as the entire heading when a meaningful benefit is available. Omit sentence-ending punctuation from each Bullet.
+- Description: naturally connect material/performance, suitable environment, and mounting surface instead of stacking facts or mixing those logical dimensions. Keep normal punctuation in Description prose.
 - Backend Search Terms: complement front-end language. Prefer relevant uncovered phrases such as jobsite, construction site, PPE, head protection, industrial, or work area; do not repeat front-end tokens merely to fill bytes.
 
 Combine confirmed facts into plain consumer language. Avoid empty conservative phrases such as “supports exposed settings,” “provides versatile use,” or “supports straightforward placement.” Do not globally ban `supports` or `provides`; a sentence with a concrete object and outcome can be natural.

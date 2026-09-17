@@ -106,6 +106,13 @@ test('enforces title, Item Highlights, Bullet, Description, and search limits', 
     const strictContext = {...context, limits: {...limits, bullets_combined_chars: 250}};
     assert.ok(validateListing(combined, strictContext).errors.some(error => error.code === 'BULLETS_COMBINED_LIMIT'));
   });
+  await t.test('Bullet sentence-ending punctuation only', async () => {
+    const listing = await fixture();
+    listing.bullets[0] += '.';
+    const result = validateListing(listing, context);
+    assert.ok(result.errors.some(error => error.field === 'bullets[0]' && error.code === 'BULLET_TERMINAL_PUNCTUATION'));
+    assert.equal(result.errors.some(error => error.field === 'description' && error.code === 'BULLET_TERMINAL_PUNCTUATION'), false);
+  });
   await t.test('Description 2001', async () => {
     const listing = await fixture();
     listing.description = 'x'.repeat(2001);

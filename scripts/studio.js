@@ -633,11 +633,14 @@ function assertVariationCandidateScope(state, candidate) {
       throw blocking('Child main candidate path does not belong to the exact Child scope');
     }
   } else {
-    if (candidate.childSku !== undefined || variationCandidateKind(candidate) === 'main'
-        || !normalizedPath.startsWith('family/shared-assets/')
-        || !candidate.scope || !candidate.factDependencies) {
-      throw blocking('Shared image candidate fields do not match the shared scope');
+    if (candidate.childSku !== undefined) throw blocking('Shared image candidate cannot declare childSku');
+    if (variationCandidateKind(candidate) === 'main') throw blocking('Shared image candidate kind cannot be main');
+    if (!normalizedPath.startsWith('.studio/work/')
+        && !normalizedPath.startsWith('family/shared-assets/')) {
+      throw blocking('Shared image path must use the staging or legacy shared-assets directory');
     }
+    if (!candidate.scope) throw blocking('Shared image candidate requires scope');
+    if (!candidate.factDependencies) throw blocking('Shared image candidate requires factDependencies');
   }
 }
 
