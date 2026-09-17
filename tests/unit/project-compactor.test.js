@@ -89,6 +89,27 @@ test('migrates and validates the approved Listing JSON and Markdown pair', async
   });
 });
 
+test('keeps historical Listings in legacy without validating them as current', async () => {
+  await withTempWorkspace(async root => {
+    const projectDir = await legacyProject(root);
+    const statePath = path.join(projectDir, 'state.json');
+    const state = JSON.parse(await readFile(statePath, 'utf8'));
+    state.listing.approved = [
+      {status: 'approved', json_path: 'listing/v1.json', markdown_path: 'listing/v1.md'},
+      {status: 'approved', json_path: 'listing/v2.json', markdown_path: 'listing/v2.md'}
+    ];
+    await mkdir(path.join(projectDir, 'listing'));
+    await writeFile(path.join(projectDir, 'listing', 'v1.json'), '{"title":"Old"}\n');
+    await writeFile(path.join(projectDir, 'listing', 'v1.md'), '# Old\n');
+    await writeFile(path.join(projectDir, 'listing', 'v2.json'), '{"title":"Current"}\n');
+    await writeFile(path.join(projectDir, 'listing', 'v2.md'), '# Current\n');
+    await writeFile(statePath, `${JSON.stringify(state, null, 2)}\n`);
+    await compactProject(projectDir, {apply: true});
+    assert.equal(JSON.parse(await readFile(path.join(projectDir, 'listing', 'listing.json'))).title, 'Current');
+    assert.equal(await readFile(path.join(projectDir, '.studio', 'legacy', 'listing', 'v1.md'), 'utf8'), '# Old\n');
+  });
+});
+
 test('rejects an approved Listing whose recorded hash does not match', async () => {
   await withTempWorkspace(async root => {
     const projectDir = await legacyProject(root);

@@ -28,6 +28,14 @@ function safe(value) {
   return String(value).replace(/[^a-z0-9_-]+/gi, '-').replace(/^-|-$/g, '') || 'item';
 }
 
+function currentListings(state) {
+  const listings = [state.listing, state.variation?.parent?.listing];
+  for (const child of Object.values(state.variation?.children ?? {}).filter(item => item.active !== false)) {
+    listings.push(child.listing);
+  }
+  return listings.map(listing => listing?.approved?.at(-1)).filter(item => item?.status === 'approved');
+}
+
 function formalDestinations(state) {
   const document = buildProductDocument(state);
   const replacements = new Map();
@@ -117,8 +125,8 @@ async function validateCompactProject(projectDir) {
     ...Object.values(product.listing?.children ?? {})
   ].filter(Boolean);
   for (const listingPath of listingPaths) JSON.parse((await readChecked(listingPath)).toString('utf8'));
-  for (const [relative] of records) {
-    if (relative.startsWith('listing/') && relative.endsWith('.md')) await readChecked(relative);
+  for (const listing of currentListings(state)) {
+    if (listing.markdown_path) await readChecked(listing.markdown_path);
   }
 }
 
