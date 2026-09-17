@@ -249,7 +249,8 @@ async function approvedProject(root, {legacyRuleField = false} = {}) {
   }
   state = approveVariationVersion(state, {userAction: 'approved', now});
   const finalApproval = structuredClone(state.approvals.at(-1));
-  await writeFile(path.join(projectDir, 'state.json'), `${JSON.stringify(state, null, 2)}\n`);
+  await mkdir(path.join(projectDir, '.studio'), {recursive: true});
+  await writeFile(path.join(projectDir, '.studio', 'state.json'), `${JSON.stringify(state, null, 2)}\n`);
   return {projectDir, state, finalApproval};
 }
 
@@ -408,7 +409,7 @@ test('promoted legacy secondary finalizes and delivers with normalized immutable
       product_master_version: 1
     }]);
     await writeFile(
-      path.join(project.projectDir, 'state.json'),
+      path.join(project.projectDir, '.studio', 'state.json'),
       `${JSON.stringify(state, null, 2)}\n`
     );
 
@@ -430,7 +431,7 @@ test('promoted legacy Child main finalizes and delivers without duplicate approv
     });
     const finalApproval = state.approvals.at(-1);
     await writeFile(
-      path.join(project.projectDir, 'state.json'),
+      path.join(project.projectDir, '.studio', 'state.json'),
       `${JSON.stringify(state, null, 2)}\n`
     );
 
@@ -464,7 +465,7 @@ test('promoted legacy Child main rejects post-final legacy-binding drift', async
           approval: state.approvals.find(item => item.id === legacy.approval.id)
         });
         await writeFile(
-          path.join(project.projectDir, 'state.json'),
+          path.join(project.projectDir, '.studio', 'state.json'),
           `${JSON.stringify(state, null, 2)}\n`
         );
 
@@ -559,7 +560,8 @@ test('build rejects stale approval, unsafe paths, and incomplete selections', as
       project.finalApproval.scope_sha256 = scopeHash;
       finalRecord.scope_sha256 = scopeHash;
       version.scope_sha256 = scopeHash;
-      await writeFile(path.join(project.projectDir, 'state.json'), `${JSON.stringify(project.state, null, 2)}\n`);
+      await mkdir(path.join(project.projectDir, '.studio'), {recursive: true});
+      await writeFile(path.join(project.projectDir, '.studio', 'state.json'), `${JSON.stringify(project.state, null, 2)}\n`);
       await assert.rejects(
         buildVariationDelivery({...project, outputDir: path.join(project.projectDir, 'delivery', 'unsafe')}),
         error => error.code === 'BUNDLE_INVALID' && error.details?.reason === 'UNSAFE_PATH'
@@ -598,7 +600,8 @@ test('build rejects an old final approval after a Child revision leaves versions
     });
     assert.equal(revised.variation.children['HORSE-12X16'].product_master.version, 1);
     assert.equal(revised.variation.children['HORSE-12X16'].listing.approved.at(-1).version, 1);
-    await writeFile(path.join(project.projectDir, 'state.json'), `${JSON.stringify(revised, null, 2)}\n`);
+    await mkdir(path.join(project.projectDir, '.studio'), {recursive: true});
+    await writeFile(path.join(project.projectDir, '.studio', 'state.json'), `${JSON.stringify(revised, null, 2)}\n`);
 
     await assert.rejects(
       buildVariationDelivery({
@@ -620,7 +623,8 @@ test('Child-only build still accepts an unaffected selected Child after a siblin
       factPatch: {finish: fact('matte')},
       now: '2026-08-27T09:00:00.000Z'
     });
-    await writeFile(path.join(project.projectDir, 'state.json'), `${JSON.stringify(revised, null, 2)}\n`);
+    await mkdir(path.join(project.projectDir, '.studio'), {recursive: true});
+    await writeFile(path.join(project.projectDir, '.studio', 'state.json'), `${JSON.stringify(revised, null, 2)}\n`);
 
     const result = await buildVariationDelivery({
       projectDir: project.projectDir,
@@ -637,7 +641,8 @@ test('build rejects drift in a currently approved shared asset dependency bindin
   await withTempWorkspace(async root => {
     const project = await approvedProject(root);
     project.state.variation.shared_assets['material-v1'].fact_dependencies = {material: 'steel'};
-    await writeFile(path.join(project.projectDir, 'state.json'), `${JSON.stringify(project.state, null, 2)}\n`);
+    await mkdir(path.join(project.projectDir, '.studio'), {recursive: true});
+    await writeFile(path.join(project.projectDir, '.studio', 'state.json'), `${JSON.stringify(project.state, null, 2)}\n`);
 
     await assert.rejects(
       buildVariationDelivery({
@@ -664,7 +669,7 @@ test('build rejects coordinated shared scope mutation against the frozen final s
       type: 'subset_shared', child_skus: declared
     };
     await writeFile(
-      path.join(project.projectDir, 'state.json'),
+      path.join(project.projectDir, '.studio', 'state.json'),
       `${JSON.stringify(project.state, null, 2)}\n`
     );
 
@@ -717,7 +722,8 @@ test('build rejects mutated scoped approval identity with unchanged IDs, paths, 
       await withTempWorkspace(async root => {
         const project = await approvedProject(root);
         mutate(project.state);
-        await writeFile(path.join(project.projectDir, 'state.json'), `${JSON.stringify(project.state, null, 2)}\n`);
+        await mkdir(path.join(project.projectDir, '.studio'), {recursive: true});
+        await writeFile(path.join(project.projectDir, '.studio', 'state.json'), `${JSON.stringify(project.state, null, 2)}\n`);
 
         await assert.rejects(
           buildVariationDelivery({

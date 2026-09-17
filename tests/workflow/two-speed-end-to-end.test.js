@@ -51,7 +51,8 @@ async function buildApprovedFixture(root) {
     rules_unverified: ['attributes'], upload_ready: false
   }, {now});
   state = approveDraft(state, {userAction: 'approved', now});
-  await writeFile(path.join(projectDir, 'state.json'), `${JSON.stringify(state, null, 2)}\n`);
+  await mkdir(path.join(projectDir, '.studio'), {recursive: true});
+  await writeFile(path.join(projectDir, '.studio', 'state.json'), `${JSON.stringify(state, null, 2)}\n`);
   await writeFile(path.join(projectDir, 'project.md'), renderProjectSummary(state));
   return {
     projectDir,
@@ -90,6 +91,9 @@ test('v2 delivery renders the approved Listing and preserves unverified readines
     assert.deepEqual(listing.rules_unverified, ['attributes']);
     assert.equal(listing.upload_ready, false);
     assert.equal(delivery.manifest.artifacts.length, 4);
+    await writeFile(path.join(root, 'delivery', 'obsolete.bin'), 'old');
+    await buildV2Delivery({...project, outputDir: path.join(root, 'delivery')});
+    await assert.rejects(readFile(path.join(root, 'delivery', 'obsolete.bin')), error => error.code === 'ENOENT');
   });
 });
 
@@ -97,7 +101,8 @@ test('post-approval Listing mutation is rejected by its frozen hash', async () =
   await withTempWorkspace(async root => {
     const project = await buildApprovedFixture(root);
     project.state.listing.approved[0].content.title = 'Mutated after approval';
-    await writeFile(path.join(project.projectDir, 'state.json'), `${JSON.stringify(project.state, null, 2)}\n`);
+    await mkdir(path.join(project.projectDir, '.studio'), {recursive: true});
+    await writeFile(path.join(project.projectDir, '.studio', 'state.json'), `${JSON.stringify(project.state, null, 2)}\n`);
     await assert.rejects(
       buildV2Delivery({...project, outputDir: path.join(root, 'delivery')}),
       error => error.code === 'BUNDLE_INVALID' && error.details?.reason === 'HASH_MISMATCH'
@@ -110,7 +115,8 @@ test('gallery selection change after Listing approval requires Listing reapprova
     const project = await buildApprovedFixture(root);
     project.state.gallery.selected = ['main-v1'];
     project.finalApproval.artifact_ids = ['main-v1'];
-    await writeFile(path.join(project.projectDir, 'state.json'), `${JSON.stringify(project.state, null, 2)}\n`);
+    await mkdir(path.join(project.projectDir, '.studio'), {recursive: true});
+    await writeFile(path.join(project.projectDir, '.studio', 'state.json'), `${JSON.stringify(project.state, null, 2)}\n`);
 
     await assert.rejects(
       buildV2Delivery({...project, outputDir: path.join(root, 'delivery')}),

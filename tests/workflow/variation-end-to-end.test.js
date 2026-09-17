@@ -19,7 +19,7 @@ test('public CLI promotes one product, adds a sparse compound-theme Child, and p
     ]);
     assert.equal(initialized.ok, true);
 
-    const statePath = path.join(projectDir, 'state.json');
+    const statePath = path.join(projectDir, '.studio', 'state.json');
     const legacyMainPath = path.join(projectDir, 'images', 'main', 'main-v1.png');
     const legacyBytes = Buffer.from('approved-legacy-main');
     await mkdir(path.dirname(legacyMainPath), {recursive: true});

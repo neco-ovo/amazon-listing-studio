@@ -6,7 +6,7 @@ Read only for Parent/Child work. Parent is the common product identity; each Chi
 
 Use a current category Schema or user template for an ordered, category-permitted single or compound theme. Sparse real combinations are valid; never invent a Cartesian product or infer a compound theme from differences. Category differences are not a hard rejection boundary—compare stable identity, purpose, product form, and real offer relationships.
 
-Promotion is non-destructive: preserve an approval-complete single product's files, hashes, approvals, and deliveries in place while adding Family/Parent/Child records with `scripts/studio.js promote-variation`. Existing Families use `add-child`, `revise-child`, and `remove-child`. New Children receive scoped asset and Listing directories.
+Promotion is non-destructive: preserve an approval-complete single product's files, hashes, approvals, and delivery while adding Family/Parent/Child records with `scripts/studio.js promote-variation`. Existing Families use `add-child`, `revise-child`, and `remove-child`. Create Child-scoped paths under assets/children/ and listing/children/ only when that Child receives an approved artifact.
 
 Family Identity contains supported common facts. Parent copy uses only those facts. Child drafts store real differences, while approval and delivery materialize complete copy with Parent SKU, Child SKU, ordered theme, and exact values. Standard Size/Color/Pattern/Style/Pack differences may reuse Parent copy; different graphics, warning meaning, buyer intent, product form, purpose, or core function require suitable Child copy or block the Family.
 

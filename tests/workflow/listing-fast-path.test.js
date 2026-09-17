@@ -69,7 +69,7 @@ test('single-field revision calls only patch, changed validation, render, and wr
 
 test('single-field revision leaves the saved keyword profile untouched', async () => {
   await withTempWorkspace(async projectDir => {
-    const profilePath = path.join(projectDir, 'references', 'keyword-profile.json');
+    const profilePath = path.join(projectDir, '.studio', 'sources', 'keyword-profile.json');
     await mkdir(path.dirname(profilePath), {recursive: true});
     await writeFile(profilePath, '{"groups":{"core":[]}}\n');
     const beforeBytes = await readFile(profilePath);
@@ -134,10 +134,12 @@ test('Listing approval blocks content excluded by the saved keyword profile', as
     const base = createProjectState({projectId: 'sign-1', productType: 'METAL_SIGN'});
     base.product_master = {version: 1, status: 'locked', approved_main_id: 'main-v1'};
     const state = createDraft(base, {project_id: 'sign-1', product_master_version: 1, title: 'Vinyl kids decal', bullets: [], item_highlights: '', description: '', backend_search_terms: '', special_features: [], attributes: {}});
-    await writeFile(path.join(projectDir, 'state.json'), `${JSON.stringify(state, null, 2)}\n`);
+    await mkdir(path.join(projectDir, '.studio'), {recursive: true});
+    await writeFile(path.join(projectDir, '.studio', 'state.json'), `${JSON.stringify(state, null, 2)}\n`);
     await writeFile(path.join(projectDir, 'project.md'), renderProjectSummary(state));
-    await mkdir(path.join(projectDir, 'references'), {recursive: true});
-    await writeFile(path.join(projectDir, 'references', 'keyword-profile.json'), JSON.stringify({groups: {excluded: [{phrase: 'vinyl kids decal'}]}}));
+    const profilePath = path.join(projectDir, '.studio', 'sources', 'keyword-profile.json');
+    await mkdir(path.dirname(profilePath), {recursive: true});
+    await writeFile(profilePath, JSON.stringify({groups: {excluded: [{phrase: 'vinyl kids decal'}]}}));
     await assert.rejects(
       () => runApprove({projectDir, artifactType: 'listing'}),
       error => error.code === 'BLOCKING_INPUT'
@@ -153,7 +155,8 @@ test('Listing approval freezes the current draft without image-path arguments', 
       project_id: 'sign-1', product_master_version: 1, title: 'Approved title', bullets: [],
       item_highlights: '', description: '', backend_search_terms: '', special_features: [], attributes: {}
     });
-    await writeFile(path.join(projectDir, 'state.json'), `${JSON.stringify(state, null, 2)}\n`);
+    await mkdir(path.join(projectDir, '.studio'), {recursive: true});
+    await writeFile(path.join(projectDir, '.studio', 'state.json'), `${JSON.stringify(state, null, 2)}\n`);
     await writeFile(path.join(projectDir, 'project.md'), renderProjectSummary(state));
 
     const result = await runApprove({
@@ -165,5 +168,9 @@ test('Listing approval freezes the current draft without image-path arguments', 
     assert.equal(result.state.listing.approved[0].version, 1);
     assert.equal(result.state.listing.draft, null);
     assert.equal(result.next_action.kind, 'finalize');
+    assert.equal(JSON.parse(await readFile(path.join(projectDir, 'listing', 'listing.json'), 'utf8')).title, 'Approved title');
+    assert.match(await readFile(path.join(projectDir, 'listing', 'listing.md'), 'utf8'), /^# Approved title/m);
+    const product = JSON.parse(await readFile(path.join(projectDir, 'product.json'), 'utf8'));
+    assert.equal(product.listing.product, 'listing/listing.json');
   });
 });

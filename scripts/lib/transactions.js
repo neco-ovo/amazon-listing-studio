@@ -1,19 +1,12 @@
 import { createHash } from 'node:crypto';
-import { readFile, rename, unlink, writeFile } from 'node:fs/promises';
+import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fail } from './errors.js';
-import { renderProjectSummary, validateProjectState } from './project-state.js';
+import { validateProjectState } from './project-state.js';
 import { approveDraft } from './listing-drafts.js';
+import {readProjectState, writeProjectSnapshot} from './project-layout.js';
 
 const SHA256 = /^[a-f0-9]{64}$/i;
-
-async function ignoreMissing(operation) {
-  try {
-    await operation();
-  } catch (error) {
-    if (error.code !== 'ENOENT') throw error;
-  }
-}
 
 function resolveInside(projectDir, relativePath) {
   if (!relativePath || path.isAbsolute(relativePath)) fail('BLOCKING_INPUT', 'Artifact path must be project-relative');
@@ -115,65 +108,17 @@ export function approveListingDraft(state, input) {
   };
 }
 
-async function replaceProjectFiles({statePath, projectPath, stateText, projectText}) {
-  const nonce = `${process.pid}-${Date.now()}`;
-  const stateTemp = `${statePath}.tmp-${nonce}`;
-  const projectTemp = `${projectPath}.tmp-${nonce}`;
-  const stateBackup = `${statePath}.bak-${nonce}`;
-  const projectBackup = `${projectPath}.bak-${nonce}`;
-  let stateBackedUp = false;
-  let projectBackedUp = false;
-  let stateInstalled = false;
-  let projectInstalled = false;
-
-  await writeFile(stateTemp, stateText, {encoding: 'utf8', flag: 'wx'});
-  await writeFile(projectTemp, projectText, {encoding: 'utf8', flag: 'wx'});
-  try {
-    await rename(statePath, stateBackup);
-    stateBackedUp = true;
-    try {
-      await rename(projectPath, projectBackup);
-      projectBackedUp = true;
-    } catch (error) {
-      if (error.code !== 'ENOENT') throw error;
-    }
-    await rename(stateTemp, statePath);
-    stateInstalled = true;
-    await rename(projectTemp, projectPath);
-    projectInstalled = true;
-    await ignoreMissing(() => unlink(stateBackup));
-    await ignoreMissing(() => unlink(projectBackup));
-  } catch (error) {
-    if (stateInstalled) await ignoreMissing(() => unlink(statePath));
-    if (projectInstalled) await ignoreMissing(() => unlink(projectPath));
-    if (stateBackedUp) await rename(stateBackup, statePath);
-    if (projectBackedUp) await rename(projectBackup, projectPath);
-    throw error;
-  } finally {
-    await ignoreMissing(() => unlink(stateTemp));
-    await ignoreMissing(() => unlink(projectTemp));
-    await ignoreMissing(() => unlink(stateBackup));
-    await ignoreMissing(() => unlink(projectBackup));
-  }
-}
-
 export async function updateProject(projectDir, mutator, {clock = () => Date.now()} = {}) {
   const started = clock();
-  const statePath = path.join(projectDir, 'state.json');
-  const projectPath = path.join(projectDir, 'project.md');
-  const current = JSON.parse(await readFile(statePath, 'utf8'));
+  const current = await readProjectState(projectDir);
   const mutation = await mutator(structuredClone(current));
   const next = mutation?.state ?? mutation;
   const validation = validateProjectState(next);
   if (!validation.valid) fail('BLOCKING_INPUT', 'Mutation produced an invalid project state', {errors: validation.errors});
 
-  const result = mutation?.state ? {...mutation, state: next} : {state: next};
+  const {publications = [], ...metadata} = mutation?.state ? mutation : {};
+  const result = mutation?.state ? {...metadata, state: next} : {state: next};
   result.duration_ms = Math.max(0, clock() - started);
-  await replaceProjectFiles({
-    statePath,
-    projectPath,
-    stateText: `${JSON.stringify(next, null, 2)}\n`,
-    projectText: renderProjectSummary(next)
-  });
+  await writeProjectSnapshot(projectDir, next, {publications});
   return result;
 }

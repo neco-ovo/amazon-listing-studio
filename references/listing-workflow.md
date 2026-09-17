@@ -18,7 +18,7 @@ Combine confirmed facts into plain consumer language. Avoid empty conservative p
 
 ## Data-backed keyword placement
 
-When the product’s references/keyword-profile.json exists and exactly matches marketplace, locale, product type, and purchase intent, pass it to `compileListingBrief`. Use its four groups without turning search terms into facts:
+When the product’s `.studio/sources/keyword-profile.json` exists and exactly matches marketplace, locale, product type, and purchase intent, pass it to `compileListingBrief`. Use its four groups without turning search terms into facts:
 
 - `core`: strongest exact/high-fit phrases for the Title and primary purchase-intent copy.
 - `supporting`: natural secondary wording for Bullets and Description.
@@ -55,6 +55,6 @@ A micro revision does not refresh or reanalyze keyword research. It reuses the s
 
 System scope fields come from current project state at approval, not from consumer-copy revision requests. Approval must pass the same Listing scope preflight used by finalization before it freezes JSON/Markdown hashes. Filling or normalizing metadata alone does not create another consumer-copy Listing version.
 
-Draft revisions are mutable. Preserve every unselected field byte-for-byte. Reject a stale expected draft revision or unknown path. Render Markdown from JSON; never maintain independent prose copies. On explicit approval, run `scripts/studio.js approve --project-dir <dir> --type listing`; only then create the next formal Listing version and its JSON/Markdown hashes.
+Draft revisions are mutable under `.studio/work/`. Preserve every unselected field byte-for-byte. Reject a stale expected draft revision or unknown path. Render Markdown from JSON; never maintain independent prose copies. On explicit approval, run `scripts/studio.js approve --project-dir <dir> --type listing`; only then publish the current formal JSON and Markdown under `listing/` with their hashes.
 
 For Parent baselines, exact Child overrides, compound tuples, or Variation Listing approval, add `references/variation-workflow.md` only for a Variation Family.

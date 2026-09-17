@@ -19,10 +19,11 @@ async function jsonFiles(root) {
   }
 }
 
-function appliesTo(snapshot, marketplace, productType) {
+function matchingType(snapshot, marketplace, productType, compatibleProductTypes = []) {
   if (snapshot.marketplace !== marketplace) return false;
   const types = snapshot.product_types ?? (snapshot.product_type ? [snapshot.product_type] : []);
-  return types.includes('*') || types.includes(productType);
+  if (types.includes('*') || types.includes(productType)) return productType;
+  return compatibleProductTypes.find(type => types.includes(type)) ?? false;
 }
 
 function ageInDays(verifiedOn, now) {
@@ -36,6 +37,7 @@ export async function resolveRules({
   libraryDir,
   marketplace,
   productType,
+  compatibleProductTypes = [],
   now = new Date().toISOString(),
   purpose = 'draft',
   freshnessDays = DEFAULT_FRESH_DAYS
@@ -44,12 +46,13 @@ export async function resolveRules({
   const snapshots = [];
   for (const file of files) {
     const snapshot = JSON.parse(await readFile(file, 'utf8'));
-    if (appliesTo(snapshot, marketplace, productType)) snapshots.push(snapshot);
+    const matchedProductType = matchingType(snapshot, marketplace, productType, compatibleProductTypes);
+    if (matchedProductType) snapshots.push({snapshot, matchedProductType});
   }
 
-  snapshots.sort((left, right) => Date.parse(right.verified_on) - Date.parse(left.verified_on));
-  const rules = snapshots[0] ?? null;
-  if (!rules) {
+  snapshots.sort((left, right) => Date.parse(right.snapshot.verified_on) - Date.parse(left.snapshot.verified_on));
+  const match = snapshots[0] ?? null;
+  if (!match) {
     return {
       rules: null,
       status: 'missing',
@@ -57,10 +60,12 @@ export async function resolveRules({
       warnings: [`No cached rules match ${marketplace}/${productType}.`]
     };
   }
+  const {snapshot: rules, matchedProductType} = match;
 
   const status = ageInDays(rules.verified_on, now) <= freshnessDays ? 'fresh' : 'stale';
   return {
     rules: structuredClone(rules),
+    ...(matchedProductType === productType ? {} : {matched_product_type: matchedProductType}),
     status,
     refresh_required: purpose === 'verify_current' || (purpose === 'upload_ready' && status === 'stale'),
     warnings: status === 'stale'

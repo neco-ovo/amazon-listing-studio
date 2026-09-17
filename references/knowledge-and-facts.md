@@ -14,7 +14,7 @@ A higher source overrides a lower one. Preserve source IDs and the losing value 
 
 ## Three knowledge scopes
 
-- Project facts live in `state.json`. A user-confirmed project fact is publishable and overrides reusable knowledge.
+- Project facts live in `.studio/state.json`. A user-confirmed project fact is publishable and overrides reusable knowledge.
 - Seller-family facts live under `library/seller-families/`. Match the family from stable construction traits such as material and product form, not an exact Amazon category. A rigid aluminum yard sign, store sign, and safety sign may share one family; corrugated plastic, vinyl decals, and digital signs do not. Category names are hints, not hard boundaries.
 - Category observations live under `library/categories/<marketplace>/`. Store recurring benefits, shopper language, visual patterns, and source dates here. They may guide briefs and keywords but are not automatically product claims.
 
@@ -22,7 +22,7 @@ A higher source overrides a lower one. Preserve source IDs and the losing value 
 
 Keyword profiles are separate from product facts, seller-family facts, and category observations. When supplied, prefer SellerSprite Reverse ASIN or Keyword Mining XLSX data, then an exact compatible cached keyword profile; use web keyword observations only as a lower-confidence fallback. A keyword is buyer language, not proof of a product attribute.
 
-Run `scripts/studio.js analyze-keywords --project-dir <dir> --input <manifest.json> [--library-dir <dir>]`. It reads each workbook once and writes the portable copy to the product’s references/keyword-profile.json; the optional seller-library cache is keyed by marketplace, locale, product type, and normalized purchase intent. Use one analysis pass and no per-keyword approval. Ask one consolidated question only when a valuable phrase implies an ambiguous or unconfirmed product attribute.
+Run `scripts/studio.js analyze-keywords --project-dir <dir> --input <manifest.json> [--library-dir <dir>]`. It reads each workbook once and writes the project copy under `.studio/sources/`; the optional seller-library cache is keyed by marketplace, locale, product type, and normalized purchase intent. Use one analysis pass and no per-keyword approval. Ask one consolidated question only when a valuable phrase implies an ambiguous or unconfirmed product attribute.
 
 Record explicit sample scope. `top_10_sample` means a limited Top 10 sample and is not complete market analysis; absent scope defaults to `unknown_partial`. Put each report's `export_date` explicitly in the import manifest; never infer it from the filename. A profile older than 180 days remains usable for drafts with a stale warning. Refresh only for newer supplied evidence or an explicit current-research request, never merely because another Listing draft was created.
 
