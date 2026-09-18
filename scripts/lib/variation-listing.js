@@ -1,5 +1,5 @@
 import {auditListing} from './listing-audit.js';
-import {computeCommonFacts} from './variations.js';
+import {computeCommonFacts, effectiveVariationValues} from './variations.js';
 
 const OVERRIDE_FIELDS = new Set([
   'title',
@@ -210,12 +210,13 @@ export function materializeChildListing({parentContent = {}, childOverrides = {}
   }
 
   const theme = Array.isArray(dimensions) ? [...dimensions] : [];
+  const displayValues = effectiveVariationValues(child);
   content.parent_sku = parentContent.parent_sku ?? parentContent.sku ?? null;
   content.child_sku = child.sku ?? null;
   content.variation_theme = theme;
   content.variation_values = Object.fromEntries(theme.map(dimension => [
     dimension,
-    structuredClone(child.variation_values?.[dimension] ?? null)
+    structuredClone(displayValues[dimension] ?? null)
   ]));
   return content;
 }
@@ -230,7 +231,7 @@ export function auditVariationListings({parentContent = {}, childContents = {}, 
   const valuesByDimension = Object.fromEntries(dimensions.map(dimension => [dimension, new Map()]));
   for (const child of children) {
     for (const dimension of dimensions) {
-      const value = child.variation_values?.[dimension];
+      const value = effectiveVariationValues(child)[dimension];
       if (normalizedText(value)) valuesByDimension[dimension].set(normalizedText(value), value);
     }
   }
@@ -239,7 +240,7 @@ export function auditVariationListings({parentContent = {}, childContents = {}, 
   const leakageValues = new Map();
   for (const child of children) {
     for (const dimension of dimensions) {
-      const value = child.variation_values?.[dimension];
+      const value = effectiveVariationValues(child)[dimension];
       if (normalizedText(value)) leakageValues.set(normalizedText(value), {field: dimension, value});
     }
   }
@@ -307,7 +308,8 @@ export function auditVariationListings({parentContent = {}, childContents = {}, 
       }
     }
 
-    if (!exactTuple(dimensions, child.variation_values, content.variation_values) || content.child_sku !== sku
+    const displayValues = effectiveVariationValues(child);
+    if (!exactTuple(dimensions, displayValues, content.variation_values) || content.child_sku !== sku
       || content.parent_sku !== parentSku
       || JSON.stringify(content.variation_theme) !== JSON.stringify(dimensions)) {
       addFinding(findings, {
@@ -318,7 +320,7 @@ export function auditVariationListings({parentContent = {}, childContents = {}, 
     }
 
     for (const dimension of dimensions) {
-      const expected = child.variation_values?.[dimension];
+      const expected = displayValues[dimension];
       if (normalizedText(content.attributes?.[dimension]) !== normalizedText(expected)) {
         addFinding(findings, {
           sku,

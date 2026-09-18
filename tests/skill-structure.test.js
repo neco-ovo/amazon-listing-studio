@@ -53,6 +53,9 @@ test('Skill routes optional Variation work to one focused reference', async () =
     'direct dependents'
   ]) assert.match(reference, new RegExp(phrase, 'i'));
   assert.match(reference, /resolve-variation-facts/);
+  assert.match(reference, /child_secondary/);
+  assert.match(reference, /set-variation-display-values/);
+  assert.match(reference, /leaves physical facts, Product Masters, and images unchanged/i);
   assert.match(reference, /retain.+exclude|exclude.+retain/is);
   assert.match(reference, /array.+object.+(?:semantic|deep)|(?:semantic|deep).+array.+object/is);
 });

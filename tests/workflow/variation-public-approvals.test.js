@@ -102,6 +102,23 @@ test('public CLI adds a Child, records scoped candidates, approves every Variati
       assert.equal(approved.ok, true, approved.message);
     }
 
+    const secondaryRelative = '.studio/work/secondary/sku-12x16-size.png';
+    const secondaryTarget = path.join(projectDir, ...secondaryRelative.split('/'));
+    await mkdir(path.dirname(secondaryTarget), {recursive: true});
+    await copyFile(fixtures.valid, secondaryTarget);
+    const secondaryRecorded = await runInput(root, 'record-variation-candidate', projectDir, 'secondary-candidate.json', {
+      scopeType: 'child_secondary', artifactId: 'sku-12x16-size', childSku: 'SKU-12X16',
+      kind: 'size_spec', path: secondaryRelative, inspection_status: 'pass',
+      now: '2026-08-28T01:05:00.000Z'
+    });
+    assert.equal(secondaryRecorded.ok, true, secondaryRecorded.message);
+    const secondaryApproved = await runInput(root, 'approve-variation', projectDir, 'secondary-approval.json', {
+      scopeType: 'child_secondary', artifactId: 'sku-12x16-size', childSku: 'SKU-12X16',
+      path: secondaryRelative, userAction: 'approved', now: '2026-08-28T01:05:30.000Z'
+    });
+    assert.equal(secondaryApproved.ok, true, secondaryApproved.message);
+    await access(path.join(projectDir, 'assets', 'children', 'SKU-12X16', 'sku-12x16-size.png'));
+
     const sharedRecorded = await runInput(root, 'record-variation-candidate', projectDir, 'shared-candidate.json', {
       scopeType: 'shared_image', artifactId: 'material-v1', kind: 'secondary',
       path: 'family/shared-assets/material.png', scope: 'shared_asset',
@@ -150,6 +167,7 @@ test('public CLI adds a Child, records scoped candidates, approves every Variati
     const saved = JSON.parse(await readFile(path.join(projectDir, '.studio', 'state.json'), 'utf8'));
     const finalApproval = saved.approvals.at(-1);
     assert.equal(finalApproval.scope_type, 'variation_final');
+    assert.equal(finalApproval.asset_map.child_secondary['SKU-12X16'][0].artifact_id, 'sku-12x16-size');
     const finalized = await runCli([
       'finalize', '--project-dir', projectDir, '--output', 'delivery/family-v1'
     ]);

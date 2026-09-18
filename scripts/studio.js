@@ -29,7 +29,8 @@ import {
   promoteToVariation,
   removeVariationChild,
   resolveVariationFactConflicts,
-  reviseVariationChild
+  reviseVariationChild,
+  setVariationDisplayValues
 } from './lib/variation-project.js';
 import {parseSellerSpriteWorkbook} from './lib/sellersprite-workbooks.js';
 import {resolveRules} from './lib/rule-cache.js';
@@ -610,26 +611,32 @@ function variationCandidateKind(candidate) {
   return candidate.kind ?? 'secondary';
 }
 
+const VARIATION_IMAGE_SCOPES = new Set(['child_main', 'child_secondary', 'shared_image']);
+const isChildImageScope = scopeType => scopeType === 'child_main' || scopeType === 'child_secondary';
+
 function assertVariationCandidateScope(state, candidate) {
   if (state?.project?.mode !== 'variation_family' || !state.variation) {
     throw blocking('A Variation Family project is required');
   }
-  if (!['child_main', 'shared_image'].includes(candidate?.scopeType)
+  if (!VARIATION_IMAGE_SCOPES.has(candidate?.scopeType)
       || !candidate.artifactId || !candidate.path) {
     throw blocking('Variation candidate requires an explicit supported scope, artifact ID, and path');
   }
   const normalizedPath = candidate.path.replaceAll('\\', '/');
-  if (candidate.scopeType === 'child_main') {
+  if (isChildImageScope(candidate.scopeType)) {
     const child = state.variation.children?.[candidate.childSku];
     if (!child || child.active === false) throw blocking('Variation candidate requires an active exact Child SKU');
     if (candidate.childSkus !== undefined || candidate.factDependencies !== undefined || candidate.scope !== undefined
-        || (candidate.kind !== undefined && candidate.kind !== 'main')) {
-      throw blocking('Variation candidate fields do not match the Child main scope');
+        || (candidate.scopeType === 'child_main' && candidate.kind !== undefined && candidate.kind !== 'main')
+        || (candidate.scopeType === 'child_secondary' && variationCandidateKind(candidate) === 'main')) {
+      throw blocking('Variation candidate fields do not match the Child image scope');
     }
-    const canonical = normalizedPath.startsWith(`children/${candidate.childSku}/assets/`);
-    const preserved = child.legacy_refs?.main_image === candidate.path
-      || child.product_master?.approved_main_path === candidate.path;
-    if (!canonical && !preserved) {
+    const allowed = candidate.scopeType === 'child_secondary'
+      ? normalizedPath.startsWith('.studio/work/')
+      : normalizedPath.startsWith(`children/${candidate.childSku}/assets/`)
+        || child.legacy_refs?.main_image === candidate.path
+        || child.product_master?.approved_main_path === candidate.path;
+    if (!allowed) {
       throw blocking('Child main candidate path does not belong to the exact Child scope');
     }
   } else {
@@ -701,12 +708,12 @@ export async function runRecordVariationCandidate({projectDir, candidate}, {
         scope_type: candidate.scopeType,
         kind: normalizedCandidate.kind,
         path: candidate.path,
-        ...(candidate.scopeType === 'child_main'
+        ...(isChildImageScope(candidate.scopeType)
           ? {child_sku: candidate.childSku}
           : {asset_scope: structuredClone(candidate.scope)})
       },
       automatic_attempts: Number(candidate.automatic_attempts ?? 0),
-      ...(candidate.scopeType === 'child_main' ? {child_sku: candidate.childSku} : {
+      ...(isChildImageScope(candidate.scopeType) ? {child_sku: candidate.childSku} : {
         scope: structuredClone(candidate.scope),
         fact_dependencies: structuredClone(candidate.factDependencies)
       })
@@ -717,7 +724,7 @@ export async function runRecordVariationCandidate({projectDir, candidate}, {
       reason_codes: reasonCodes,
       automatic_attempts: Number(candidate.automatic_attempts ?? 0)
     };
-    if (candidate.scopeType === 'child_main') {
+    if (isChildImageScope(candidate.scopeType)) {
       const child = next.variation.children[candidate.childSku];
       child.assets = {...(child.assets ?? {}), [candidate.artifactId]: saved};
     } else {
@@ -728,14 +735,14 @@ export async function runRecordVariationCandidate({projectDir, candidate}, {
     next.project.updated_at = now;
     return next;
   });
-  return {...transaction, candidate: candidate.scopeType === 'child_main'
+  return {...transaction, candidate: isChildImageScope(candidate.scopeType)
     ? transaction.state.variation.children[candidate.childSku].assets[candidate.artifactId]
     : transaction.state.variation.shared_assets[candidate.artifactId]};
 }
 
 function validateVariationApprovalInput(approval) {
   const scopeType = approval?.scopeType;
-  if (!['child_main', 'shared_image', 'parent_listing', 'child_listing', 'variation_final'].includes(scopeType)) {
+  if (![...VARIATION_IMAGE_SCOPES, 'parent_listing', 'child_listing', 'variation_final'].includes(scopeType)) {
     throw blocking('Variation approval requires an explicit supported scope');
   }
   if (scopeType === 'variation_final' && [
@@ -748,7 +755,7 @@ function validateVariationApprovalInput(approval) {
 
 async function applyVariationApproval(state, approval, {projectDir, hashFile} = {}) {
   const scopeType = validateVariationApprovalInput(approval);
-  if (scopeType === 'child_main' || scopeType === 'shared_image') {
+  if (VARIATION_IMAGE_SCOPES.has(scopeType)) {
     return approveVariationArtifact(state, {...approval, artifactType: scopeType}, {projectDir, hashFile});
   }
   if (scopeType === 'parent_listing' || scopeType === 'child_listing') {
@@ -760,14 +767,14 @@ async function applyVariationApproval(state, approval, {projectDir, hashFile} = 
 async function publishVariationApproval(projectDir, state, input) {
   if (input.scopeType === 'variation_final') return [];
   const approval = state.approvals.at(-1);
-  if (input.scopeType === 'child_main' || input.scopeType === 'shared_image') {
-    const childSku = input.scopeType === 'child_main' ? input.childSku : null;
-    const asset = input.scopeType === 'child_main'
+  if (VARIATION_IMAGE_SCOPES.has(input.scopeType)) {
+    const childSku = isChildImageScope(input.scopeType) ? input.childSku : null;
+    const asset = isChildImageScope(input.scopeType)
       ? (state.variation.children[childSku].assets?.[input.artifactId]
         ?? state.variation.children[childSku].gallery?.assets?.[input.artifactId])
       : state.variation.shared_assets[input.artifactId];
     const destination = publishedAssetPath({
-      scope: input.scopeType === 'child_main' ? 'child' : 'shared',
+      scope: isChildImageScope(input.scopeType) ? 'child' : 'shared',
       childSku,
       role: asset.kind === 'main' ? 'main' : asset.id,
       sourcePath: input.path
@@ -805,7 +812,7 @@ export async function runApproveVariation({projectDir, approval}, {hashFile} = {
     const publications = await publishVariationApproval(projectDir, next, approval);
     return {state: next, approval: next.approvals.at(-1), publications};
   });
-  const candidates = ['child_main', 'shared_image'].includes(approval.scopeType) ? [approval.path] : [];
+  const candidates = VARIATION_IMAGE_SCOPES.has(approval.scopeType) ? [approval.path] : [];
   return cleanupApprovalWork(projectDir, result, candidates);
 }
 
@@ -836,7 +843,7 @@ export async function runApproveVariationBatch({projectDir, approvals, userActio
     return {state: next, approvals: created, publications};
   });
   return cleanupApprovalWork(projectDir, result, normalized
-    .filter(item => ['child_main', 'shared_image'].includes(item.scopeType))
+    .filter(item => VARIATION_IMAGE_SCOPES.has(item.scopeType))
     .map(item => item.path));
 }
 
@@ -917,6 +924,7 @@ function operationFor(command, input = null) {
     'revise-child': 'child_listing_field_edit',
     'remove-child': 'remove_child',
     'resolve-variation-facts': 'resolve_fact_conflicts',
+    'set-variation-display-values': 'child_listing_field_edit',
     'verify-delivery': 'finalize',
     'prepare-upload': 'finalize'
   };
@@ -1090,7 +1098,8 @@ export async function runCli(argv, {
         now: options.now
       });
     }
-    else if (['add-child', 'revise-child', 'remove-child', 'resolve-variation-facts'].includes(command)) {
+    else if (['add-child', 'revise-child', 'remove-child', 'resolve-variation-facts',
+      'set-variation-display-values'].includes(command)) {
       const projectDir = path.resolve(requireOption(options, 'project-dir'));
       const input = JSON.parse(await readFile(path.resolve(requireOption(options, 'input')), 'utf8'));
       const operationInput = {...input, ...(options.now ? {now: options.now} : {})};
@@ -1101,7 +1110,9 @@ export async function runCli(argv, {
           ? reviseVariationChild
           : command === 'remove-child'
             ? removeVariationChild
-            : resolveVariationFactConflicts;
+            : command === 'resolve-variation-facts'
+              ? resolveVariationFactConflicts
+              : setVariationDisplayValues;
       if (command === 'add-child') {
         const current = await defaultLoadState(projectDir);
         mutate(current, operationInput);

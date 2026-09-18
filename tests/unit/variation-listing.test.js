@@ -99,6 +99,19 @@ test('materializes complete Child content from a shared Parent baseline', () => 
   assert.deepEqual(child.variation_values, {size_name: '12 x 16 in'});
 });
 
+test('materializes customer-facing Variation display values without changing canonical identity', () => {
+  const child = {
+    sku: 'SKU-8X12',
+    variation_values: {size_name: '8 x 12 Inches'},
+    variation_display_values: {size_name: '12 x 8 Inches'}
+  };
+  const content = materializeChildListing({
+    parentContent: {parent_sku: 'PARENT'}, child, dimensions: ['size_name']
+  });
+  assert.deepEqual(content.variation_values, {size_name: '12 x 8 Inches'});
+  assert.deepEqual(child.variation_values, {size_name: '8 x 12 Inches'});
+});
+
 test('Child title keeps core search identity and required variation values within the limit', () => {
   const title = buildChildTitle({
     coreTerms: ['hard hat required sign'],

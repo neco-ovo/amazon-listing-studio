@@ -16,6 +16,10 @@ function activeChildren(children) {
   return entries.filter(child => child && typeof child === 'object' && child.active !== false);
 }
 
+export function effectiveVariationValues(child = {}) {
+  return {...(child.variation_values ?? {}), ...(child.variation_display_values ?? {})};
+}
+
 function normalizedFactValue(value) {
   if (typeof value === 'string') return normalizedText(value).toLowerCase();
   if (value === null || value === undefined) return '';
@@ -237,6 +241,12 @@ export function validateVariationExtension(variation) {
       if (!child.variation_values || Array.isArray(child.variation_values) || typeof child.variation_values !== 'object') {
         errors.push(`variation child values must be an object: ${childSku}`);
         continue;
+      }
+      if (child.variation_display_values !== undefined
+          && (Array.isArray(child.variation_display_values) || typeof child.variation_display_values !== 'object'
+            || Object.keys(child.variation_display_values).some(dimension => !dimensions.includes(dimension)
+              || !normalizedText(child.variation_display_values[dimension])))) {
+        errors.push(`variation child display values are invalid: ${childSku}`);
       }
       if (Array.isArray(dimensions) && dimensions.length > 0) {
         const missing = dimensions.some(dimension => !normalizedText(child.variation_values[dimension]));

@@ -204,6 +204,34 @@ test('Child main approval cannot approve another Child', async () => {
   assert.equal(state.approvals.length, 0);
 });
 
+test('Child secondary approval binds the exact Child and locked Product Master', async () => {
+  const state = variationState();
+  const childRecord = state.variation.children['HORSE-12X16'];
+  const artifactId = 'horse-12x16-size';
+  const candidateHash = hash('d');
+  const candidatePath = '.studio/work/secondary/horse-12x16-size.png';
+  childRecord.assets[artifactId] = {
+    id: artifactId, kind: 'size_spec', child_sku: childRecord.sku,
+    status: 'candidate', inspection_status: 'pass', path: candidatePath,
+    candidate_sha256: candidateHash,
+    inspection_binding: {
+      scope_type: 'child_secondary', kind: 'size_spec', path: candidatePath, child_sku: childRecord.sku
+    }
+  };
+
+  const next = await approveVariationArtifact(state, {
+    artifactId, artifactType: 'child_secondary', childSku: childRecord.sku,
+    path: candidatePath, userAction: 'approved', now
+  }, {hashFile: async () => candidateHash});
+
+  const approval = next.approvals.at(-1);
+  assert.equal(approval.scope_type, 'child_secondary');
+  assert.equal(approval.child_sku, childRecord.sku);
+  assert.equal(approval.product_master_version, 1);
+  assert.deepEqual(approval.variation_values, childRecord.variation_values);
+  assert.equal(next.variation.children[childRecord.sku].assets[artifactId].status, 'approved');
+});
+
 test('Child main approval hashes and freezes the exact Child scope', async () => {
   const state = variationState();
   const next = await approveVariationArtifact(state, {
@@ -796,7 +824,8 @@ test('final approval freezes the complete Variation scope', async () => {
   assert.deepEqual(approval.asset_map.shared['material-v1'].declared_child_skus, []);
   assert.deepEqual(approval.child_variations[0], {
     child_sku: 'HORSE-12X16',
-    variation_values: {color_name: 'Horse Crossing', size_name: '12 x 16 in'}
+    variation_values: {color_name: 'Horse Crossing', size_name: '12 x 16 in'},
+    display_values: {color_name: 'Horse Crossing', size_name: '12 x 16 in'}
   });
   assert.equal(next.variation.versions.at(-1).approval_id, approval.id);
   assert.equal(next.variation.versions.at(-1).scope_sha256, approval.scope_sha256);

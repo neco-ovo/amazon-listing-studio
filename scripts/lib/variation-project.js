@@ -9,6 +9,7 @@ import {
   childSkuDirectoryKey,
   computeCommonFacts,
   createVariationExtension,
+  effectiveVariationValues,
   selectVariationTheme,
   validateVariationExtension,
   variationTupleKey
@@ -508,6 +509,56 @@ export function reviseVariationChild(state, input = {}) {
     {kind: 'revised', at: now, fact_fields: Object.keys(changedFacts), listing_fields: listingChanges.changedFields}
   ];
   recordOperation(variation, {kind: 'revise_child', reasons, affectedIds, now});
+  updateProjectTimestamp(next, now);
+  return next;
+}
+
+export function setVariationDisplayValues(state, input = {}) {
+  assertVariationState(state);
+  if (input.userAction !== 'approved') fail('BLOCKING_INPUT', 'Explicit approved user action is required');
+  const skus = input.childSkus;
+  const dimension = input.dimension;
+  if (!Array.isArray(skus) || skus.length === 0 || new Set(skus).size !== skus.length
+      || !state.variation.theme.dimensions.includes(dimension)
+      || typeof input.from !== 'string' || !input.from.trim()
+      || typeof input.to !== 'string' || !input.to.trim()) {
+    fail('BLOCKING_INPUT', 'A unique Child set, valid dimension, from, and to are required');
+  }
+  for (const sku of skus) {
+    const child = state.variation.children[sku];
+    if (!child || child.active === false || effectiveVariationValues(child)[dimension] !== input.from) {
+      fail('BLOCKING_INPUT', 'Display update does not match the current active Child value', {child_sku: sku});
+    }
+  }
+  const proposed = activeChildren(state.variation).map(child => ({
+    sku: child.sku,
+    values: skus.includes(child.sku)
+      ? {...effectiveVariationValues(child), [dimension]: input.to.trim()}
+      : effectiveVariationValues(child)
+  }));
+  const keys = proposed.map(item => variationTupleKey(state.variation.theme.dimensions, item.values));
+  if (new Set(keys).size !== keys.length) fail('BLOCKING_INPUT', 'Display update creates a duplicate Variation tuple');
+
+  const now = operationNow(input.now);
+  const next = structuredClone(state);
+  for (const sku of skus) {
+    const child = next.variation.children[sku];
+    child.variation_display_values = {...(child.variation_display_values ?? {}), [dimension]: input.to.trim()};
+    child.listing = markStale(child.listing, {
+      reason: 'VARIATION_DISPLAY_VALUES_CHANGED', affectedIds: [sku], now
+    });
+    child.history = [...(child.history ?? []), {
+      kind: 'variation_display_values_changed', at: now, dimension,
+      from: input.from, to: input.to.trim()
+    }];
+  }
+  const currentVersion = [...(next.variation.versions ?? [])].reverse().find(version => version.status === 'approved');
+  if (currentVersion) Object.assign(currentVersion, markStale(currentVersion, {
+    reason: 'VARIATION_DISPLAY_VALUES_CHANGED', affectedIds: skus, now
+  }));
+  recordOperation(next.variation, {
+    kind: 'set_variation_display_values', reasons: ['VARIATION_DISPLAY_VALUES_CHANGED'], affectedIds: skus, now
+  });
   updateProjectTimestamp(next, now);
   return next;
 }

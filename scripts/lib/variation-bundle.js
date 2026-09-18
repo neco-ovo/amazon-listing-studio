@@ -14,7 +14,7 @@ import {
   normalizeVariationRuleScope,
   variationFinalScopePayload
 } from './variation-approvals.js';
-import {validateVariationExtension} from './variations.js';
+import {effectiveVariationValues, validateVariationExtension} from './variations.js';
 import {promoteVerifiedDirectory, readProjectState} from './project-layout.js';
 
 function invalid(reason, message, details = {}) {
@@ -287,7 +287,7 @@ function validateListingSnapshot({
   }
   if (child && (content.child_sku !== child.sku
       || content.product_master_version !== child.product_master?.version
-      || !isDeepStrictEqual(content.variation_values, child.variation_values))) {
+      || !isDeepStrictEqual(content.variation_values, effectiveVariationValues(child)))) {
     throw invalid('APPROVAL_SCOPE_MISMATCH', 'Child Listing does not match its current Child scope.', {child_sku: child.sku});
   }
   for (const field of ['title', 'item_highlights', 'bullets', 'description', 'backend_search_terms', 'special_features', 'attributes']) {
@@ -339,6 +339,7 @@ function validateCurrentScope(state, approval, selectedSkus) {
     if (version?.child_sku !== child.sku || variation?.child_sku !== child.sku
         || !isDeepStrictEqual(version.variation_values, child.variation_values)
         || !isDeepStrictEqual(variation.variation_values, child.variation_values)
+        || !isDeepStrictEqual(variation.display_values, effectiveVariationValues(child))
         || version.product_master_version !== child.product_master?.version) {
       throw invalid('APPROVAL_SCOPE_MISMATCH', 'A Child scope changed after final approval.', {child_sku: child.sku});
     }
@@ -744,7 +745,7 @@ export async function buildVariationDelivery({
       parent_sku: state.variation.parent.sku,
       child_sku: child.sku,
       theme_dimensions: [...approval.theme_dimensions],
-      variation_values: structuredClone(child.variation_values),
+      variation_values: structuredClone(effectiveVariationValues(child)),
       listing_version: version.listing_version,
       product_master_version: version.product_master_version,
       asset_ids: structuredClone(childLayout.asset_ids),
@@ -808,7 +809,7 @@ function exactRow(row, scope, manifest, expectedLayout) {
   const version = scope.child_versions.find(item => item.child_sku === row.child_sku);
   if (!variation || !version || row.parent_sku !== manifest.parent_sku
       || !isDeepStrictEqual(row.theme_dimensions, scope.theme_dimensions)
-      || !isDeepStrictEqual(row.variation_values, variation.variation_values)
+      || !isDeepStrictEqual(row.variation_values, variation.display_values)
       || row.listing_version !== version.listing_version
       || row.product_master_version !== version.product_master_version) {
     throw invalid('APPROVAL_SCOPE_MISMATCH', 'Variation Matrix row does not match the immutable approval.', {

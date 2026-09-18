@@ -2,7 +2,7 @@ import path from 'node:path';
 import {access, mkdir, readFile, realpath, rename, rm, unlink, writeFile} from 'node:fs/promises';
 import {isDeepStrictEqual} from 'node:util';
 import {renderProjectSummary} from './project-state.js';
-import {computeCommonFacts} from './variations.js';
+import {computeCommonFacts, effectiveVariationValues} from './variations.js';
 
 function invalid(message) {
   return Object.assign(new Error(message), {code: 'INVALID_PRODUCT_PROJECT'});
@@ -112,7 +112,7 @@ function variationProjection(state) {
       const value = confirmedFactValue(record);
       if (value !== undefined && !dimensions.includes(id) && !isDeepStrictEqual(value, common[id])) facts[id] = structuredClone(value);
     }
-    return {sku: child.sku, values: structuredClone(child.variation_values ?? {}), facts};
+    return {sku: child.sku, values: structuredClone(effectiveVariationValues(child)), facts};
   });
 
   const assets = [];

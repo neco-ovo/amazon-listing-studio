@@ -8,7 +8,8 @@ import {
   addVariationChild,
   removeVariationChild,
   resolveVariationFactConflicts,
-  reviseVariationChild
+  reviseVariationChild,
+  setVariationDisplayValues
 } from '../../scripts/lib/variation-project.js';
 import {createVariationExtension} from '../../scripts/lib/variations.js';
 import {runCli} from '../../scripts/studio.js';
@@ -105,6 +106,36 @@ test('adding a light-difference Child preserves unrelated approvals', () => {
   ]);
   assert.deepEqual(next.variation.shared_assets['material-v1'].applicable_child_skus, ['SKU-12X16']);
   assert.deepEqual(next.variation.versions, state.variation.versions);
+});
+
+test('display-only Variation values stale only Listing and current final version', () => {
+  const state = variationState();
+  state.variation.versions[0] = {...state.variation.versions[0], status: 'approved', approval_id: 'final-v1'};
+  const originalMaster = structuredClone(state.variation.children['SKU-12X16'].product_master);
+
+  const next = setVariationDisplayValues(state, {
+    childSkus: ['SKU-12X16'], dimension: 'size_name',
+    from: '12 x 16 in', to: '16 x 12 Inches', userAction: 'approved', now: later
+  });
+
+  const updated = next.variation.children['SKU-12X16'];
+  assert.deepEqual(updated.variation_values, {size_name: '12 x 16 in'});
+  assert.deepEqual(updated.variation_display_values, {size_name: '16 x 12 Inches'});
+  assert.deepEqual(updated.product_master, originalMaster);
+  assert.equal(updated.listing.status, 'stale');
+  assert.equal(updated.listing.stale_reason, 'VARIATION_DISPLAY_VALUES_CHANGED');
+  assert.equal(next.variation.versions[0].status, 'stale');
+  assert.equal(next.variation.versions[0].stale_reason, 'VARIATION_DISPLAY_VALUES_CHANGED');
+  assert.equal(state.variation.children['SKU-12X16'].variation_display_values, undefined);
+
+  assert.throws(
+    () => setVariationDisplayValues(state, {
+      childSkus: ['SKU-12X16'], dimension: 'size_name',
+      from: 'wrong value', to: '16 x 12 Inches', userAction: 'approved', now: later
+    }),
+    error => error.code === 'BLOCKING_INPUT'
+  );
+  assert.equal(state.variation.children['SKU-12X16'].variation_display_values, undefined);
 });
 
 test('adding inherits supported common and locked Family facts before explicit Child overrides', () => {
@@ -435,6 +466,7 @@ test('JSON-file Child CLI commands persist add, revise, and soft removal', async
     const revisePath = path.join(projectDir, 'revise.json');
     const factPath = path.join(projectDir, 'fact.json');
     const protectedPath = path.join(projectDir, 'protected.json');
+    const displayPath = path.join(projectDir, 'display.json');
     const removePath = path.join(projectDir, 'remove.json');
     await writeFile(addPath, JSON.stringify({
       sku: 'SKU-8X12', variation_values: {size_name: '8 x 12 in'},
@@ -449,6 +481,10 @@ test('JSON-file Child CLI commands persist add, revise, and soft removal', async
     await writeFile(protectedPath, JSON.stringify({
       sku: 'SKU-8X12', listingPatch: {variation_theme: ['color_name']}, now: later
     }));
+    await writeFile(displayPath, JSON.stringify({
+      childSkus: ['SKU-8X12'], dimension: 'size_name', from: '8 x 12 in', to: '12 x 8 Inches',
+      userAction: 'approved', now: later
+    }));
     await writeFile(removePath, JSON.stringify({sku: 'SKU-8X12', now: later}));
 
     const added = await runCli(['add-child', '--project-dir', projectDir, '--input', addPath]);
@@ -457,6 +493,9 @@ test('JSON-file Child CLI commands persist add, revise, and soft removal', async
       'revise-child', '--project-dir', projectDir, '--input', protectedPath
     ]);
     const factRevised = await runCli(['revise-child', '--project-dir', projectDir, '--input', factPath]);
+    const displayRevised = await runCli([
+      'set-variation-display-values', '--project-dir', projectDir, '--input', displayPath
+    ]);
     const removed = await runCli(['remove-child', '--project-dir', projectDir, '--input', removePath]);
 
     assert.equal(added.ok, true);
@@ -467,11 +506,14 @@ test('JSON-file Child CLI commands persist add, revise, and soft removal', async
     assert.equal(protectedRevision.code, 'BLOCKING_INPUT');
     assert.equal(factRevised.ok, true);
     assert.equal(factRevised.mode, 'fast');
+    assert.equal(displayRevised.ok, true);
+    assert.equal(displayRevised.mode, 'fast');
     assert.equal(removed.ok, true);
     assert.equal(removed.mode, 'fast');
     const saved = JSON.parse(await readFile(path.join(projectDir, '.studio', 'state.json'), 'utf8'));
     assert.equal(saved.variation.children['SKU-8X12'].active, false);
     assert.equal(saved.variation.children['SKU-8X12'].listing.draft.content.title, 'Updated Child Title');
+    assert.equal(saved.variation.children['SKU-8X12'].variation_display_values.size_name, '12 x 8 Inches');
   });
 });
 
