@@ -361,6 +361,45 @@ test('subset shared approval freezes its declared subset and mappings ignore mut
   assert.deepEqual(next.approvals.find(item => item.id === frozen.id), frozen);
 });
 
+test('subset shared approval accepts Child-only Variation facts without Family-common matches', async () => {
+  const state = variationState();
+  const asset = state.variation.shared_assets['material-v1'];
+  const scope = {type: 'subset_shared', child_skus: ['HORSE-12X16']};
+  const dependencies = {color_name: 'Horse Crossing', size_name: '12 x 16 in'};
+  asset.scope = scope;
+  asset.fact_dependencies = dependencies;
+  asset.inspection_binding.asset_scope = scope;
+
+  const next = await approveVariationArtifact(state, {
+    artifactId: 'material-v1', artifactType: 'shared_image', childSkus: ['HORSE-12X16'],
+    factDependencies: dependencies, path: 'family/shared-assets/material.png',
+    userAction: 'approved', now
+  }, {hashFile: async () => hash('c')});
+
+  assert.deepEqual(next.approvals.at(-1).applicable_child_skus, ['HORSE-12X16']);
+});
+
+test('shared approval reports per-Child dependency mismatches', async () => {
+  const state = variationState();
+  const asset = state.variation.shared_assets['material-v1'];
+  const scope = {type: 'subset_shared', child_skus: ['HORSE-12X16']};
+  const dependencies = {color_name: 'Kids at Play'};
+  asset.scope = scope;
+  asset.fact_dependencies = dependencies;
+  asset.inspection_binding.asset_scope = scope;
+
+  await assert.rejects(
+    approveVariationArtifact(state, {
+      artifactId: 'material-v1', artifactType: 'shared_image', childSkus: ['HORSE-12X16'],
+      factDependencies: dependencies, path: 'family/shared-assets/material.png',
+      userAction: 'approved', now
+    }, {hashFile: async () => hash('c')}),
+    error => error.code === 'BLOCKING_INPUT'
+      && error.details?.mismatches?.[0]?.child_sku === 'HORSE-12X16'
+      && error.details.mismatches[0].reasons?.[0] === 'CHILD_FACT_MISMATCH:color_name'
+  );
+});
+
 test('artifact approval requires explicit user action and a valid SHA-256 result', async () => {
   const state = variationState();
   await assert.rejects(

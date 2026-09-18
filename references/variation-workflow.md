@@ -16,7 +16,7 @@ Each Child main is independently scoped and approved. Light-difference Children 
 
 Shared secondary images are reusable asset records with factual dependencies and applicable Child mappings, not a Family gallery. Reuse merchant layouts when facts and visible meaning match. Dimensions are Child-specific unless identical; scenes must show the target Child and exclude sibling wording, graphics, tuples, and unconfirmed contents. Rigid-aluminum layouts use the local reviewed seed in `assets/merchant-layouts/rigid-aluminum-signs.json`, derived from task `01a03541-aca1-7572-8ee5-1b6444353559`; the local reviewed seed is authoritative and runtime never requires task access.
 
-Keep every fact visibly used by a shared image in `factDependencies`. Scalar values use normalized comparison; arrays and objects use semantic deep comparison. Do not delete structured dependencies merely to make applicability approval pass.
+Record every visible shared-image fact in `factDependencies`; compare scalars normalized and arrays or objects semantically. `subset_shared` matches declared Child facts without requiring Family common facts. Never delete dependencies merely to pass approval.
 
 ## Efficient revision and approval
 

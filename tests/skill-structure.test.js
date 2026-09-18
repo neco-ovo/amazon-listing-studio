@@ -307,6 +307,7 @@ test('approval and delivery guidance expose shared preflight and direct ZIP veri
   assert.match(skill, /shared.+finalization preflight/i);
   assert.match(variation, /approve-variation.+locks.+Family Identity.+same transaction/is);
   assert.match(variation, /hash.+automatic.+not.+separate user confirmation/is);
+  assert.match(variation, /subset_shared.+Child.+facts?.+(?:not|without).+Family common/is);
   assert.match(delivery, /verify-delivery/);
   assert.match(delivery, /without extraction/i);
 });

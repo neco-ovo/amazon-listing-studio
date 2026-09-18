@@ -260,7 +260,9 @@ export function evaluateSharedAssetApplicability({asset, child, commonFacts = {}
   }
 
   for (const [field, expected] of Object.entries(asset?.fact_dependencies ?? {})) {
-    if (!valuesMatch(expected, commonFacts?.[field])) reasons.push(`COMMON_FACT_MISMATCH:${field}`);
+    if (scope.type === 'shared_asset' && !valuesMatch(expected, commonFacts?.[field])) {
+      reasons.push(`COMMON_FACT_MISMATCH:${field}`);
+    }
     if (!valuesMatch(expected, child?.facts?.[field])) reasons.push(`CHILD_FACT_MISMATCH:${field}`);
   }
   return {applicable: reasons.length === 0, reasons};

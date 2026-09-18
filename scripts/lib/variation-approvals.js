@@ -314,9 +314,20 @@ async function approveSharedImage(state, input, options) {
   };
   const applicable = applicableChildren(state.variation, scopedAsset);
   if (!exactArray(input.childSkus, applicable)) {
+    const common = commonFacts(state.variation);
+    const mismatches = (input.childSkus ?? []).map(sku => {
+      const child = state.variation.children?.[sku];
+      return {
+        child_sku: sku,
+        reasons: child?.active === false || !child
+          ? ['CHILD_NOT_ACTIVE']
+          : evaluateSharedAssetApplicability({asset: scopedAsset, child, commonFacts: common}).reasons
+      };
+    }).filter(item => item.reasons.length > 0);
     fail('BLOCKING_INPUT', 'Shared image approval must name the exact currently applicable Child set', {
       expected: applicable,
-      actual: input.childSkus ?? null
+      actual: input.childSkus ?? null,
+      mismatches
     });
   }
 
