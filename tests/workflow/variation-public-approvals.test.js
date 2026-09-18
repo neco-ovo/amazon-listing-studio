@@ -206,7 +206,7 @@ test('public Variation candidate routing rejects a sibling Child path without mu
 });
 
 test('Variation approval rejects files changed after scoped candidate inspection without mutating state', async t => {
-  for (const scopeType of ['child_main', 'shared_image']) {
+  for (const scopeType of ['child_main', 'child_secondary', 'shared_image']) {
     await t.test(scopeType, async () => {
       await withTempWorkspace(async root => {
         const projectDir = path.join(root, 'family');
@@ -227,6 +227,11 @@ test('Variation approval rejects files changed after scoped candidate inspection
         state.variation.children['SKU-12X16'].facts = {
           material: fact('aluminum'), size_name: fact('12 x 16 in')
         };
+        if (scopeType === 'child_secondary') {
+          state.variation.children['SKU-12X16'].product_master = {
+            version: 1, status: 'locked', approved_main_id: 'sku-12x16-main'
+          };
+        }
         await mkdir(path.join(projectDir, '.studio'), {recursive: true});
         await writeFile(path.join(projectDir, '.studio', 'state.json'), `${JSON.stringify(state, null, 2)}\n`);
         await writeFile(path.join(projectDir, 'project.md'), renderProjectSummary(state));
@@ -234,14 +239,19 @@ test('Variation approval rejects files changed after scoped candidate inspection
         const fixtures = await createMainImageFixtures(path.join(root, 'fixtures'));
         const relative = scopeType === 'child_main'
           ? 'children/SKU-12X16/assets/main.png'
-          : 'family/shared-assets/material.png';
+          : scopeType === 'child_secondary'
+            ? '.studio/work/secondary/size.png'
+            : 'family/shared-assets/material.png';
         const target = path.join(projectDir, ...relative.split('/'));
         await mkdir(path.dirname(target), {recursive: true});
         await copyFile(fixtures.valid, target);
-        const artifactId = scopeType === 'child_main' ? 'sku-12x16-main' : 'material-v1';
+        const artifactId = scopeType === 'child_main' ? 'sku-12x16-main'
+          : scopeType === 'child_secondary' ? 'sku-12x16-size' : 'material-v1';
         const scopedFields = scopeType === 'child_main'
           ? {childSku: 'SKU-12X16'}
-          : {kind: 'secondary', scope: 'shared_asset', factDependencies: {material: 'aluminum'}};
+          : scopeType === 'child_secondary'
+            ? {childSku: 'SKU-12X16', kind: 'size_spec'}
+            : {kind: 'secondary', scope: 'shared_asset', factDependencies: {material: 'aluminum'}};
         const recorded = await runInput(root, 'record-variation-candidate', projectDir, `${scopeType}-candidate.json`, {
           scopeType, artifactId, path: relative, inspection_status: 'pass', ...scopedFields
         });
@@ -251,7 +261,7 @@ test('Variation approval rejects files changed after scoped candidate inspection
         await writeFile(target, Buffer.from(`changed-after-inspection-${scopeType}`));
         const statePath = path.join(projectDir, '.studio', 'state.json');
         const beforeApproval = await readFile(statePath);
-        const approvalFields = scopeType === 'child_main'
+        const approvalFields = ['child_main', 'child_secondary'].includes(scopeType)
           ? {childSku: 'SKU-12X16'}
           : {
               childSkus: ['SKU-12X16'],

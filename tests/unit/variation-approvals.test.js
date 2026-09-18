@@ -206,6 +206,7 @@ test('Child main approval cannot approve another Child', async () => {
 
 test('Child secondary approval binds the exact Child and locked Product Master', async () => {
   const state = variationState();
+  state.variation.versions.push({id: 'variation-v1', version: 1, status: 'approved', approval_id: 'final-v1'});
   const childRecord = state.variation.children['HORSE-12X16'];
   const artifactId = 'horse-12x16-size';
   const candidateHash = hash('d');
@@ -230,6 +231,8 @@ test('Child secondary approval binds the exact Child and locked Product Master',
   assert.equal(approval.product_master_version, 1);
   assert.deepEqual(approval.variation_values, childRecord.variation_values);
   assert.equal(next.variation.children[childRecord.sku].assets[artifactId].status, 'approved');
+  assert.equal(next.variation.versions[0].status, 'stale');
+  assert.equal(next.variation.versions[0].stale_reason, 'CHILD_SECONDARY_APPROVED');
 });
 
 test('Child main approval hashes and freezes the exact Child scope', async () => {

@@ -335,6 +335,12 @@ async function approveChildSecondary(state, input, options) {
     status: 'approved', sha256, approval_id: id, approved_at: now,
     product_master_version: child.product_master.version
   };
+  const currentVersion = [...next.variation.versions].reverse().find(version => version.status === 'approved');
+  if (currentVersion) {
+    Object.assign(currentVersion, {
+      status: 'stale', stale_at: now, stale_reason: 'CHILD_SECONDARY_APPROVED', affected_ids: [child.sku]
+    });
+  }
   next.approvals.push(approval);
   next.variation.updated_at = now;
   next.project.updated_at = now;

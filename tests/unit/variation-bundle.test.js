@@ -615,6 +615,49 @@ test('build rejects an old final approval after a Child revision leaves versions
   });
 });
 
+test('new Child secondary invalidates the old final approval until reapproval', async () => {
+  await withTempWorkspace(async root => {
+    const project = await approvedProject(root);
+    const child = project.state.variation.children['HORSE-12X16'];
+    const artifactId = 'horse-12x16-application';
+    const relative = '.studio/work/secondary/horse-12x16-application.png';
+    await png(path.join(project.projectDir, relative), '#eeeeee');
+    const sha256 = await sha256File(path.join(project.projectDir, relative));
+    child.assets[artifactId] = {
+      id: artifactId, kind: 'application', child_sku: child.sku,
+      status: 'candidate', inspection_status: 'pass', path: relative,
+      candidate_sha256: sha256,
+      inspection_binding: {
+        scope_type: 'child_secondary', kind: 'application', path: relative, child_sku: child.sku
+      }
+    };
+    const updated = await approveVariationArtifact(project.state, {
+      artifactId, artifactType: 'child_secondary', childSku: child.sku,
+      path: relative, userAction: 'approved', now: '2026-08-27T09:00:00.000Z'
+    }, {hashFile: candidate => sha256File(path.join(project.projectDir, candidate))});
+    const published = `children/${child.sku}/assets/application.png`;
+    updated.variation.children[child.sku].assets[artifactId].path = published;
+    updated.approvals.at(-1).path = published;
+    updated.approvals.at(-1).inspection_binding.path = published;
+    await writeFile(path.join(project.projectDir, '.studio', 'state.json'), `${JSON.stringify(updated, null, 2)}\n`);
+
+    await assert.rejects(
+      buildVariationDelivery({
+        projectDir: project.projectDir,
+        outputDir: path.join(project.projectDir, 'delivery', 'stale-after-secondary'),
+        finalApproval: project.finalApproval
+      }),
+      error => error.code === 'BUNDLE_INVALID' && error.details?.reason === 'APPROVAL_SCOPE_MISMATCH'
+    );
+
+    const reapproved = approveVariationVersion(updated, {
+      userAction: 'approved', now: '2026-08-27T09:01:00.000Z'
+    });
+    const nextFinal = reapproved.approvals.at(-1);
+    assert.equal(nextFinal.asset_map.child_secondary[child.sku].some(item => item.artifact_id === artifactId), true);
+  });
+});
+
 test('Child-only build still accepts an unaffected selected Child after a sibling-only revision', async () => {
   await withTempWorkspace(async root => {
     const project = await approvedProject(root);
