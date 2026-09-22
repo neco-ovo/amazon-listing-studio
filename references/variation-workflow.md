@@ -1,20 +1,20 @@
 # Variation workflow
 
-Read only for Parent/Child work. Parent is the common product identity; each Child is one purchasable SKU with one exact ordered tuple. Keep shared secondary records and invalidate direct dependents only.
+For Parent/Child work only. Parent is common product identity; each Child a purchasable SKU with an exact tuple. Keep shared secondary records and invalidate direct dependents only.
 
 ## Family and theme
 
-Use a current category Schema or user template for an ordered, category-permitted single or compound theme. Sparse real combinations are valid; never invent a Cartesian product or infer a compound theme from differences. Category differences are not a hard rejection boundary—compare stable identity, purpose, product form, and real offer relationships.
+Use category Schema or user template for an ordered, category-permitted theme. Sparse combinations are valid; never invent a Cartesian product or infer a compound theme from differences. Category differences are not hard boundaries—compare identity, purpose, form, and offer relationships.
 
-Promotion is non-destructive and preserves completed product files and approvals while adding Family records with `promote-variation`. Existing Families use `add-child`, `revise-child`, and `remove-child`.
+Promotion is non-destructive and preserves files and approvals while adding Family records with `promote-variation`. Existing Families use `add-child`, `revise-child`, and `remove-child`.
 
 Family Identity contains supported common facts; Parent copy uses only those facts. Child drafts store real differences. Standard variation differences may reuse Parent copy; different meaning, intent, form, purpose, or function require Child copy or block the Family.
 
 ## Images
 
-Each Child main is independently scoped and approved. Light differences may reuse the merchant composition with necessary attribute changes.
+Each Child main is independently scoped and approved. Light differences may reuse merchant composition with attribute changes.
 
-Shared secondary images are reusable asset records, not a Family gallery; they carry factual dependencies and applicable Child mappings. Reuse merchant layouts only when facts and meaning match. Scenes must exclude sibling content and unconfirmed contents. Task `01a03541-aca1-7572-8ee5-1b6444353559` produced the local reviewed seed `assets/merchant-layouts/rigid-aluminum-signs.json`; runtime never needs task access.
+Shared secondary images are reusable asset records, not a Family gallery; they carry factual dependencies and applicable Child mappings. Reuse merchant layouts only when facts and meaning match. Scenes must exclude sibling content and unconfirmed contents. Task `01a03541-aca1-7572-8ee5-1b6444353559` produced local reviewed seed `assets/merchant-layouts/rigid-aluminum-signs.json`; runtime does not need task access.
 
 Record every visible shared-image fact in `factDependencies`; compare scalars normalized and arrays or objects semantically. `subset_shared` matches declared Child facts without requiring Family common facts. Never delete dependencies merely to pass approval.
 
@@ -22,11 +22,17 @@ Record every visible shared-image fact in `factDependencies`; compare scalars no
 
 Direct dependents use the fast local path without a full rerun. Common-fact changes recalculate only Parent intersection and affected shared mappings; identity/theme changes and finalization remain full.
 
-When unresolved Family facts block Parent approval, use `scripts/studio.js resolve-variation-facts --project-dir <dir> --input <resolution.json>`. An explicitly approved resolution may `retain` one value already present on every active Child and clear its conflicts, or `exclude` an unresolved/non-publishable field. It cannot change a Child value, remove a supported fact, or modify a Variation Theme field. The transaction records history and recomputes Parent common facts plus shared applicability; do not write a project-specific mutation script.
+For unresolved Family facts, run `resolve-variation-facts`. An approved resolution may retain a value shared by every active Child or exclude an unresolved field; it cannot change Child values, remove supported facts, or alter the Variation Theme. It records history and recomputes common facts and shared applicability.
 
 Parent Listing, Child Listing, Child main, and shared-image approvals remain separate immutable records. One explicit batch action may create several records atomically; each item still passes its own scope checks, and final approval is last. New compatible Children use new shared mappings without mutating old approvals.
 
-Record scoped images with `record-variation-candidate`; inspection and hash bind one byte snapshot. `child_main` and `child_secondary` belong to one exact Child, while `shared_image` is only for a genuinely reusable Family or subset asset. After the gallery plan is approved, Child secondaries may be registered and approved as one batch instead of requiring image-by-image confirmation. Approve one item with `approve-variation` or an approved set with `approve-variation-batch`. Final `approve-variation` validates current common facts and locks a draft Family Identity in the same transaction before freezing Parent, ordered theme, canonical tuples, customer-facing display values, Product Masters, complete Listings, asset maps, marketplace, product type, and rule status. Scope and file hashes are automatic integrity records, not a separate user confirmation.
+Record scoped images with `record-variation-candidate`; inspection and hash bind one byte snapshot. `child_main` and `child_secondary` belong to one exact Child, while `shared_image` is only for a genuinely reusable Family or subset asset. After the gallery plan is approved, Child secondaries may be registered and approved as one batch instead of requiring image-by-image confirmation. Approve one item with `approve-variation` or an approved set with `approve-variation-batch`. Final `approve-variation` validates common facts, aggregates per-Listing rule gaps, locks a draft Family Identity in same transaction, then freezes Parent, ordered theme, canonical tuples, customer-facing display values, Product Masters, complete Listings, asset maps, marketplace, product type, and rule status. Scope and file hashes are automatic integrity records, not a separate user confirmation.
+
+A same-Child, same-role revision marks the prior asset `superseded`; approval history remains and Final selects the revision.
+
+First Final approval moves draft version 0 to locked version 1 atomically; no separate lock.
+
+Use `reverify-variation-rules --project-dir <dir> --template <xlsm>` to bind matching template evidence, reapprove unchanged Listings and Final, and rebuild delivery once.
 
 For wording-only changes such as presenting portrait `8 x 12 Inches` as `12 x 8 Inches`, use `set-variation-display-values`. It updates Listing and upload presentation, stales the affected Listing and current final Variation version, and leaves physical facts, Product Masters, and images unchanged.
 

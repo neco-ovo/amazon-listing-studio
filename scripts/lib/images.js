@@ -112,6 +112,13 @@ export async function validateMainImage(filePath, options = {}) {
   const bounds = measureNonWhiteBounds(raw, options);
   const background = inspectBackground(raw, options);
   const failures = [];
+  const longestEdge = Math.max(info.width, info.height);
+  if (longestEdge < 1600) failures.push({
+    code: 'MAIN_IMAGE_TOO_SMALL',
+    message: 'Main image longest edge must be at least 1600 pixels.',
+    actual: longestEdge,
+    minimum: 1600,
+  });
   const minOccupancy = options.minOccupancy ?? 0.85;
   if (!bounds) failures.push({code: 'MISSING_PRODUCT', message: 'No nonwhite product pixels were detected.'});
   const occupancy = bounds ? (bounds.width >= bounds.height ? bounds.width / info.width : bounds.height / info.height) : 0;

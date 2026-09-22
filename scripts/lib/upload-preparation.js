@@ -1,7 +1,7 @@
 import {readFile} from 'node:fs/promises';
 import path from 'node:path';
 
-import {unzipSync} from 'fflate';
+import {unzipSync, zipSync} from 'fflate';
 
 import {DomainError} from './errors.js';
 
@@ -27,15 +27,19 @@ function compactCode(value, maxTokens = 4) {
   return tokens.slice(0, maxTokens).map(token => token[0]).join('') || 'item';
 }
 
-function purposeFor(source, index) {
-  if (index === 0 || /(?:^|-)main(?:-|$)/i.test(path.posix.basename(source))) return 'main';
+function purposeFor(source, index, assetId = '') {
+  const identity = `${assetId} ${path.posix.basename(source)}`;
+  if (index === 0 || /(?:^|-)main(?:-|$)/i.test(identity)) return 'main';
+  for (const role of ['readability', 'size-construction', 'durability', 'front-back', 'application', 'mounting-package']) {
+    if (identity.toLowerCase().includes(role)) return role;
+  }
   const stem = path.posix.basename(source, path.posix.extname(source)).replace(/-\d+$/, '');
   const match = /(?:^|-)(scene|application|size|detail|back|front)(?:-|$)/i.exec(stem);
   return match?.[1].toLowerCase() ?? 'image';
 }
 
-function slotsFor(paths, mediaTypes) {
-  const purposes = paths.map(purposeFor);
+function slotsFor(paths, artifacts) {
+  const purposes = paths.map((source, index) => purposeFor(source, index, artifacts.get(source)?.asset_id));
   const totals = purposes.reduce((result, purpose) => result.set(purpose, (result.get(purpose) ?? 0) + 1), new Map());
   const seen = new Map();
   return paths.map((source, index) => {
@@ -44,16 +48,17 @@ function slotsFor(paths, mediaTypes) {
     seen.set(purpose, ordinal);
     return {
       source,
-      media_type: mediaTypes.get(source) ?? null,
+      media_type: artifacts.get(source)?.media_type ?? null,
+      role: purpose,
       slot_id: totals.get(purpose) > 1 ? `${purpose}-${ordinal}` : purpose
     };
   });
 }
 
 function parseVerifiedMembers({manifest, matrix, archive}) {
-  const mediaTypes = new Map((manifest.artifacts ?? []).map(artifact => [
+  const artifacts = new Map((manifest.artifacts ?? []).map(artifact => [
     artifact.archive_path ?? artifact.relative_path,
-    artifact.media_type ?? null
+    artifact
   ]));
   if (manifest.delivery_kind === 'variation') {
     const verifiedMatrix = matrix ?? parseJson(archive, 'variation-matrix.json');
@@ -68,7 +73,7 @@ function parseVerifiedMembers({manifest, matrix, archive}) {
       listings: {parent: parseJson(archive, 'parent/listing.json'), children},
       image_slots: Object.fromEntries(verifiedMatrix.children.map(row => [
         row.child_sku,
-        slotsFor(row.asset_paths, mediaTypes)
+        slotsFor(row.asset_paths, artifacts)
       ]))
     };
   }
@@ -80,8 +85,25 @@ function parseVerifiedMembers({manifest, matrix, archive}) {
     manifest,
     matrix: null,
     listings: {single: parseJson(archive, 'listing/listing.json')},
-    image_slots: slotsFor(imagePaths, mediaTypes)
+    image_slots: slotsFor(imagePaths, artifacts)
   };
+}
+
+function orderedGallery(slots, requestedOrder) {
+  if (!Array.isArray(requestedOrder) || requestedOrder.length === 0) return slots;
+  const rank = new Map(requestedOrder.map((role, index) => [role, index]));
+  return slots.map((slot, index) => ({slot, index})).sort((left, right) => (
+    (rank.get(left.slot.role ?? left.slot.slot_id) ?? requestedOrder.length)
+      - (rank.get(right.slot.role ?? right.slot.slot_id) ?? requestedOrder.length)
+      || left.index - right.index
+  )).map(item => item.slot);
+}
+
+function imageRoleFindings(sellerSku, slots, requestedOrder) {
+  if (!Array.isArray(requestedOrder) || requestedOrder.length === 0) return [];
+  const roles = new Set(slots.map(slot => slot.role ?? slot.slot_id));
+  const missing = requestedOrder.filter(role => !roles.has(role));
+  return missing.length ? [{code: 'IMAGE_ROLE_MISSING', seller_sku: sellerSku, roles: missing}] : [];
 }
 
 export async function readVerifiedDelivery({deliveryDir, expectedScope, verifySingle, verifyVariation}) {
@@ -112,8 +134,11 @@ export function projectUploadPreparation({delivery, input = {}}) {
       listing: structuredClone(delivery.listings.parent),
       gallery_slots: []
     };
+    const roleFindings = [];
     const children = delivery.matrix.children.map(child => {
-      const gallerySlots = delivery.image_slots[child.child_sku].map(slot => {
+      const slots = orderedGallery(delivery.image_slots[child.child_sku], input.image_role_order);
+      roleFindings.push(...imageRoleFindings(child.child_sku, slots, input.image_role_order));
+      const gallerySlots = slots.map(slot => {
         const objectKey = path.posix.basename(slot.source);
         proposed.set(slot.source, {...slot, object_key: objectKey});
         return {...slot, object_key: objectKey};
@@ -132,7 +157,7 @@ export function projectUploadPreparation({delivery, input = {}}) {
       delivery_identity: delivery.delivery_identity,
       rows: [parent, ...children],
       proposed_images: [...proposed.values()],
-      findings: validateRelationshipNamespaces([parent, ...children])
+      findings: [...validateRelationshipNamespaces([parent, ...children]), ...roleFindings]
     };
   }
   const gallerySlots = delivery.image_slots.map((slot, index) => ({...slot, slot_id: slot.slot_id ?? purposeFor(slot.source, index)})).map(slot => {
@@ -180,6 +205,26 @@ export function attachHostedUrls(projection, mapping) {
     ...projection,
     proposed_images: projection.proposed_images.map(item => ({...item, url: mapping.images[item.object_key]}))
   };
+}
+
+export function createImageUploadArchive({archiveBytes, proposedImages}) {
+  const archive = unzipSync(archiveBytes);
+  const selected = {};
+  for (const image of proposedImages) {
+    if (!String(image.media_type ?? '').startsWith('image/') || !archive[image.source]) {
+      throw invalid('IMAGE_UPLOAD_SOURCE_INVALID', 'Image upload ZIP requires verified image members.', {
+        source: image.source
+      });
+    }
+    selected[image.source] = archive[image.source];
+  }
+  const expected = [...new Set(proposedImages.map(image => image.source))].sort();
+  const bytes = Buffer.from(zipSync(selected, {level: 0}));
+  const actual = Object.keys(unzipSync(bytes)).sort();
+  if (actual.length !== expected.length || actual.some((item, index) => item !== expected[index])) {
+    throw invalid('IMAGE_UPLOAD_ARCHIVE_INVALID', 'Image upload ZIP member verification failed.');
+  }
+  return bytes;
 }
 
 export function validateRelationshipNamespaces(rows) {

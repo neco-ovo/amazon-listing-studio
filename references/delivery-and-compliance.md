@@ -22,7 +22,11 @@ Finalization verifies the ZIP member set, byte lengths, hashes, image decoding, 
 
 Variation delivery image basenames use a short project code, variant code, size, and purpose, such as `skp-rwb-8x12-main.png`. Names must be unique across the package without hashes. Before Cloudflare upload, check whether the destination object already exists and stop for confirmation instead of overwriting it.
 
-Optional upload preparation reads the verified delivery.zip bound to the current final approval; it does not rebuild Listing or image facts from mutable project files. Run `scripts/studio.js prepare-upload` only on request. When it returns `hosting_required`, ask one consolidated question for Cloudflare R2, another host, or stopping, together with unresolved account and offer values. Check each proposed object key for collision before upload, then rerun using the same delivery identity and exact object keys. Trust the returned HTTPS mapping and destination metadata; do not download every hosted object merely to hash it again.
+Optional upload preparation reads the verified delivery.zip bound to the current final approval; it does not rebuild Listing or image facts from mutable project files. Run `scripts/studio.js prepare-upload` only on request. The workbook settings supply `attributeRow` and `dataRow`; Amazon technical headers select the unique upload sheet and current keyword and image columns. Never assume a fixed sheet, row, column, or slot count. Supply one confirmed `item_type_keyword`; when a Family needs a consistent gallery sequence, supply one `image_role_order` instead of repeating per-Child URL arrays.
+
+Without image URLs, `prepare-upload` returns `manual_upload_required` plus a verified image-only ZIP. After the user uploads it, run `map-r2-images` with the user-specified prefix and public base URL; it constructs URLs from verified archive paths and accepts only public image responses. Then rerun `prepare-upload` with `delivery/hosted-input.json`. Trust this exact mapping; do not download every hosted object merely to hash it again.
+
+`host-images-r2` is only an optional shortcut. It runs Wrangler `whoami` with logs under `.studio/work`; failure immediately returns `manual_upload_required` and the image ZIP. It never starts login, uses tunnels, or overwrites an existing object. When ready, it preflights the complete key set and resumes only objects recorded for the same delivery identity, bucket, and public base URL.
 
 The Skill packages files for manual Seller Central use; it does not publish automatically.
 

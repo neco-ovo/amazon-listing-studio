@@ -88,11 +88,20 @@ test('validates a white, fully visible, 3:2 product at 96% dominant occupancy', 
   });
 
   assert.equal(result.ok, true);
-  assert.equal(result.width, 1000);
-  assert.equal(result.height, 1000);
+  assert.equal(result.width, 1600);
+  assert.equal(result.height, 1600);
   assert.equal(result.occupancy, 0.96);
   assert.equal(result.background.ok, true);
   assert.deepEqual(result.failures, []);
+});
+
+test('rejects a main image whose longest edge is below 1600 pixels', async () => {
+  const result = await validateMainImage(fixtures.tooSmall);
+
+  assert.equal(result.ok, false);
+  assert.ok(result.failures.some(failure => (
+    failure.code === 'MAIN_IMAGE_TOO_SMALL' && failure.actual === 1000 && failure.minimum === 1600
+  )));
 });
 
 test('uses Amazon base 85% occupancy unless a category or user sets a stricter target', async () => {

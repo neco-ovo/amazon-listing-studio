@@ -22,7 +22,8 @@ import {buildVariationDelivery, verifyVariationDelivery} from './lib/variation-b
 import {
   approveVariationArtifact,
   approveVariationListing,
-  approveVariationVersion
+  approveVariationVersion,
+  reverifyVariationRules
 } from './lib/variation-approvals.js';
 import {
   addVariationChild,
@@ -36,14 +37,18 @@ import {parseSellerSpriteWorkbook} from './lib/sellersprite-workbooks.js';
 import {resolveRules} from './lib/rule-cache.js';
 import {
   attachHostedUrls,
+  createImageUploadArchive,
   projectUploadPreparation,
   readVerifiedDelivery
 } from './lib/upload-preparation.js';
+import {hostImagesR2, mapManualR2Images} from './lib/r2-hosting.js';
 import {
   inspectUploadTemplate,
   rangeAffectsRows,
   requiredForRow,
   validateRestrictedValues,
+  verifyVariationTemplateEvidence,
+  verifyWrittenUploadFields,
   writeUploadWorkbook
 } from './lib/upload-workbooks.js';
 import {
@@ -611,6 +616,17 @@ function variationCandidateKind(candidate) {
   return candidate.kind ?? 'secondary';
 }
 
+async function writeBytesAtomically(filePath, value) {
+  await mkdir(path.dirname(filePath), {recursive: true});
+  const temporary = `${filePath}.tmp-${process.pid}-${Date.now()}`;
+  await writeFile(temporary, value, {flag: 'wx'});
+  await rename(temporary, filePath);
+}
+
+function safeOutputName(value) {
+  return String(value ?? 'product').trim().replace(/[^a-z0-9]+/gi, '-').replace(/^-+|-+$/g, '') || 'product';
+}
+
 const VARIATION_IMAGE_SCOPES = new Set(['child_main', 'child_secondary', 'shared_image']);
 const isChildImageScope = scopeType => scopeType === 'child_main' || scopeType === 'child_secondary';
 
@@ -925,7 +941,10 @@ function operationFor(command, input = null) {
     'remove-child': 'remove_child',
     'resolve-variation-facts': 'resolve_fact_conflicts',
     'set-variation-display-values': 'child_listing_field_edit',
+    'reverify-variation-rules': 'finalize',
     'verify-delivery': 'finalize',
+    'host-images-r2': 'finalize',
+    'map-r2-images': 'finalize',
     'prepare-upload': 'finalize'
   };
   return classifyOperation({kind: kinds[command] ?? command});
@@ -940,6 +959,7 @@ function uploadRows(projection, input) {
       ...listing.attributes,
       ...listing,
       ...row,
+      item_type_keyword: input.item_type_keyword,
       ...overrides,
       bullet_points: listing.bullets,
       main_and_other_image_urls: row.gallery_slots?.map(slot => urls.get(slot.source)).filter(Boolean)
@@ -955,7 +975,7 @@ function uploadFindings({inspection, rules, rows, checkRules = true}) {
     .map(item => ({code: 'UNSUPPORTED_TEMPLATE_VALIDATION', ...item}));
   const templateFindings = [...conditions, ...validations];
   const findings = [
-    ...templateFindings.filter(item => rangeAffectsRows(item.cells, mappedColumns, rows.length)),
+    ...templateFindings.filter(item => rangeAffectsRows(item.cells, mappedColumns, rows.length, inspection.data_row)),
     ...validateRestrictedValues({inspection, rows})
   ];
   if (checkRules && (!rules || rules.status !== 'fresh' || rules.refresh_required)) {
@@ -974,8 +994,46 @@ function uploadFindings({inspection, rules, rows, checkRules = true}) {
   }
   return {
     findings,
-    diagnostics: templateFindings.filter(item => !rangeAffectsRows(item.cells, mappedColumns, rows.length))
+    diagnostics: templateFindings.filter(item => !rangeAffectsRows(item.cells, mappedColumns, rows.length, inspection.data_row))
   };
+}
+
+export async function runReverifyVariationRules({projectDir, templatePath, now}, {
+  buildVariation = buildVariationDelivery
+} = {}) {
+  const [state, templateBytes] = await Promise.all([
+    readProjectState(projectDir),
+    readFile(templatePath)
+  ]);
+  if (state?.project?.mode !== 'variation_family') {
+    throw blocking('Rule reverification requires a Variation Family project');
+  }
+  const evidence = verifyVariationTemplateEvidence(templateBytes, {
+    productType: state.project.product_type,
+    themeDimensions: state.variation.theme.dimensions
+  });
+  const result = await updateProject(projectDir, async current => {
+    const next = reverifyVariationRules(current, {
+      userAction: 'approved', verifiedRuleIds: evidence.verified_rule_ids, now
+    });
+    const publications = [
+      ...await publishVariationApproval(projectDir, next, {scopeType: 'parent_listing'}),
+      ...await Promise.all(Object.values(next.variation.children)
+        .filter(child => child.active !== false)
+        .map(child => publishVariationApproval(projectDir, next, {
+          scopeType: 'child_listing', childSku: child.sku
+        }))).then(groups => groups.flat())
+    ];
+    return {state: next, evidence, publications};
+  });
+  const finalApproval = currentVariationFinalApproval(result.state);
+  const delivery = await buildVariation({
+    projectDir,
+    outputDir: projectPaths(projectDir).delivery,
+    finalApproval,
+    childSkus: null
+  });
+  return {evidence, final_approval_id: finalApproval.id, delivery};
 }
 
 export async function prepareUpload({
@@ -1006,9 +1064,16 @@ export async function prepareUpload({
   const preliminary = uploadFindings({inspection, rules: null, rows: preliminaryRows, checkRules: false});
   const preliminaryFindings = [...base.findings, ...preliminary.findings];
   if (!input.image_urls) {
+    const imageZipPath = path.join(deliveryDir, `${safeOutputName(state.project.product_name ?? state.project.product_id)}-images.zip`);
+    const archiveBytes = await readFile(path.join(deliveryDir, 'delivery.zip'));
+    await writeBytesAtomically(imageZipPath, createImageUploadArchive({
+      archiveBytes,
+      proposedImages: base.proposed_images
+    }));
     return {
-      status: 'hosting_required',
+      status: 'manual_upload_required',
       delivery_identity: base.delivery_identity,
+      image_zip_path: imageZipPath,
       proposed_images: base.proposed_images,
       unresolved: [...preliminaryFindings, {code: 'RULES_CHECK_DEFERRED'}],
       diagnostics: preliminary.diagnostics
@@ -1033,6 +1098,7 @@ export async function prepareUpload({
   const workbookName = `upload-template${extension}`;
   const workbook = writeUploadWorkbook({templateBytes, inspection, rows});
   inspectUploadTemplate(workbook, seed);
+  verifyWrittenUploadFields({workbookBytes: workbook, inspection, rows});
   try {
     const status = findings.length ? 'manual-prep' : 'upload-ready';
     const manifest = {
@@ -1072,7 +1138,8 @@ export async function runCli(argv, {
   verifyV2 = verifyDelivery,
   buildVariation = buildVariationDelivery,
   verifyVariation = verifyVariationDelivery,
-  uploadDependencies = {}
+  uploadDependencies = {},
+  r2Dependencies = {}
 } = {}) {
   const started = clock();
   let parsed;
@@ -1167,6 +1234,12 @@ export async function runCli(argv, {
         sourceDir: requireOption(options, 'source-dir'),
         destinationDir: requireOption(options, 'destination-dir')
       });
+    } else if (command === 'reverify-variation-rules') {
+      result = await runReverifyVariationRules({
+        projectDir: path.resolve(requireOption(options, 'project-dir')),
+        templatePath: path.resolve(requireOption(options, 'template')),
+        now: options.now
+      }, {buildVariation});
     } else if (command === 'finalize') {
       const projectDir = path.resolve(requireOption(options, 'project-dir'));
       const outputDir = projectPaths(projectDir).delivery;
@@ -1230,6 +1303,45 @@ export async function runCli(argv, {
         resolveCurrentRules: uploadDependencies.resolveRules ?? resolveRules,
         now: options.now
       });
+    } else if (command === 'host-images-r2' || command === 'map-r2-images') {
+      const projectDir = path.resolve(requireOption(options, 'project-dir'));
+      const deliveryDir = projectPaths(projectDir).delivery;
+      const state = await (r2Dependencies.readState ?? readProjectState)(projectDir);
+      const expectedScope = currentFinalApproval(state);
+      const readDelivery = () => r2Dependencies.readDelivery
+        ? r2Dependencies.readDelivery({deliveryDir, expectedScope})
+        : readVerifiedDelivery({
+          deliveryDir,
+          expectedScope,
+          verifySingle: uploadDependencies.verifySingle ?? verifyV2,
+          verifyVariation: uploadDependencies.verifyVariation ?? verifyVariation
+        });
+      const common = {
+        projectDir,
+        deliveryDir,
+        inputPath: path.resolve(requireOption(options, 'input')),
+        publicBaseUrl: requireOption(options, 'public-base-url')
+      };
+      const dependencies = {
+        readDelivery,
+        ...(r2Dependencies.readArchive ? {readArchive: r2Dependencies.readArchive} : {}),
+        ...(r2Dependencies.checkWrangler ? {checkWrangler: r2Dependencies.checkWrangler} : {}),
+        ...(r2Dependencies.headUrl ? {headUrl: r2Dependencies.headUrl} : {}),
+        ...(r2Dependencies.putObject ? {putObject: r2Dependencies.putObject} : {})
+      };
+      if (command === 'host-images-r2') {
+        result = await (r2Dependencies.hostImages ?? hostImagesR2)({
+          ...common,
+          bucket: requireOption(options, 'bucket'),
+          imageZipPath: path.join(deliveryDir,
+            `${safeOutputName(state.project.product_name ?? state.project.product_id)}-images.zip`)
+        }, dependencies);
+      } else {
+        result = await (r2Dependencies.mapImages ?? mapManualR2Images)({
+          ...common,
+          prefix: requireOption(options, 'prefix')
+        }, dependencies);
+      }
     } else {
       return {ok: false, code: 'UNKNOWN_COMMAND', message: `Unknown command: ${command ?? ''}`};
     }

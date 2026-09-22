@@ -32,7 +32,7 @@ When typography needs contrast, choose a display font for the emphasis field and
 
 Keep physical product ratio independent from canvas ratio. Follow an explicit user canvas request, then applicable marketplace/category guidance, then a compliant existing canvas, and use square only as the final fallback. Do not pad, crop, stretch, or regenerate solely to force 1:1.
 
-For an Amazon main image, use the applicable white-background, complete-product, count, prohibited-element, and occupancy rules. Amazon.com's dated fallback occupancy is 85%; a stricter value such as 95% applies only when the category or user requests it.
+For an Amazon main image, use the applicable white-background, complete-product, count, prohibited-element, and occupancy rules. The saved main raster's longest edge must be at least 1600 px; a user or category rule may require more, never less. Amazon.com's dated fallback occupancy is 85%; a stricter value such as 95% applies only when the category or user requests it.
 
 Approve the exact inspected main raster before locking Product Master. Secondary images use the current locked Product Master as the first identity reference. During intake or interview, approve the gallery plan, shared layout system, copy direction, and permitted claims once. Then generate all approved planned secondary images before one consolidated review. Repair or regenerate only the rejected or directly affected images.
 
