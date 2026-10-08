@@ -20,6 +20,8 @@ Combine confirmed facts into plain consumer language. Avoid empty conservative p
 
 When the product’s references/keyword-profile.json exists and exactly matches marketplace, locale, product type, and purchase intent, pass it to `compileListingBrief`. Use its four groups without turning search terms into facts:
 
+Use its optional `listing_strategy` to prioritize the likely customer, use context, purchase motivation, and benefit order. Reuse that saved direction during drafting and revisions; do not repeat the analysis in the Listing stage.
+
 - `core`: strongest exact/high-fit phrases for the Title and primary purchase-intent copy.
 - `supporting`: natural secondary wording for Bullets and Description.
 - `backend`: relevant uncovered phrases for Backend Search Terms.
