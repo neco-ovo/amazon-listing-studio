@@ -6,6 +6,13 @@ import { runCli } from '../../scripts/studio.js';
 import {miningHeaders, reverseHeaders, writeSellerSpriteWorkbook} from '../helpers/sellersprite-workbooks.js';
 import { withTempWorkspace } from '../helpers/temp-workspace.js';
 
+async function writeState(projectDir, state) {
+  await mkdir(path.join(projectDir, '.studio'), {recursive: true});
+  const statePath = path.join(projectDir, '.studio', 'state.json');
+  await writeFile(statePath, typeof state === 'string' ? state : JSON.stringify(state));
+  return statePath;
+}
+
 test('init and validate return stable JSON result shapes', async () => {
   await withTempWorkspace(async root => {
     const projectDir = path.join(root, 'sign-1');
@@ -17,7 +24,7 @@ test('init and validate return stable JSON result shapes', async () => {
     assert.equal(initialized.ok, true);
     assert.equal(initialized.operation, 'init');
     assert.equal(initialized.mode, 'full');
-    assert.equal(JSON.parse(await readFile(path.join(projectDir, 'state.json'), 'utf8')).schema_version, 2);
+    assert.equal(JSON.parse(await readFile(path.join(projectDir, '.studio', 'state.json'), 'utf8')).schema_version, 2);
 
     const validated = await runCli(['validate', '--project-dir', projectDir, '--scope', 'changed'], {clock: () => 200});
     assert.deepEqual(validated.result, {valid: true, errors: []});
@@ -35,11 +42,12 @@ test('init derives one product directory from a collection root and safe slug', 
     const projectDir = path.join(projectsRoot, 'slow-down-kids-pets-at-play-12x16');
     assert.equal(initialized.ok, true);
     assert.equal(initialized.result.project_dir, projectDir);
-    for (const relative of [
-      'project.md', 'state.json', 'docs/superpowers/specs', 'docs/superpowers/plans',
-      'references', 'images/main', 'images/secondary', 'images/candidates',
-      'listing/drafts', 'listing/approved', 'delivery'
-    ]) await access(path.join(projectDir, relative));
+    for (const relative of ['project.md', 'product.json', '.studio/state.json']) {
+      await access(path.join(projectDir, relative));
+    }
+    for (const relative of ['assets', 'listing', 'delivery']) {
+      await assert.rejects(access(path.join(projectDir, relative)), error => error.code === 'ENOENT');
+    }
   });
 });
 
@@ -58,7 +66,30 @@ test('init preserves an approved design in a pre-existing product directory', as
 
     assert.equal(initialized.ok, true);
     assert.equal(await readFile(designPath, 'utf8'), '# Approved design\n');
+    await access(path.join(projectDir, '.studio', 'state.json'));
+  });
+});
+
+test('compact-project previews by default and applies only with --apply', async () => {
+  await withTempWorkspace(async root => {
+    const projectDir = path.join(root, 'legacy-sign');
+    const state = (await runCli([
+      'init', '--project-dir', path.join(root, 'source'), '--project-id', 'legacy-sign',
+      '--product-name', 'Legacy Sign', '--product-type', 'METAL_SIGN'
+    ])).result;
+    const sourceState = JSON.parse(await readFile(path.join(root, 'source', '.studio', 'state.json'), 'utf8'));
+    await mkdir(projectDir);
+    await writeFile(path.join(projectDir, 'state.json'), `${JSON.stringify(sourceState, null, 2)}\n`);
+
+    const preview = await runCli(['compact-project', '--project-dir', projectDir]);
+    assert.equal(preview.ok, true);
+    assert.equal(preview.result.applied, false);
     await access(path.join(projectDir, 'state.json'));
+
+    const applied = await runCli(['compact-project', '--project-dir', projectDir, '--apply']);
+    assert.equal(applied.ok, true);
+    assert.equal(applied.result.applied, true);
+    await access(path.join(projectDir, '.studio', 'state.json'));
   });
 });
 
@@ -111,9 +142,10 @@ test('analyze-keywords parses once and writes project and optional reusable prof
       'init', '--project-dir', projectDir, '--project-id', 'sign-1', '--product-name', 'Safety Sign',
       '--marketplace', 'amazon.com', '--language', 'en-US', '--product-type', 'metal-sign'
     ]);
-    const statePath = path.join(projectDir, 'state.json');
+    const statePath = path.join(projectDir, '.studio', 'state.json');
     const stateBefore = await readFile(statePath);
     const approvedImage = path.join(projectDir, 'images', 'main', 'approved.png');
+    await mkdir(path.dirname(approvedImage), {recursive: true});
     await writeFile(approvedImage, 'approved-image-bytes');
     const imageBefore = await readFile(approvedImage);
     const reversePath = path.join(root, 'reverse.xlsx');
@@ -157,7 +189,7 @@ test('analyze-keywords parses once and writes project and optional reusable prof
     assert.equal(result.result.analysis_passes, 1);
     assert.equal(result.result.web_research_used, false);
     assert.equal(result.result.market_size_complete, false);
-    const projectProfile = JSON.parse(await readFile(path.join(projectDir, 'references', 'keyword-profile.json'), 'utf8'));
+    const projectProfile = JSON.parse(await readFile(path.join(projectDir, '.studio', 'sources', 'keyword-profile.json'), 'utf8'));
     assert.equal(projectProfile.scope_provenance, 'user_declared');
     assert.deepEqual(projectProfile.listing_strategy.target_customers, ['homeowners']);
     assert.deepEqual(projectProfile.keyword_fact_fields, ['included_components']);
@@ -185,7 +217,7 @@ test('analyze-keywords parses once and writes project and optional reusable prof
       'analyze-keywords', '--project-dir', projectDir, '--input', refreshManifest
     ]);
     assert.equal(refreshed.ok, true);
-    const refreshedProfile = JSON.parse(await readFile(path.join(projectDir, 'references', 'keyword-profile.json'), 'utf8'));
+    const refreshedProfile = JSON.parse(await readFile(path.join(projectDir, '.studio', 'sources', 'keyword-profile.json'), 'utf8'));
     assert.equal(refreshedProfile.reports.length, 2);
     assert.equal(refreshedProfile.reports.find(item => item.report_type === 'reverse_asin').source.export_date, '2026-09-13');
     assert.equal(refreshedProfile.reports.find(item => item.report_type === 'keyword_mining').source.export_date, '2026-09-12');
@@ -205,7 +237,7 @@ test('analyze-keywords parses once and writes project and optional reusable prof
     }));
     const changed = await runCli(['analyze-keywords', '--project-dir', projectDir, '--input', changedManifest]);
     assert.equal(changed.ok, true);
-    const changedProfile = JSON.parse(await readFile(path.join(projectDir, 'references', 'keyword-profile.json'), 'utf8'));
+    const changedProfile = JSON.parse(await readFile(path.join(projectDir, '.studio', 'sources', 'keyword-profile.json'), 'utf8'));
     assert.deepEqual(changedProfile.listing_strategy, projectProfile.listing_strategy);
     assert.deepEqual(changedProfile.keyword_fact_fields, ['included_components']);
 
@@ -219,7 +251,7 @@ test('analyze-keywords parses once and writes project and optional reusable prof
     }));
     const newIntent = await runCli(['analyze-keywords', '--project-dir', projectDir, '--input', newIntentManifest]);
     assert.equal(newIntent.ok, true);
-    const newIntentProfile = JSON.parse(await readFile(path.join(projectDir, 'references', 'keyword-profile.json'), 'utf8'));
+    const newIntentProfile = JSON.parse(await readFile(path.join(projectDir, '.studio', 'sources', 'keyword-profile.json'), 'utf8'));
     assert.equal(newIntentProfile.listing_strategy, undefined);
     assert.equal(newIntentProfile.keyword_fact_fields, undefined);
   });
@@ -246,7 +278,7 @@ test('analyze-keywords never overwrites an incompatible cache slug collision', a
     assert.equal(result.result.cache_path, null);
     assert.ok(result.result.warnings.some(item => item.code === 'KEYWORD_CACHE_COLLISION'));
     assert.equal(await readFile(cachePath, 'utf8'), sentinel);
-    const profile = JSON.parse(await readFile(path.join(projectDir, 'references', 'keyword-profile.json'), 'utf8'));
+    const profile = JSON.parse(await readFile(path.join(projectDir, '.studio', 'sources', 'keyword-profile.json'), 'utf8'));
     assert.equal(profile.normalized_intent, '警告 sign');
   });
 });
@@ -292,7 +324,7 @@ test('analyze-keywords keeps the project profile when optional caching fails', a
     ], {keywordDependencies: {writeCache: async () => { throw new Error('cache unavailable'); }}});
     assert.equal(result.ok, true);
     assert.deepEqual(result.result.warnings, [{code: 'KEYWORD_CACHE_NOT_WRITTEN'}]);
-    await access(path.join(projectDir, 'references', 'keyword-profile.json'));
+    await access(path.join(projectDir, '.studio', 'sources', 'keyword-profile.json'));
   });
 });
 
@@ -310,7 +342,7 @@ test('analyze-keywords rejects unsupported input without creating a profile', as
     const result = await runCli(['analyze-keywords', '--project-dir', projectDir, '--input', manifest]);
     assert.equal(result.ok, false);
     assert.equal(result.code, 'UNSUPPORTED_KEYWORD_WORKBOOK');
-    await assert.rejects(() => access(path.join(projectDir, 'references', 'keyword-profile.json')));
+    await assert.rejects(() => access(path.join(projectDir, '.studio', 'sources', 'keyword-profile.json')));
   });
 });
 
@@ -343,7 +375,7 @@ test('analyze-keywords rejects conflicting duplicate identities in an initial ba
     const result = await runCli(['analyze-keywords', '--project-dir', projectDir, '--input', manifest]);
     assert.equal(result.ok, false);
     assert.equal(result.code, 'UNRESOLVED_KEYWORD_IMPORT');
-    await assert.rejects(() => access(path.join(projectDir, 'references', 'keyword-profile.json')));
+    await assert.rejects(() => access(path.join(projectDir, '.studio', 'sources', 'keyword-profile.json')));
   });
 });
 
@@ -362,7 +394,7 @@ test('promote-variation returns stable full-mode CLI output', async () => {
       '--marketplace', 'amazon.com', '--language', 'en-US', '--product-type', 'METAL_SIGN'
     ]);
     assert.equal(initialized.ok, true);
-    const statePath = path.join(projectDir, 'state.json');
+    const statePath = path.join(projectDir, '.studio', 'state.json');
     const state = JSON.parse(await readFile(statePath, 'utf8'));
     state.product_master = {version: 1, status: 'locked', approved_main_id: 'main-v1'};
     state.gallery.plan = [{id: 'main-v1', kind: 'main', status: 'approved'}];
@@ -393,6 +425,7 @@ test('promote-variation returns stable full-mode CLI output', async () => {
 
 test('finalize routes v2 delivery through the unified CLI', async () => {
   await withTempWorkspace(async root => {
+    await writeState(root, {schema_version: 2, project: {product_id: 'sign-1', marketplace: 'amazon.com', product_type: 'METAL_SIGN'}});
     const approvalPath = path.join(root, 'final-approval.json');
     await writeFile(approvalPath, JSON.stringify({id: 'final-1', finalized: true}));
     let received;
@@ -416,7 +449,7 @@ test('finalize uses the current stored single-product final approval when --appr
       product_master_version: 2, listing_version: 3, artifact_ids: ['main-v2', 'scene-v2'],
       marketplace: 'amazon.com', product_type: 'METAL_SIGN'
     };
-    await writeFile(path.join(root, 'state.json'), JSON.stringify({
+    await writeState(root, {
       schema_version: 2,
       project: {product_id: 'sign-1', marketplace: 'amazon.com', product_type: 'METAL_SIGN'},
       product_master: {version: 2, status: 'locked'},
@@ -426,7 +459,7 @@ test('finalize uses the current stored single-product final approval when --appr
         {...finalApproval, id: 'final-stale', product_master_version: 1},
         finalApproval
       ]
-    }));
+    });
     let received;
 
     const result = await runCli([
@@ -445,7 +478,7 @@ test('finalize selects the newest equivalent current single-product approval', a
       listing_version: 1, artifact_ids: ['main-v1', 'scene-v1'], marketplace: 'amazon.com', product_type: 'METAL_SIGN',
       rule_scope: {status: 'verified'}
     };
-    await writeFile(path.join(root, 'state.json'), JSON.stringify({
+    await writeState(root, {
       schema_version: 2,
       project: {product_id: 'sign-1', marketplace: 'amazon.com', product_type: 'METAL_SIGN'},
       product_master: {version: 1, status: 'locked'},
@@ -455,7 +488,7 @@ test('finalize selects the newest equivalent current single-product approval', a
         {...scope, id: 'final-a', approved_at: '2026-09-15T00:00:00.000Z', audit: {actor: 'first'}},
         {...scope, id: 'final-b', artifact_ids: ['scene-v1', 'main-v1'], approved_at: '2026-09-16T00:00:00.000Z', audit: {actor: 'second'}}
       ]
-    }));
+    });
     let received;
 
     const result = await runCli([
@@ -470,7 +503,7 @@ test('finalize selects the newest equivalent current single-product approval', a
 test('finalize still rejects current approvals with different rule scopes', async () => {
   await withTempWorkspace(async root => {
     const scope = {type: 'final', finalized: true, project_id: 'sign-1', product_master_version: 1, listing_version: 1, artifact_ids: ['main-v1'], marketplace: 'amazon.com', product_type: 'METAL_SIGN'};
-    await writeFile(path.join(root, 'state.json'), JSON.stringify({schema_version: 2, project: {product_id: 'sign-1', marketplace: 'amazon.com', product_type: 'METAL_SIGN'}, product_master: {version: 1}, gallery: {selected: ['main-v1']}, listing: {approved: [{version: 1}]}, approvals: [{...scope, id: 'final-a', rule_scope: {status: 'verified'}}, {...scope, id: 'final-b', rule_scope: {status: 'unverified'}}]}));
+    await writeState(root, {schema_version: 2, project: {product_id: 'sign-1', marketplace: 'amazon.com', product_type: 'METAL_SIGN'}, product_master: {version: 1}, gallery: {selected: ['main-v1']}, listing: {approved: [{version: 1}]}, approvals: [{...scope, id: 'final-a', rule_scope: {status: 'verified'}}, {...scope, id: 'final-b', rule_scope: {status: 'unverified'}}]});
     const result = await runCli(['finalize', '--project-dir', root, '--output', path.join(root, 'delivery')], {buildV2: async () => ({zipPath: 'must-not-run.zip'})});
     assert.equal(result.ok, false);
     assert.match(result.message, /single current immutable final approval/i);
@@ -481,6 +514,7 @@ test('relative finalize output resolves from the product directory', async () =>
   await withTempWorkspace(async root => {
     const projectDir = path.join(root, 'product');
     await mkdir(projectDir);
+    await writeState(projectDir, {schema_version: 2, project: {product_id: 'sign-1', marketplace: 'amazon.com', product_type: 'METAL_SIGN'}});
     const approvalPath = path.join(projectDir, 'final-approval.json');
     await writeFile(approvalPath, JSON.stringify({id: 'final-1', finalized: true}));
     let received;
@@ -489,7 +523,7 @@ test('relative finalize output resolves from the product directory', async () =>
     ], {buildV2: async input => { received = input; return {zipPath: 'delivery.zip'}; }});
 
     assert.equal(result.ok, true);
-    assert.equal(received.outputDir, path.join(projectDir, 'delivery', 'final-v1'));
+    assert.equal(received.outputDir, path.join(projectDir, 'delivery'));
   });
 });
 
@@ -503,20 +537,21 @@ test('verify-delivery exposes direct archive verification', async () => {
   assert.equal(received.deliveryDir, path.resolve('D:/fixture-delivery'));
 });
 
-test('finalize rejects a delivery output outside the product root', async () => {
+test('finalize always targets the one current project delivery', async () => {
   await withTempWorkspace(async root => {
     const projectDir = path.join(root, 'product');
     const approvalPath = path.join(projectDir, 'final-approval.json');
     await mkdir(projectDir);
+    await writeState(projectDir, {schema_version: 2, project: {product_id: 'sign-1', marketplace: 'amazon.com', product_type: 'METAL_SIGN'}});
     await writeFile(approvalPath, JSON.stringify({id: 'final-1', finalized: true}));
+    let received;
 
     const result = await runCli([
       'finalize', '--project-dir', projectDir, '--output', path.join(root, 'outside-delivery'), '--approval', approvalPath
-    ], {buildV2: async () => ({zipPath: 'must-not-run.zip'})});
+    ], {buildV2: async input => { received = input; return {zipPath: 'delivery.zip'}; }});
 
-    assert.equal(result.ok, false);
-    assert.equal(result.code, 'BLOCKING_INPUT');
-    assert.match(result.message, /delivery.+product root|outside.+project/i);
+    assert.equal(result.ok, true);
+    assert.equal(received.outputDir, path.join(projectDir, 'delivery'));
   });
 });
 
@@ -529,7 +564,7 @@ test('analyze-keywords reuses shared evidence across unrelated product fact chan
       await runCli(['init', '--project-dir', projectDir, '--project-id', path.basename(projectDir), '--product-name', 'Safety Sign', '--marketplace', 'amazon.com', '--language', 'en-US', '--product-type', 'METAL_SIGN']);
     }
     for (const [projectDir, weight] of [[first, '0.2 kg'], [second, '0.13 kg']]) {
-      const statePath = path.join(projectDir, 'state.json');
+      const statePath = path.join(projectDir, '.studio', 'state.json');
       const state = JSON.parse(await readFile(statePath, 'utf8'));
       state.facts.item_weight = {status: 'confirmed', publishable: true, value: weight};
       await writeFile(statePath, JSON.stringify(state));
@@ -544,7 +579,7 @@ test('analyze-keywords reuses shared evidence across unrelated product fact chan
     const secondManifest = path.join(root, 'second.json');
     await writeFile(secondManifest, JSON.stringify({intent: 'safety sign', reports: [{path: reverse, reference_asin: 'B0TEST', export_date: '2026-09-13'}], fit_assessments: {'safety sign': {fit: 'exact', reason: 'match', reason_code: 'direct_match'}}}));
     await runCli(['analyze-keywords', '--project-dir', second, '--input', secondManifest, '--library-dir', libraryDir]);
-    const profile = JSON.parse(await readFile(path.join(second, 'references', 'keyword-profile.json'), 'utf8'));
+    const profile = JSON.parse(await readFile(path.join(second, '.studio', 'sources', 'keyword-profile.json'), 'utf8'));
     assert.equal(profile.reports.length, 2);
   });
 });

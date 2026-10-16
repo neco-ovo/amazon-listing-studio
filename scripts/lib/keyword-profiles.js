@@ -223,7 +223,7 @@ function beneath(root, target) {
 
 export function projectKeywordProfilePath(projectDir) {
   const root = path.resolve(projectDir);
-  return path.resolve(root, 'references', 'keyword-profile.json');
+  return path.resolve(root, '.studio', 'sources', 'keyword-profile.json');
 }
 
 export function reusableKeywordProfilePath(libraryDir, key) {

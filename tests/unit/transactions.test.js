@@ -34,7 +34,8 @@ async function createApproachableProject(root) {
   };
   await mkdir(path.join(root, 'images'));
   await writeFile(path.join(root, 'images', 'scene-1.png'), Buffer.from('saved-raster-fixture'));
-  await writeFile(path.join(root, 'state.json'), `${JSON.stringify(state, null, 2)}\n`);
+  await mkdir(path.join(root, '.studio'), {recursive: true});
+  await writeFile(path.join(root, '.studio', 'state.json'), `${JSON.stringify(state, null, 2)}\n`);
   await writeFile(path.join(root, 'project.md'), renderProjectSummary(state));
 }
 
@@ -63,20 +64,22 @@ test('approval hashes and binds the exact artifact in one transaction', async ()
     assert.equal(result.next_action.kind, 'generate_gallery_item');
     assert.equal(result.next_action.gallery_item_id, 'size-1');
     assert.match(await readFile(path.join(root, 'project.md'), 'utf8'), /Selected images: 1/);
+    const product = JSON.parse(await readFile(path.join(root, 'product.json'), 'utf8'));
+    assert.deepEqual(product.assets, [{role: 'application', scope: 'product', path: 'images/scene-1.png'}]);
   });
 });
 
 test('validation failure preserves prior state bytes', async () => {
   await withTempWorkspace(async root => {
     await createApproachableProject(root);
-    const before = await readFile(path.join(root, 'state.json'));
+    const before = await readFile(path.join(root, '.studio', 'state.json'));
 
     await assert.rejects(
       updateProject(root, () => ({schema_version: 99})),
       error => error.code === 'BLOCKING_INPUT' && /invalid project state/i.test(error.message)
     );
 
-    assert.deepEqual(await readFile(path.join(root, 'state.json')), before);
+    assert.deepEqual(await readFile(path.join(root, '.studio', 'state.json')), before);
   });
 });
 
@@ -92,7 +95,7 @@ test('final approval cannot overwrite an artifact-specific approval id', async (
     finalState.approvals.push({id: 'final-approval-1', type: 'final', approved_at: now});
     await updateProject(root, () => finalState);
 
-    const persisted = JSON.parse(await readFile(path.join(root, 'state.json'), 'utf8'));
+    const persisted = JSON.parse(await readFile(path.join(root, '.studio', 'state.json'), 'utf8'));
     assert.equal(persisted.gallery.assets['scene-1'].approval_id, artifactApprovalId);
   });
 });

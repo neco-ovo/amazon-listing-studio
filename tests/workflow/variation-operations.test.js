@@ -427,7 +427,8 @@ test('JSON-file Child CLI commands persist add, revise, and soft removal', async
     state.variation.children['SKU-12X16'].facts = {
       material: fact('aluminum'), size_name: fact('12 x 16 in')
     };
-    await writeFile(path.join(projectDir, 'state.json'), `${JSON.stringify(state, null, 2)}\n`);
+    await mkdir(path.join(projectDir, '.studio'), {recursive: true});
+    await writeFile(path.join(projectDir, '.studio', 'state.json'), `${JSON.stringify(state, null, 2)}\n`);
     await writeFile(path.join(projectDir, 'project.md'), renderProjectSummary(state));
 
     const addPath = path.join(projectDir, 'add.json');
@@ -468,7 +469,7 @@ test('JSON-file Child CLI commands persist add, revise, and soft removal', async
     assert.equal(factRevised.mode, 'fast');
     assert.equal(removed.ok, true);
     assert.equal(removed.mode, 'fast');
-    const saved = JSON.parse(await readFile(path.join(projectDir, 'state.json'), 'utf8'));
+    const saved = JSON.parse(await readFile(path.join(projectDir, '.studio', 'state.json'), 'utf8'));
     assert.equal(saved.variation.children['SKU-8X12'].active, false);
     assert.equal(saved.variation.children['SKU-8X12'].listing.draft.content.title, 'Updated Child Title');
   });
@@ -480,7 +481,8 @@ test('resolve-variation-facts persists an approved resolution transaction', asyn
     state.variation.children['SKU-12X16'].facts.material = {
       ...fact('aluminum'), conflicts: [{value: 'steel'}]
     };
-    await writeFile(path.join(projectDir, 'state.json'), `${JSON.stringify(state, null, 2)}\n`);
+    await mkdir(path.join(projectDir, '.studio'), {recursive: true});
+    await writeFile(path.join(projectDir, '.studio', 'state.json'), `${JSON.stringify(state, null, 2)}\n`);
     await writeFile(path.join(projectDir, 'project.md'), renderProjectSummary(state));
     const inputPath = path.join(projectDir, 'resolve.json');
     await writeFile(inputPath, JSON.stringify({
@@ -495,7 +497,7 @@ test('resolve-variation-facts persists an approved resolution transaction', asyn
 
     assert.equal(result.ok, true);
     assert.equal(result.mode, 'dependency');
-    const saved = JSON.parse(await readFile(path.join(projectDir, 'state.json'), 'utf8'));
+    const saved = JSON.parse(await readFile(path.join(projectDir, '.studio', 'state.json'), 'utf8'));
     assert.deepEqual(saved.variation.children['SKU-12X16'].facts.material.conflicts, []);
     assert.equal(saved.variation.fact_resolution_history.at(-1).fields[0].field, 'material');
   });
@@ -504,7 +506,8 @@ test('resolve-variation-facts persists an approved resolution transaction', asyn
 test('add-child preflights occupied workspace paths before state mutation and remains retryable', async () => {
   await withTempWorkspace(async projectDir => {
     const state = variationState();
-    const statePath = path.join(projectDir, 'state.json');
+    const statePath = path.join(projectDir, '.studio', 'state.json');
+    await mkdir(path.dirname(statePath), {recursive: true});
     await writeFile(statePath, `${JSON.stringify(state, null, 2)}\n`);
     await writeFile(path.join(projectDir, 'project.md'), renderProjectSummary(state));
 
@@ -539,7 +542,8 @@ test('add-child preflights occupied workspace paths before state mutation and re
 test('add-child rejects case-insensitive sibling directory collisions before mutation', async () => {
   await withTempWorkspace(async projectDir => {
     const state = variationState();
-    const statePath = path.join(projectDir, 'state.json');
+    const statePath = path.join(projectDir, '.studio', 'state.json');
+    await mkdir(path.dirname(statePath), {recursive: true});
     await writeFile(statePath, `${JSON.stringify(state, null, 2)}\n`);
     await writeFile(path.join(projectDir, 'project.md'), renderProjectSummary(state));
     const inputPath = path.join(projectDir, 'add-case-collision.json');

@@ -67,7 +67,7 @@ test('migration preserves master, selected assets, listing approval, and deliver
     assert.equal(state.delivery.status, 'built');
     assert.deepEqual(await hashTree(sourceDir), sourceBefore);
     assert.ok((await readFile(path.join(destinationDir, 'project.md'), 'utf8')).includes('Legacy Safety Sign'));
-    assert.equal(JSON.parse(await readFile(path.join(destinationDir, 'state.json'), 'utf8')).schema_version, 2);
+    assert.equal(JSON.parse(await readFile(path.join(destinationDir, '.studio', 'state.json'), 'utf8')).schema_version, 2);
   });
 });
 

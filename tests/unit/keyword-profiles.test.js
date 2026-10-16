@@ -180,7 +180,7 @@ test('matches reusable profiles exactly and reports staleness separately', () =>
 });
 
 test('builds conventional safe profile paths', () => {
-  assert.match(projectKeywordProfilePath('D:/Amazon/project'), /references[\\/]keyword-profile\.json$/);
+  assert.match(projectKeywordProfilePath('D:/Amazon/project'), /\.studio[\\/]sources[\\/]keyword-profile\.json$/);
   assert.match(reusableKeywordProfilePath('D:/Amazon/library', {
     marketplace: 'us', locale: 'en-us', product_type: 'rigid-aluminum-sign', intent_slug: 'slow-kids-sign'
   }), /keyword-profiles[\\/]us[\\/]en-us[\\/]rigid-aluminum-sign[\\/]slow-kids-sign\.json$/);

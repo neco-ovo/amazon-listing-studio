@@ -1,5 +1,5 @@
 import {createHash, randomUUID} from 'node:crypto';
-import {access, mkdir, mkdtemp, readFile, rename, rm, writeFile} from 'node:fs/promises';
+import {mkdir, mkdtemp, readFile, rm, writeFile} from 'node:fs/promises';
 import path from 'node:path';
 import {isDeepStrictEqual} from 'node:util';
 
@@ -15,6 +15,7 @@ import {
   variationFinalScopePayload
 } from './variation-approvals.js';
 import {validateVariationExtension} from './variations.js';
+import {promoteVerifiedDirectory, readProjectState} from './project-layout.js';
 
 function invalid(reason, message, details = {}) {
   return new DomainError('BUNDLE_INVALID', message, {reason, ...details});
@@ -660,15 +661,6 @@ function manifestArtifact(artifact, approval) {
   };
 }
 
-async function outputExists(outputDir) {
-  try {
-    await access(outputDir);
-    return true;
-  } catch {
-    return false;
-  }
-}
-
 async function writeOutput({outputDir, manifest, artifacts, expectedScope}) {
   const manifestBytes = jsonBytes(manifest);
   const archive = Object.fromEntries(artifacts.map(artifact => [artifact.archive_path, artifact.bytes]));
@@ -676,13 +668,12 @@ async function writeOutput({outputDir, manifest, artifacts, expectedScope}) {
   const zipBytes = Buffer.from(zipSync(archive, {level: 6}));
   const absoluteOutput = path.resolve(outputDir);
   await mkdir(path.dirname(absoluteOutput), {recursive: true});
-  if (await outputExists(absoluteOutput)) throw invalid('OUTPUT_EXISTS', 'Delivery output path already exists.');
   const stage = await mkdtemp(path.join(path.dirname(absoluteOutput), `.${path.basename(absoluteOutput)}-${randomUUID()}-`));
   try {
     await writeFile(path.join(stage, 'delivery-manifest.json'), manifestBytes);
     await writeFile(path.join(stage, 'delivery.zip'), zipBytes);
     const verification = await verifyVariationDelivery({deliveryDir: stage, expectedScope});
-    await rename(stage, absoluteOutput);
+    await promoteVerifiedDirectory(stage, absoluteOutput);
     return {
       outputDir: absoluteOutput,
       output_dir: absoluteOutput,
@@ -704,7 +695,7 @@ export async function buildVariationDelivery({
 }) {
   let state;
   try {
-    state = JSON.parse(await readFile(path.join(path.resolve(projectDir), 'state.json'), 'utf8'));
+    state = await readProjectState(projectDir);
   } catch (cause) {
     const error = invalid('MISSING_FILE', 'Variation project state cannot be read.');
     error.cause = cause;

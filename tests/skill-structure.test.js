@@ -86,6 +86,16 @@ test('entrypoint confines each product to a portable collection-root child direc
   assert.doesNotMatch(skill, /D:\\Amazon/);
 });
 
+test('entrypoint routes the compact project contract without recreating it', async () => {
+  const skill = await readFile(path.join(root, 'SKILL.md'), 'utf8');
+  assert.match(skill, /create.+project\.md.+product\.json.+\.studio\/state\.json.+on.+init/is);
+  assert.match(skill, /assets\/.+listing\/.+delivery\/.+only.+when.+needed/is);
+  assert.match(skill, /Amazon A\+.+references\/amazon-product-project-input-v1\.md/is);
+  assert.match(skill, /compact-project.+default.+(?:preview|dry-run).+--apply/is);
+  assert.match(skill, /project-local.+(?:dependencies|node_modules).+(?:scripts|helper)/is);
+  assert.doesNotMatch(skill, /# Amazon Product Project Input v1/);
+});
+
 test('skill routes every hard workflow requirement without bloating frontmatter', async () => {
   const skill = await readFile(path.join(root, 'SKILL.md'), 'utf8');
   const lines = skill.split(/\r?\n/);

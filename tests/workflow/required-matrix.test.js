@@ -171,4 +171,15 @@ test('required Seed behavior matrix', async t => {
     assert.ok(seed.layouts.length >= 4);
     assert.ok(seed.layouts.every(layout => layout.preview?.path && layout.preview?.sha256));
   });
+
+  await t.test('compact project guidance uses one private state and one current delivery', async () => {
+    const files = await Promise.all([
+      'knowledge-and-facts.md', 'image-workflow.md', 'listing-workflow.md',
+      'delivery-and-compliance.md', 'variation-workflow.md'
+    ].map(name => readFile(path.join('references', name), 'utf8')));
+    const guidance = files.join('\n');
+    assert.match(guidance, /\.studio\/state\.json/);
+    assert.match(guidance, /assets\/.+listing\/.+delivery\//is);
+    assert.doesNotMatch(guidance, /(?:new|dated) output (?:path|folder)|state lives in `state\.json`/i);
+  });
 });

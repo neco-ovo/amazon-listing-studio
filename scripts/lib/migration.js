@@ -1,7 +1,8 @@
 import { access, cp, mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fail } from './errors.js';
-import { createProjectState, renderProjectSummary, validateProjectState } from './project-state.js';
+import { createProjectState, validateProjectState } from './project-state.js';
+import {writeProjectSnapshot} from './project-layout.js';
 
 async function exists(target) {
   try {
@@ -87,8 +88,7 @@ export async function migrateLegacyProject({sourceDir, destinationDir, now = new
     await cp(path.join(source, 'project.md'), path.join(temporary, 'legacy', 'project.md'));
     await cp(path.join(source, 'facts.json'), path.join(temporary, 'legacy', 'facts.json'));
     await cp(path.join(source, 'assets.json'), path.join(temporary, 'legacy', 'assets.json'));
-    await writeFile(path.join(temporary, 'state.json'), `${JSON.stringify(state, null, 2)}\n`);
-    await writeFile(path.join(temporary, 'project.md'), renderProjectSummary(state));
+    await writeProjectSnapshot(temporary, state);
     await rename(temporary, destination);
   } catch (error) {
     await rm(temporary, {recursive: true, force: true});

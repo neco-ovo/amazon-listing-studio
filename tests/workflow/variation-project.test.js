@@ -46,9 +46,11 @@ async function createCompletedProject(projectDir) {
   await mkdir(path.join(projectDir, 'images', 'main'), {recursive: true});
   await mkdir(path.join(projectDir, 'listing', 'approved'), {recursive: true});
   await mkdir(path.join(projectDir, 'delivery', 'v1'), {recursive: true});
+  await mkdir(path.join(projectDir, '.studio'), {recursive: true});
   await writeFile(path.join(projectDir, 'images', 'main', 'main-v1.png'), Buffer.from('approved-main-image'));
   await writeFile(path.join(projectDir, 'listing', 'approved', 'listing-v1.json'), '{"version":1}\n');
-  await writeFile(path.join(projectDir, 'state.json'), `${JSON.stringify(state, null, 2)}\n`);
+  await mkdir(path.join(projectDir, '.studio'), {recursive: true});
+  await writeFile(path.join(projectDir, '.studio', 'state.json'), `${JSON.stringify(state, null, 2)}\n`);
   await writeFile(path.join(projectDir, 'project.md'), renderProjectSummary(state));
   return state;
 }
@@ -106,14 +108,14 @@ test('promotion resumes idempotently after directory creation', async () => {
     await createCompletedProject(projectDir);
     const input = promotionInput(projectDir);
     const promoted = await promoteToVariation(input);
-    const persistedBeforeResume = await readFile(path.join(projectDir, 'state.json'));
+    const persistedBeforeResume = await readFile(path.join(projectDir, '.studio', 'state.json'));
 
     const resumed = await promoteToVariation(input);
 
     assert.equal(resumed.resumed, true);
     assert.deepEqual(resumed.created, []);
     assert.deepEqual(resumed.state, promoted.state);
-    assert.deepEqual(await readFile(path.join(projectDir, 'state.json')), persistedBeforeResume);
+    assert.deepEqual(await readFile(path.join(projectDir, '.studio', 'state.json')), persistedBeforeResume);
   });
 });
 
@@ -152,7 +154,9 @@ test('promotion requires a verified theme source before creating directories', a
 test('promotion rejects an intake project before creating directories', async () => {
   await withTempWorkspace(async projectDir => {
     const state = createProjectState({projectId: 'sign-1', productType: 'METAL_SIGN', now});
-    await writeFile(path.join(projectDir, 'state.json'), `${JSON.stringify(state, null, 2)}\n`);
+    await mkdir(path.join(projectDir, '.studio'));
+    await mkdir(path.join(projectDir, '.studio'), {recursive: true});
+    await writeFile(path.join(projectDir, '.studio', 'state.json'), `${JSON.stringify(state, null, 2)}\n`);
     await writeFile(path.join(projectDir, 'project.md'), renderProjectSummary(state));
 
     await assert.rejects(
@@ -167,7 +171,8 @@ test('promotion rejects a locked Product Master without an approved Listing', as
   await withTempWorkspace(async projectDir => {
     const state = await createCompletedProject(projectDir);
     state.listing.approved = [];
-    await writeFile(path.join(projectDir, 'state.json'), `${JSON.stringify(state, null, 2)}\n`);
+    await mkdir(path.join(projectDir, '.studio'), {recursive: true});
+    await writeFile(path.join(projectDir, '.studio', 'state.json'), `${JSON.stringify(state, null, 2)}\n`);
 
     await assert.rejects(
       promoteToVariation(promotionInput(projectDir)),
@@ -225,7 +230,7 @@ test('promotion rejects a tuple that conflicts with confirmed source facts befor
         && error.details?.fields?.includes('size_name')
     );
     await assert.rejects(stat(path.join(projectDir, 'family')), error => error.code === 'ENOENT');
-    const saved = JSON.parse(await readFile(path.join(projectDir, 'state.json'), 'utf8'));
+    const saved = JSON.parse(await readFile(path.join(projectDir, '.studio', 'state.json'), 'utf8'));
     assert.equal(saved.project.mode, undefined);
   });
 });

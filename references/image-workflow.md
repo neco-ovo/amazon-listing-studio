@@ -10,6 +10,8 @@ Read this reference only for image work. Keep generation in the active harness a
 4. Record it with `scripts/studio.js record-candidate`. A failed candidate receives a compact rejection record and no SHA-256.
 5. Present a passing candidate. On explicit approval, run `scripts/studio.js approve`; approval hashes once, binds the artifact, and returns the next action.
 
+Keep mutable candidates under `.studio/work/`; approval publishes only the current formal raster under `assets/`.
+
 The brief is the plan. Do not create a separate planning artifact or request concept approval for an item already present in the approved gallery plan.
 
 ## Identity and reference adaptation

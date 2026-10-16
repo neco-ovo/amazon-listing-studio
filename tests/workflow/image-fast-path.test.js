@@ -19,7 +19,8 @@ async function createProject(root) {
   ];
   await mkdir(path.join(root, 'images'));
   await writeFile(path.join(root, 'images', 'scene-1.png'), Buffer.from('candidate'));
-  await writeFile(path.join(root, 'state.json'), `${JSON.stringify(state, null, 2)}\n`);
+  await mkdir(path.join(root, '.studio'), {recursive: true});
+  await writeFile(path.join(root, '.studio', 'state.json'), `${JSON.stringify(state, null, 2)}\n`);
   await writeFile(path.join(root, 'project.md'), renderProjectSummary(state));
 }
 
@@ -41,7 +42,7 @@ test('rejected candidate is inspected but not hashed or fully registered', async
     assert.equal(result.candidate.sha256, undefined);
     assert.equal(result.candidate.status, 'rejected');
     assert.deepEqual(calls, ['decode', 'relevant-image-checks', 'saved-file-inspection']);
-    const persisted = JSON.parse(await readFile(path.join(root, 'state.json'), 'utf8'));
+    const persisted = JSON.parse(await readFile(path.join(root, '.studio', 'state.json'), 'utf8'));
     assert.deepEqual(Object.keys(persisted.gallery.assets['scene-1']).sort(), [
       'automatic_attempts', 'id', 'kind', 'reason_codes', 'status'
     ]);
@@ -74,6 +75,9 @@ test('passing candidate defers hashing until approval and advances the gallery p
     assert.equal(hashCalls, 1);
     assert.equal(approved.next_action.kind, 'generate_gallery_item');
     assert.equal(approved.next_action.gallery_item_id, 'size-1');
+    assert.deepEqual(await readFile(path.join(root, 'assets', 'scene-1.png')), Buffer.from('candidate'));
+    const product = JSON.parse(await readFile(path.join(root, 'product.json'), 'utf8'));
+    assert.equal(product.assets[0].path, 'assets/scene-1.png');
   });
 });
 
@@ -87,7 +91,8 @@ test('approved main candidate hashes once and returns the Product Master lock ac
     state.gallery.plan = [{id: 'main-v1', kind: 'main', status: 'planned'}];
     await mkdir(path.join(root, 'images'));
     await writeFile(path.join(root, 'images', 'main-v1.png'), Buffer.from('main-candidate'));
-    await writeFile(path.join(root, 'state.json'), `${JSON.stringify(state, null, 2)}\n`);
+    await mkdir(path.join(root, '.studio'), {recursive: true});
+    await writeFile(path.join(root, '.studio', 'state.json'), `${JSON.stringify(state, null, 2)}\n`);
     await writeFile(path.join(root, 'project.md'), renderProjectSummary(state));
 
     await runRecordCandidate({
@@ -98,6 +103,8 @@ test('approved main candidate hashes once and returns the Product Master lock ac
       check: async () => ({ok: true, failures: []}),
       inspect: async () => ({status: 'pass', findings: []})
     });
+    await mkdir(path.join(root, 'assets'), {recursive: true});
+    await writeFile(path.join(root, 'assets', 'main.png'), Buffer.from('previous-main'));
     const approved = await runApprove({
       projectDir: root,
       artifactId: 'main-v1', artifactType: 'image', path: 'images/main-v1.png',
@@ -106,5 +113,12 @@ test('approved main candidate hashes once and returns the Product Master lock ac
 
     assert.equal(approved.next_action.kind, 'lock_product_master');
     assert.equal(approved.next_action.approved_main_id, 'main-v1');
+    assert.deepEqual(await readFile(path.join(root, 'assets', 'main.png')), Buffer.from('main-candidate'));
+    assert.deepEqual(
+      await readFile(path.join(root, '.studio', 'history', 'assets', 'main.png')),
+      Buffer.from('previous-main')
+    );
+    const product = JSON.parse(await readFile(path.join(root, 'product.json'), 'utf8'));
+    assert.equal(product.assets[0].path, 'assets/main.png');
   });
 });

@@ -7,8 +7,13 @@ import {isDeepStrictEqual} from 'node:util';
 import sharp from 'sharp';
 import { classifyChildFactImpact, classifyOperation, validateChangedListing } from './lib/operations.js';
 import { createProjectState, renderProjectSummary, validateProjectState } from './lib/project-state.js';
+import {
+  projectPaths, publishApprovedFile, publishedAssetPath, readProjectState, writeProjectSnapshot
+} from './lib/project-layout.js';
 import { approveArtifact, approveListingDraft, updateProject } from './lib/transactions.js';
 import { migrateLegacyProject } from './lib/migration.js';
+import {cleanupAfterApproval} from './lib/project-cleanup.js';
+import {compactProject} from './lib/project-compactor.js';
 import { validateMainImage } from './lib/images.js';
 import { renderListing, reviseDraft } from './lib/listing-drafts.js';
 import {keywordProfileErrors} from './lib/listing.js';
@@ -53,10 +58,17 @@ import {
 function parseArgs(argv) {
   const [command, ...rest] = argv;
   const options = {};
-  for (let index = 0; index < rest.length; index += 2) {
+  for (let index = 0; index < rest.length;) {
     const flag = rest[index];
-    if (!flag?.startsWith('--') || rest[index + 1] === undefined) throw new Error(`Invalid argument: ${flag ?? ''}`);
-    options[flag.slice(2)] = rest[index + 1];
+    if (!flag?.startsWith('--')) throw new Error(`Invalid argument: ${flag ?? ''}`);
+    if (flag === '--apply') {
+      options.apply = true;
+      index += 1;
+    } else {
+      if (rest[index + 1] === undefined) throw new Error(`Invalid argument: ${flag}`);
+      options[flag.slice(2)] = rest[index + 1];
+      index += 2;
+    }
   }
   return {command, options};
 }
@@ -218,15 +230,8 @@ async function initProject(options) {
     productType: requireOption(options, 'product-type')
   });
   await mkdir(projectDir, {recursive: true});
-  await writeFile(path.join(projectDir, 'state.json'), `${JSON.stringify(state, null, 2)}\n`, {flag: 'wx'});
-  await writeFile(path.join(projectDir, 'project.md'), renderProjectSummary(state), {flag: 'wx'});
-  const directories = [
-    'docs/superpowers/specs', 'docs/superpowers/plans', 'references',
-    'images/main', 'images/secondary', 'images/candidates',
-    'listing/drafts', 'listing/approved', 'delivery'
-  ];
-  for (const directory of directories) await mkdir(path.join(projectDir, directory), {recursive: true});
-  return {project_dir: projectDir, created: ['project.md', 'state.json', ...directories]};
+  await writeProjectSnapshot(projectDir, state);
+  return {project_dir: projectDir, created: ['project.md', 'product.json', '.studio/state.json']};
 }
 
 async function learnCategory(options) {
@@ -320,7 +325,7 @@ async function analyzeKeywords(options, dependencies = {}) {
   if (!Array.isArray(input.reports) || input.reports.length === 0) {
     throw blocking('At least one SellerSprite report is required');
   }
-  const statePath = path.join(projectDir, 'state.json');
+  const statePath = projectPaths(projectDir).state;
   const stateSnapshot = await readFile(statePath, 'utf8');
   const state = JSON.parse(stateSnapshot);
   const productFacts = publishableFacts(state);
@@ -548,25 +553,56 @@ export async function runRecordCandidate({projectDir, candidate}, {
 export async function runApprove(input, {hashFile} = {}) {
   if (input.artifactType === 'listing') {
     const profilePath = projectKeywordProfilePath(input.projectDir);
-    return withFileLock(`${profilePath}.lock`, () => updateProject(input.projectDir, async state => {
+    const result = await withFileLock(`${profilePath}.lock`, () => updateProject(input.projectDir, async state => {
       const keywordProfile = await readJsonIfExists(profilePath);
       assertCurrentKeywordProfile(keywordProfile, state);
       const errors = keywordProfileErrors(state?.listing?.draft?.content, keywordProfile);
       if (errors.length) throw blocking('Listing conflicts with the saved keyword profile', {errors});
-      return approveListingDraft(state, {userAction: 'approved', now: input.now});
+      const result = approveListingDraft(state, {userAction: 'approved', now: input.now});
+      const snapshot = result.state.listing.approved.at(-1);
+      snapshot.json_path = 'listing/listing.json';
+      snapshot.markdown_path = 'listing/listing.md';
+      return {
+        ...result,
+        publications: [
+          {target: path.join(input.projectDir, 'listing', 'listing.json'), content: `${JSON.stringify(snapshot.content, null, 2)}\n`},
+          {target: path.join(input.projectDir, 'listing', 'listing.md'), content: renderListing(snapshot.content)}
+        ]
+      };
     }));
+    return cleanupApprovalWork(input.projectDir, result);
   }
-  return updateProject(input.projectDir, state => approveArtifact(state, {
+  const result = await updateProject(input.projectDir, async state => {
+    const result = await approveArtifact(state, {
       artifactId: input.artifactId,
       artifactType: input.artifactType ?? 'image',
       path: input.path,
       userAction: 'approved',
       now: input.now
-    }, {projectDir: input.projectDir, hashFile}));
+    }, {projectDir: input.projectDir, hashFile});
+    const asset = result.state.gallery.assets[input.artifactId];
+    const destination = publishedAssetPath({
+      scope: 'product', role: asset.kind === 'main' ? 'main' : asset.id, sourcePath: input.path
+    });
+    const publication = await publishApprovedFile(input.projectDir, input.path, destination);
+    asset.path = destination;
+    result.approval.path = destination;
+    return {...result, publications: [publication]};
+  });
+  return cleanupApprovalWork(input.projectDir, result, [input.path]);
+}
+
+async function cleanupApprovalWork(projectDir, result, candidatePaths = []) {
+  try {
+    await cleanupAfterApproval(projectDir, {candidatePaths});
+    return result;
+  } catch (error) {
+    return {...result, warnings: [...(result.warnings ?? []), {code: 'CLEANUP_FAILED', message: error.message}]};
+  }
 }
 
 async function defaultLoadState(projectDir) {
-  return JSON.parse(await readFile(path.join(path.resolve(projectDir), 'state.json'), 'utf8'));
+  return readProjectState(projectDir);
 }
 
 function variationCandidateKind(candidate) {
@@ -718,11 +754,56 @@ async function applyVariationApproval(state, approval, {projectDir, hashFile} = 
   return approveVariationVersion(state, approval);
 }
 
+async function publishVariationApproval(projectDir, state, input) {
+  if (input.scopeType === 'variation_final') return [];
+  const approval = state.approvals.at(-1);
+  if (input.scopeType === 'child_main' || input.scopeType === 'shared_image') {
+    const childSku = input.scopeType === 'child_main' ? input.childSku : null;
+    const asset = input.scopeType === 'child_main'
+      ? (state.variation.children[childSku].assets?.[input.artifactId]
+        ?? state.variation.children[childSku].gallery?.assets?.[input.artifactId])
+      : state.variation.shared_assets[input.artifactId];
+    const destination = publishedAssetPath({
+      scope: input.scopeType === 'child_main' ? 'child' : 'shared',
+      childSku,
+      role: asset.kind === 'main' ? 'main' : asset.id,
+      sourcePath: input.path
+    });
+    const publication = await publishApprovedFile(projectDir, input.path, destination);
+    asset.path = destination;
+    approval.path = destination;
+    if (approval.inspection_binding) approval.inspection_binding.path = destination;
+    if (input.scopeType === 'child_main') {
+      const child = state.variation.children[childSku];
+      child.main_image.path = destination;
+      child.product_master.approved_main_path = destination;
+      approval.approved_main_path = destination;
+    }
+    return [publication];
+  }
+
+  const childSku = input.scopeType === 'child_listing' ? input.childSku : null;
+  const listing = childSku
+    ? state.variation.children[childSku].listing
+    : state.variation.parent.listing;
+  const snapshot = listing.approved.at(-1);
+  const directory = childSku ? `listing/children/${childSku}` : 'listing/parent';
+  snapshot.json_path = `${directory}/listing.json`;
+  snapshot.markdown_path = `${directory}/listing.md`;
+  return [
+    {target: path.join(projectDir, ...snapshot.json_path.split('/')), content: `${JSON.stringify(snapshot.content, null, 2)}\n`},
+    {target: path.join(projectDir, ...snapshot.markdown_path.split('/')), content: renderListing(snapshot.content)}
+  ];
+}
+
 export async function runApproveVariation({projectDir, approval}, {hashFile} = {}) {
-  return updateProject(projectDir, async state => {
+  const result = await updateProject(projectDir, async state => {
     const next = await applyVariationApproval(state, approval, {projectDir, hashFile});
-    return {state: next, approval: next.approvals.at(-1)};
+    const publications = await publishVariationApproval(projectDir, next, approval);
+    return {state: next, approval: next.approvals.at(-1), publications};
   });
+  const candidates = ['child_main', 'shared_image'].includes(approval.scopeType) ? [approval.path] : [];
+  return cleanupApprovalWork(projectDir, result, candidates);
 }
 
 export async function runApproveVariationBatch({projectDir, approvals, userAction}, {hashFile} = {}) {
@@ -739,16 +820,21 @@ export async function runApproveVariationBatch({projectDir, approvals, userActio
   if (finalIndexes.length > 1 || (finalIndexes.length === 1 && finalIndexes[0] !== normalized.length - 1)) {
     throw blocking('Variation final approval may appear only once and last');
   }
-  return updateProject(projectDir, async state => {
+  const result = await updateProject(projectDir, async state => {
     let next = state;
     const created = [];
+    const publications = [];
     for (const approval of normalized) {
       const before = next.approvals.length;
       next = await applyVariationApproval(next, approval, {projectDir, hashFile});
       created.push(...next.approvals.slice(before));
+      publications.push(...await publishVariationApproval(projectDir, next, approval));
     }
-    return {state: next, approvals: created};
+    return {state: next, approvals: created, publications};
   });
+  return cleanupApprovalWork(projectDir, result, normalized
+    .filter(item => ['child_main', 'shared_image'].includes(item.scopeType))
+    .map(item => item.path));
 }
 
 async function ensureChildWorkspace(projectDir, childSku) {
@@ -894,7 +980,7 @@ export async function prepareUpload({
   now = new Date().toISOString()
 }) {
   const [state, input, seed, templateBytes] = await Promise.all([
-    readJsonIfExists(path.join(projectDir, 'state.json')),
+    readProjectState(projectDir),
     readJsonIfExists(inputPath),
     readJsonIfExists(new URL('../assets/rule-seeds/amazon-us-signage-upload-fields.json', import.meta.url)),
     readFile(templatePath)
@@ -932,17 +1018,11 @@ export async function prepareUpload({
   const checked = uploadFindings({inspection, rules, rows, checkRules: Boolean(rules)});
   const findings = [...hosted.findings, ...checked.findings];
   const diagnostics = [...checked.diagnostics, ...(!rules ? [{code: 'RULES_CHECK_DEFERRED'}] : [])];
-  if (await pathExists(outputDir)) throw Object.assign(new Error('Upload output already exists'), {code: 'OUTPUT_EXISTS'});
-  const stage = `${outputDir}.tmp-${process.pid}-${Date.now()}`;
   const extension = path.extname(templatePath).toLowerCase();
-  const workbookName = `amazon-upload${extension}`;
-  await mkdir(path.dirname(outputDir), {recursive: true});
-  await mkdir(stage, {recursive: false});
+  const workbookName = `upload-template${extension}`;
+  const workbook = writeUploadWorkbook({templateBytes, inspection, rows});
+  inspectUploadTemplate(workbook, seed);
   try {
-    const workbook = writeUploadWorkbook({templateBytes, inspection, rows});
-    const workbookPath = path.join(stage, workbookName);
-    await writeFile(workbookPath, workbook, {flag: 'wx'});
-    inspectUploadTemplate(await readFile(workbookPath), seed);
     const status = findings.length ? 'manual-prep' : 'upload-ready';
     const manifest = {
       delivery_identity: hosted.delivery_identity,
@@ -954,8 +1034,10 @@ export async function prepareUpload({
       status,
       template: path.basename(templatePath)
     };
-    await writeFile(path.join(stage, 'upload-manifest.json'), `${JSON.stringify(manifest, null, 2)}\n`, {flag: 'wx'});
-    await rename(stage, outputDir);
+    await writeProjectSnapshot(projectDir, state, {publications: [
+      {target: path.join(outputDir, workbookName), content: workbook},
+      {target: path.join(outputDir, 'upload-manifest.json'), content: `${JSON.stringify(manifest, null, 2)}\n`}
+    ]});
     return {
       status,
       workbook_path: path.join(outputDir, workbookName),
@@ -965,8 +1047,6 @@ export async function prepareUpload({
       rows
     };
   } catch (error) {
-    await unlink(path.join(stage, workbookName)).catch(() => {});
-    await unlink(path.join(stage, 'upload-manifest.json')).catch(() => {});
     throw error;
   }
 }
@@ -991,6 +1071,9 @@ export async function runCli(argv, {
     let result;
     let routeInput = null;
     if (command === 'init') result = await initProject(options);
+    else if (command === 'compact-project') result = await compactProject(
+      path.resolve(requireOption(options, 'project-dir')), {apply: options.apply === true}
+    );
     else if (command === 'learn-category') result = await learnCategory(options);
     else if (command === 'analyze-keywords') result = await analyzeKeywords(options, keywordDependencies);
     else if (command === 'promote-variation') {
@@ -1063,7 +1146,7 @@ export async function runCli(argv, {
       const patch = JSON.parse(await readFile(path.resolve(requireOption(options, 'patch')), 'utf8'));
       result = await runListingRevision({projectDir, patch, now: options.now}, listingDependencies);
     } else if (command === 'validate') {
-      const state = JSON.parse(await readFile(path.join(path.resolve(requireOption(options, 'project-dir')), 'state.json'), 'utf8'));
+      const state = await readProjectState(requireOption(options, 'project-dir'));
       result = validateProjectState(state);
     } else if (command === 'migrate') {
       result = await migrateLegacyProject({
@@ -1072,8 +1155,8 @@ export async function runCli(argv, {
       });
     } else if (command === 'finalize') {
       const projectDir = path.resolve(requireOption(options, 'project-dir'));
-      const outputDir = projectOutputPath(projectDir, requireOption(options, 'output'), 'Delivery output');
-      const state = await readJsonIfExists(path.join(projectDir, 'state.json'));
+      const outputDir = projectPaths(projectDir).delivery;
+      const state = await readProjectState(projectDir);
       const finalApproval = options.approval
         ? JSON.parse(await readFile(path.resolve(options.approval), 'utf8'))
         : currentFinalApproval(state);
@@ -1093,7 +1176,7 @@ export async function runCli(argv, {
       const manifest = await readJsonIfExists(path.join(deliveryDir, 'delivery-manifest.json'));
       if (options['project-dir']) {
         const projectDir = path.resolve(options['project-dir']);
-        const state = await readJsonIfExists(path.join(projectDir, 'state.json'));
+        const state = await readProjectState(projectDir);
         if (state?.project?.mode === 'variation_family') {
           if (manifest?.delivery_kind !== 'variation') {
             throw blocking('Delivery manifest kind does not match trusted Variation project mode');
@@ -1120,12 +1203,13 @@ export async function runCli(argv, {
       }
     } else if (command === 'prepare-upload') {
       const projectDir = path.resolve(requireOption(options, 'project-dir'));
+      const deliveryDir = projectPaths(projectDir).delivery;
       result = await prepareUpload({
         projectDir,
-        deliveryDir: path.resolve(requireOption(options, 'delivery-dir')),
+        deliveryDir,
         templatePath: path.resolve(requireOption(options, 'template')),
         inputPath: path.resolve(requireOption(options, 'input')),
-        outputDir: projectOutputPath(projectDir, requireOption(options, 'output'), 'Upload output'),
+        outputDir: deliveryDir,
         rulesLibrary: path.resolve(requireOption(options, 'rules-library')),
         verifySingle: uploadDependencies.verifySingle ?? verifyV2,
         verifyVariation: uploadDependencies.verifyVariation ?? verifyVariation,
