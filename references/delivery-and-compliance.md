@@ -1,6 +1,6 @@
 # Delivery and compliance
 
-Read this reference only for current-rule verification, final approval, or package creation.
+Read this reference only for current-rule verification, final approval, package creation, or external image uploads.
 
 ## Upload readiness
 
@@ -25,5 +25,11 @@ Variation delivery image basenames use a short project code, variant code, size,
 Optional upload preparation reads the verified delivery.zip bound to the current final approval; it does not rebuild Listing or image facts from mutable project files. Run `scripts/studio.js prepare-upload` only on request. When it returns `hosting_required`, ask one consolidated question for Cloudflare R2, another host, or stopping, together with unresolved account and offer values. Check each proposed object key for collision before upload, then rerun using the same delivery identity and exact object keys. Trust the returned HTTPS mapping and destination metadata; do not download every hosted object merely to hash it again.
 
 The Skill packages files for manual Seller Central use; it does not publish automatically.
+
+## External image upload names
+
+When the active environment can upload approved images to external storage, derive one stable `upload_slug` from 2 to 4 distinctive project keywords. Remove dimensions and generic terms such as `sign`; reuse the same slug across that project. Name each flat object `<upload_slug>-<size>-<purpose>.png`, or omit `<size>` only for an image that is genuinely size-independent. Use the short purposes `main`, `size`, `weather`, `front-back`, and `application`; do not add hashes or directory-like paths. `scripts/lib/upload-names.js` provides the deterministic naming and preflight helpers.
+
+Check the exact object name at the upload target before upload. If the object exists, stop and ask whether to overwrite it; overwrite only after explicit approval for that object. If the target cannot be checked, stop only the external upload and keep the local delivery usable. These cloud object names do not rename or change delivery files, manifests, approvals, or hashes.
 
 For a full Family or exact-Child package, add `references/variation-workflow.md`; trusted Variation verification also requires the saved project scope.
