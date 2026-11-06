@@ -4,7 +4,7 @@ Generate one consolidated conversion-oriented Listing review after all selected 
 
 ## Drafting order
 
-1. Identify the shopper-recognizable product type, important variant, and strongest approved differentiator.
+1. From the saved `listing_strategy` when present, identify the likely shopper, purchase motivation, use context, shopper-recognizable product type, important variant, and strongest approved differentiator. Do not re-run market analysis.
 2. Write a concise title within 75 characters. Keep brand and essential identity in the title; move useful secondary material or use-case detail to Item Highlights.
 3. Write one Item Highlights line within 125 characters that adds decision value rather than repeating the title.
 4. Write exactly five Bullets as `[2-5 WORD HEADING] Body`. Lead with shopper value, then connect it to a verified feature and practical use. Do not make a heading stronger than its supporting fact.
