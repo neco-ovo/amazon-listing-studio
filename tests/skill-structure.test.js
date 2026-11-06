@@ -177,7 +177,13 @@ test('secondary-image guidance prevents scene props from implying included acces
   assert.match(imageWorkflow, /(?:screws|fasteners).+confirmed included.+exact|confirmed included.+exact.+(?:screws|fasteners)/i);
   assert.match(skill, /(?:scene props|fasteners).+imply included package contents/i);
   assert.match(imageWorkflow, /minor.+visual.+review.+not.+regenerat/is);
-  assert.match(imageWorkflow, /confirmed absent.+strict.+confirmed included.+exact|confirmed included.+exact.+confirmed absent.+strict/is);
+  const accessoryGuidance = imageWorkflow.split(/\r?\n/).find(line => line.startsWith('Audit props and visible fasteners'));
+  assert.ok(accessoryGuidance, 'Accessory guidance must distinguish package contents from installation examples');
+  assert.match(accessoryGuidance, /confirmed absent excludes them from package displays/i);
+  assert.match(accessoryGuidance, /explicitly selected mounting-demo layout.+solely in installation examples/i);
+  assert.match(accessoryGuidance, /Not Included labels on each relevant card.+overall accessories-not-included statement/i);
+  assert.match(accessoryGuidance, /preserve the actual sign quantity.+distinguish complete-product views from demonstrations/i);
+  assert.match(accessoryGuidance, /confirmed included permits only the exact named `included_components`/i);
   assert.match(imageWorkflow, /unknown.+consolidated.+question.+omit/is);
 });
 
