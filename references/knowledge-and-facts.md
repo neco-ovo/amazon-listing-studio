@@ -10,7 +10,7 @@ Read this reference only for intake, fact conflicts, reusable market knowledge, 
 4. Category observations and competitor patterns.
 5. AI suggestions.
 
-A higher source overrides a lower one. Preserve source IDs and the losing value when a conflict matters. Ask one concise question only when a missing or conflicting fact blocks the current artifact.
+A higher source overrides a lower one. Preserve source IDs and the losing value when a conflict matters. Ask one concise question only when a missing or conflicting fact blocks the current artifact. For Amazon Listing secondary planning, a missing fact that changes a key benefit or image role also warrants consolidated clarification before omitting that task; follow `references/image-workflow.md`. This exception is not an A+ workflow change.
 
 ## Three knowledge scopes
 

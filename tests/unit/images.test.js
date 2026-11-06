@@ -88,11 +88,20 @@ test('validates a white, fully visible, 3:2 product at 96% dominant occupancy', 
   });
 
   assert.equal(result.ok, true);
-  assert.equal(result.width, 1000);
-  assert.equal(result.height, 1000);
+  assert.equal(result.width, 1600);
+  assert.equal(result.height, 1600);
   assert.equal(result.occupancy, 0.96);
   assert.equal(result.background.ok, true);
   assert.deepEqual(result.failures, []);
+});
+
+test('rejects a main image whose longest edge is below 1600 pixels', async () => {
+  const result = await validateMainImage(fixtures.tooSmall);
+
+  assert.equal(result.ok, false);
+  assert.ok(result.failures.some(failure => (
+    failure.code === 'MAIN_IMAGE_TOO_SMALL' && failure.actual === 1000 && failure.minimum === 1600
+  )));
 });
 
 test('uses Amazon base 85% occupancy unless a category or user sets a stricter target', async () => {
@@ -113,8 +122,9 @@ test('uses Amazon base 85% occupancy unless a category or user sets a stricter t
 });
 
 test('reports stretch, clipping, nonwhite background, and low occupancy without cropping', async t => {
-  await t.test('stretched product', async () => {
+  await t.test('stretched product with an explicit hard constraint', async () => {
     const result = await validateMainImage(fixtures.stretched, {
+      ratioPolicy: 'required', ratioTolerance: 0.02, ratioConstraintSource: 'Explicit fixture constraint',
       physicalWidth: 12,
       physicalHeight: 8,
       minOccupancy: 0.95,
@@ -152,4 +162,20 @@ test('reports stretch, clipping, nonwhite background, and low occupancy without 
     assert.equal(result.occupancy, 0.9);
     assert.ok(result.failures.some(failure => failure.code === 'LOW_OCCUPANCY'));
   });
+});
+
+test('ratio defaults to review advice; explicit constraints and invalid options stay strict', async () => {
+  const dimensions = {physicalWidth: 12, physicalHeight: 8};
+  const advisory = await validateMainImage(fixtures.stretched, dimensions);
+  assert.equal(advisory.ok, true); // Raster pass, NOT semantic approval of a stretched product.
+  assert.equal(advisory.physical_ratio_ok, false);
+  assert.equal(advisory.warnings[0].code, 'PHYSICAL_RATIO_MISMATCH');
+  assert.equal(advisory.warnings[0].policy, 'advisory');
+  const legacy = await validateMainImage(fixtures.stretched, {...dimensions, ratioTolerance: 0.02});
+  assert.equal(legacy.ok, true);
+  const exact = await validateMainImage(fixtures.valid, {...dimensions, ratioPolicy: 'required', ratioTolerance: 0, ratioConstraintSource: 'User exact geometry'});
+  assert.equal(exact.ok, true);
+  for (const options of [{ratioPolicy: 'unknown'}, {ratioTolerance: NaN}, {ratioTolerance: -1}, {ratioTolerance: Infinity}, {ratioPolicy: 'required', ratioTolerance: 0.02}, {ratioPolicy: 'required', ratioConstraintSource: 'User'}]) {
+    await assert.rejects(validateMainImage(fixtures.valid, {...dimensions, ...options}), TypeError);
+  }
 });

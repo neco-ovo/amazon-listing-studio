@@ -2,55 +2,174 @@
   "schema_version": 1,
   "merchant_scope": "seller-owned-layout-library",
   "family_id": "rigid-aluminum-signs",
-  "source_project": "slow-down-kids-pets-at-play-12x16",
+  "source_project": "animal-crossing-signs",
   "layouts": [
     {
       "id": "merchant-sign-durability",
       "asset_type": "durability",
       "reuse_policy": "FIXED_LAYOUT_ALLOWED",
-      "applicable_traits": {"material": ["aluminum"], "product_form": ["rigid_sign"]},
-      "required_facts": ["aluminum"],
-      "do_not_use_when": ["no_supported_durability_claims"],
-      "fixed_regions": ["large_product_left", "three_icon_claims_right"],
-      "allowed_adaptations": ["product_ratio", "short_claim_copy", "claim_count"],
-      "failure_guards": ["small_icons_must_remain_legible", "claim_requires_visual_correspondence", "product_remains_primary"],
-      "preview": {"path": "assets/merchant-layout-previews/durability.webp", "sha256": "fb9654afbe281ecf1fd362b8eef3ede8883a4bc4fc058055a5f0e660dc4ebe7e"}
+      "applicable_traits": {
+        "material": [
+          "aluminum"
+        ],
+        "product_form": [
+          "rigid_sign"
+        ]
+      },
+      "required_facts": [
+        "aluminum"
+      ],
+      "do_not_use_when": [
+        "no_supported_durability_claims"
+      ],
+      "fixed_regions": [
+        "large_product_left",
+        "heading_top_right",
+        "two_stacked_photo_claim_cards_right"
+      ],
+      "allowed_adaptations": [
+        "product_ratio",
+        "short_claim_copy",
+        "claim_count",
+        "accent_color",
+        "scene_selection",
+        "supported_copy"
+      ],
+      "failure_guards": [
+        "small_icons_must_remain_legible",
+        "claim_requires_visual_correspondence",
+        "product_remains_primary"
+      ],
+      "preview": {
+        "path": "assets/merchant-layout-previews/animal-crossing-signs/04-durability.webp",
+        "sha256": "b9d46460acba55db0950a8806e500a54abdb403a860093e87dee9fb92e5647a2"
+      }
     },
     {
       "id": "merchant-sign-size-construction",
       "asset_type": "size_spec",
       "reuse_policy": "FIXED_LAYOUT_ALLOWED",
-      "applicable_traits": {"material": ["aluminum"], "product_form": ["rigid_sign"]},
-      "required_facts": ["dimensions"],
-      "do_not_use_when": ["dimensions_unconfirmed"],
-      "fixed_regions": ["centered_product", "dimension_lines_at_product_edges", "construction_callouts"],
-      "allowed_adaptations": ["product_ratio", "dimension_units", "callout_count"],
-      "failure_guards": ["dimension_extensions_touch_product_bounds", "labels_share_positioning", "no_decorative_empty_panel"],
-      "preview": {"path": "assets/merchant-layout-previews/size-construction.webp", "sha256": "7f42c741a8583dc73820f805406887815f63c1b052a886c33dd43416effd37ec"}
+      "applicable_traits": {
+        "material": [
+          "aluminum"
+        ],
+        "product_form": [
+          "rigid_sign"
+        ]
+      },
+      "required_facts": [
+        "dimensions"
+      ],
+      "do_not_use_when": [
+        "dimensions_unconfirmed"
+      ],
+      "fixed_regions": [
+        "centered_product",
+        "dimension_lines_at_product_edges",
+        "construction_callouts"
+      ],
+      "allowed_adaptations": [
+        "product_ratio",
+        "dimension_units",
+        "callout_count",
+        "accent_color",
+        "scene_selection",
+        "supported_copy"
+      ],
+      "failure_guards": [
+        "dimension_extensions_touch_product_bounds",
+        "labels_share_positioning",
+        "no_decorative_empty_panel"
+      ],
+      "preview": {
+        "path": "assets/merchant-layout-previews/animal-crossing-signs/03-size-construction.webp",
+        "sha256": "ab8204945596db37a1797bea11b0d0ab9b32b7633b48af88bfb0195476058c05"
+      }
     },
     {
       "id": "merchant-sign-front-back",
       "asset_type": "front_back",
       "reuse_policy": "FIXED_LAYOUT_ALLOWED",
-      "applicable_traits": {"material": ["aluminum"], "product_form": ["rigid_sign"]},
-      "required_facts": ["front", "back", "aluminum"],
-      "do_not_use_when": ["back_appearance_unconfirmed"],
-      "fixed_regions": ["overlapping_front_back_heroes", "top_heading", "bottom_summary"],
-      "allowed_adaptations": ["product_ratio", "approved_marketing_copy", "overlap_angle"],
-      "failure_guards": ["front_and_back_are_same_product", "no_unconfirmed_thickness", "marketing_copy_does_not_create_grade_or_lifespan"],
-      "preview": {"path": "assets/merchant-layout-previews/front-back.webp", "sha256": "9d97d88db4cb2afc8889abf1e60184728472d1c584fe5267031c5279e442bd97"}
+      "applicable_traits": {
+        "material": [
+          "aluminum"
+        ],
+        "product_form": [
+          "rigid_sign"
+        ]
+      },
+      "required_facts": [
+        "front",
+        "back",
+        "aluminum"
+      ],
+      "do_not_use_when": [
+        "back_appearance_unconfirmed"
+      ],
+      "fixed_regions": [
+        "overlapping_front_back_heroes",
+        "top_heading",
+        "bottom_summary"
+      ],
+      "allowed_adaptations": [
+        "product_ratio",
+        "approved_marketing_copy",
+        "overlap_angle",
+        "accent_color",
+        "scene_selection",
+        "supported_copy"
+      ],
+      "failure_guards": [
+        "front_and_back_are_same_product",
+        "no_unconfirmed_thickness",
+        "marketing_copy_does_not_create_grade_or_lifespan"
+      ],
+      "preview": {
+        "path": "assets/merchant-layout-previews/animal-crossing-signs/05-front-back.webp",
+        "sha256": "0a46f3f66b44427d583f9e38f608eb12bb93c60a88a72acd58b7bdc12c52900a"
+      }
     },
     {
       "id": "merchant-sign-application-scenarios",
       "asset_type": "application",
       "reuse_policy": "FIXED_LAYOUT_ALLOWED",
-      "applicable_traits": {"material": ["aluminum"], "product_form": ["rigid_sign"]},
-      "required_facts": ["use_environments"],
-      "do_not_use_when": ["use_environment_unconfirmed"],
-      "fixed_regions": ["two_scene_split", "slanted_center_band", "large_foreground_product_each_scene"],
-      "allowed_adaptations": ["scene_selection", "product_ratio", "band_angle"],
-      "failure_guards": ["use_environment_not_mounting_surface", "no_redundant_scene_labels", "product_visible_at_thumbnail_scale"],
-      "preview": {"path": "assets/merchant-layout-previews/application-scenarios.webp", "sha256": "d29cc3f7b01af5341b6a4540895bc91711f7b778569d79da81f79c84a8f7e53c"}
+      "applicable_traits": {
+        "material": [
+          "aluminum"
+        ],
+        "product_form": [
+          "rigid_sign"
+        ]
+      },
+      "required_facts": [
+        "use_environments"
+      ],
+      "do_not_use_when": [
+        "use_environment_unconfirmed"
+      ],
+      "fixed_regions": [
+        "two_scene_split",
+        "slanted_center_band",
+        "large_foreground_product_each_scene"
+      ],
+      "allowed_adaptations": [
+        "scene_selection",
+        "product_ratio",
+        "band_angle",
+        "accent_color",
+        "supported_copy",
+        "concise_scene_labels"
+      ],
+      "failure_guards": [
+        "use_environment_not_mounting_surface",
+        "product_visible_at_thumbnail_scale"
+      ],
+      "preview": {
+        "path": "assets/merchant-layout-previews/animal-crossing-signs/06-application.webp",
+        "sha256": "227267c421f6c117395960867cc4677ee83af55896e4f88728ee6904f798bbd4"
+      }
     }
-  ]
+  ],
+  "reference_revision": "2026-09-30",
+  "source_approval": "cat-secondary approved set; gallery-reuse-approval.md"
 }

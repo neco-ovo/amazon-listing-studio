@@ -11,7 +11,6 @@ import {DomainError} from './errors.js';
 import {renderListing} from './listing-drafts.js';
 import {
   hashVariationFinalScope,
-  normalizeVariationRuleScope,
   variationFinalScopePayload
 } from './variation-approvals.js';
 import {effectiveVariationValues, validateVariationExtension} from './variations.js';
@@ -825,15 +824,6 @@ function exactRow(row, scope, manifest, expectedLayout) {
   }
 }
 
-function listingRuleScopeMatches(content, scope) {
-  const expected = scope.rule_scope ?? {
-    rule_status: scope.rule_status,
-    rules_unverified: scope.rules_unverified,
-    upload_ready: scope.upload_ready
-  };
-  return isDeepStrictEqual(normalizeVariationRuleScope(content), expected);
-}
-
 function validManifestScope(manifest) {
   const scope = manifest.approval_scope;
   const delivery = manifest.delivery_scope;
@@ -1006,8 +996,7 @@ export async function verifyVariationDelivery({
   const parentListing = parseJsonMember(archive, 'parent/listing.json');
   if (parentListing.parent_sku !== manifest.parent_sku || parentListing.version !== scope.parent_version
       || parentListing.project_id !== manifest.project_id || parentListing.marketplace !== manifest.marketplace
-      || parentListing.product_type !== manifest.product_type
-      || !listingRuleScopeMatches(parentListing, scope)) {
+      || parentListing.product_type !== manifest.product_type) {
     throw invalid('APPROVAL_SCOPE_MISMATCH', 'Delivered Parent Listing does not match the manifest scope.');
   }
   if (hash(archive['parent/listing.json']) !== scope.parent_listing_content_sha256) {
@@ -1030,8 +1019,7 @@ export async function verifyVariationDelivery({
         || listing.version !== row.listing_version || listing.product_master_version !== row.product_master_version
         || !isDeepStrictEqual(listing.variation_values, row.variation_values)
         || listing.project_id !== manifest.project_id || listing.marketplace !== manifest.marketplace
-        || listing.product_type !== manifest.product_type
-        || !listingRuleScopeMatches(listing, scope)) {
+        || listing.product_type !== manifest.product_type) {
       throw invalid('APPROVAL_SCOPE_MISMATCH', 'Delivered Child Listing does not match its Matrix row.', {
         child_sku: row.child_sku
       });

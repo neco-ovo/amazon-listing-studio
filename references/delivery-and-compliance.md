@@ -2,6 +2,16 @@
 
 Read this reference only for current-rule verification, final approval, or package creation.
 
+## File closeout
+
+Reuse the current project root across revisions and retries; use the existing state and delivery records to identify current artifacts and replacements. Keep unselected image candidates as design inputs, not disposable work.
+
+After successful delivery and its required checks, remove only exact files created for this task that are reproducible intermediates, have no live references, and are not needed for continuation: temporary exports, verification extractions, or upload staging. Check upload inputs, state, and recovery references before removing an `r2-upload-staging` file. Preserve source images, approved assets and records, evidence, and materials needed to diagnose an interrupted or failed attempt. Unknown ownership or dependencies means retain the file for later classification.
+
+Verify archives through their member sets and contents without leaving a second extracted delivery. A full delivery ZIP, an image-hosting ZIP, and formal assets can coexist when each serves its own consumer; overlapping content alone is not redundancy. Protect approved sources and records through the existing mechanisms; keep the current atomic delivery replacement rather than retaining every full delivery generation. `compact-project` migrates layout and preserves legacy material; it is not a historical-version cleanup command. Historical cleanup follows the workspace's approved scope and dependency checks.
+
+Keep current `listing/`, upload, and `delivery/` presentation separate from production/checking work. Title-check inputs, temporary workbook readbacks, debug output, and one-off review pages belong in the relevant `.studio/work/<stage>/checks` or `review` location, not beside the current deliverable. Retain required QA evidence in the existing stage records and link it from the delivery summary; a work path alone does not authorize deleting evidence. Keep not-ready upload drafts in upload-stage work and label them when requested; do not present them as the ready upload set. Preserve all tool-required manifests, mappings, approved sources, and atomic commit paths.
+
 ## Upload readiness
 
 Resolve rules for the exact marketplace and product type. Upload-ready output requires an applicable fresh snapshot or verified current Schema. If affected fields remain unverified, preserve `rules_unverified` and `upload_ready=false`; user permission to continue does not convert unknown rules or facts into compliance.
@@ -22,7 +32,13 @@ Finalization verifies the ZIP member set, byte lengths, hashes, image decoding, 
 
 Variation delivery image basenames use a short project code, variant code, size, and purpose, such as `skp-rwb-8x12-main.png`. Names must be unique across the package without hashes. Before Cloudflare upload, check whether the destination object already exists and stop for confirmation instead of overwriting it.
 
-Optional upload preparation reads the verified delivery.zip bound to the current final approval; it does not rebuild Listing or image facts from mutable project files. Run `scripts/studio.js prepare-upload` only on request. When it returns `hosting_required`, ask one consolidated question for Cloudflare R2, another host, or stopping, together with unresolved account and offer values. Check each proposed object key for collision before upload, then rerun using the same delivery identity and exact object keys. Trust the returned HTTPS mapping and destination metadata; do not download every hosted object merely to hash it again.
+Before upload-template preparation, apply the pre-upload audit in `listing-audit.md` to the completed current Listing and selected actual images. Reuse a matching audit from the existing review; recheck only affected evidence after changes. A published ASIN is not required. Read the approved copy and image references bound to the package, and route supported blocking findings back through existing revision/approval/finalization rather than patching immutable files. Optional suggestions or unavailable backend data do not create an extra approval gate. Template validation and finalization checks remain independently required.
+
+Optional upload preparation reads the verified delivery.zip bound to the current final approval; it does not rebuild Listing or image facts from mutable project files. Run `scripts/studio.js prepare-upload` only on request. The workbook settings supply `attributeRow` and `dataRow`; Amazon technical headers select the unique upload sheet and current keyword and image columns. Never assume a fixed sheet, row, column, or slot count. Supply one confirmed `item_type_keyword`; when a Family needs a consistent gallery sequence, supply one `image_role_order` instead of repeating per-Child URL arrays.
+
+Without image URLs, `prepare-upload` returns `manual_upload_required` plus a verified image-only ZIP. After the user uploads it, run `map-r2-images` with the user-specified prefix and public base URL; it constructs URLs from verified archive paths and accepts only public image responses. Then rerun `prepare-upload` with `delivery/hosted-input.json`. Trust this exact mapping; do not download every hosted object merely to hash it again.
+
+`host-images-r2` is only an optional shortcut. It runs Wrangler `whoami` with logs under `.studio/work`; failure immediately returns `manual_upload_required` and the image ZIP. It never starts login, uses tunnels, or overwrites an existing object. When ready, it preflights the complete key set and resumes only objects recorded for the same delivery identity, bucket, and public base URL.
 
 The Skill packages files for manual Seller Central use; it does not publish automatically.
 

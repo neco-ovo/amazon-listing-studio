@@ -122,3 +122,27 @@ test('approved main candidate hashes once and returns the Product Master lock ac
     assert.equal(product.assets[0].path, 'assets/main.png');
   });
 });
+
+
+test('ratio warnings survive real candidate recording while strict and semantic failures reject', async () => {
+  const {createMainImageFixtures} = await import('../helpers/png-fixtures.js');
+  await withTempWorkspace(async root => {
+    await createProject(root);
+    const fixtures = await createMainImageFixtures(path.join(root, 'ratio-fixtures'));
+    for (const deviation of [0.0207, 0.0288, 0.0497, 0.0826]) {
+      const item = {id: `ratio-${deviation}`, kind: 'main', path: path.relative(root, fixtures.valid),
+        check_options: {physicalWidth: 12 / (1 + deviation), physicalHeight: 8}, inspection_status: 'pass'};
+      const result = await runRecordCandidate({projectDir: root, candidate: item});
+      assert.equal(result.candidate.status, 'candidate');
+      assert.equal(result.candidate.inspection_findings[0].code, 'PHYSICAL_RATIO_MISMATCH');
+      assert.ok(Math.abs(result.candidate.inspection_findings[0].relativeError - deviation) < 1e-10);
+      const strict = await runRecordCandidate({projectDir: root, candidate: {...item, id: item.id + '-strict',
+        check_options: {...item.check_options, ratioPolicy: 'required', ratioTolerance: 0.02, ratioConstraintSource: 'Test user constraint'}}});
+      assert.equal(strict.candidate.status, 'rejected');
+      const visualFail = await runRecordCandidate({projectDir: root, candidate: {...item, id: item.id + '-visual',
+        inspection_status: 'fail', inspection_reason_codes: ['WRONG_PRODUCT_STRUCTURE']}});
+      assert.equal(visualFail.candidate.status, 'rejected');
+      assert.ok(visualFail.candidate.reason_codes.includes('WRONG_PRODUCT_STRUCTURE'));
+    }
+  });
+});

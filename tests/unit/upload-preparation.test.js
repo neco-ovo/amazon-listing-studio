@@ -123,6 +123,50 @@ test('projects repeated gallery roles with stable unique delivered object keys',
   });
 });
 
+test('uses manifest asset identities to apply one requested image-role order', async () => {
+  await withTempWorkspace(async root => {
+    const deliveryDir = await variationDelivery(root);
+    const roleManifest = {
+      ...manifest,
+      artifacts: matrix.children[0].asset_paths.map((archive_path, index) => ({
+        archive_path,
+        media_type: 'image/png',
+        asset_id: ['main-rwb', 'child-readability-v1', 'child-size-construction-v1'][index]
+      }))
+    };
+    await writeFile(path.join(deliveryDir, 'delivery-manifest.json'), JSON.stringify(roleManifest));
+    const delivery = await readVerifiedDelivery({
+      deliveryDir,
+      expectedScope: {id: 'final-v2'},
+      verifyVariation: async () => ({ok: true, manifest: roleManifest, matrix}),
+      verifySingle: async () => assert.fail('single verifier should not run')
+    });
+    const result = projectUploadPreparation({delivery, input: {
+      image_role_order: ['main', 'size-construction', 'readability']
+    }});
+    assert.deepEqual(result.rows[1].gallery_slots.map(item => item.slot_id), [
+      'main', 'size-construction', 'readability'
+    ]);
+    assert.deepEqual(result.findings, []);
+  });
+});
+
+test('reports a requested image role missing from a Child gallery', () => {
+  const delivery = {
+    delivery_identity: 'variation:final-v2:2',
+    manifest: {delivery_kind: 'variation'},
+    matrix: {parent_sku: 'PARENT', children: [{
+      parent_sku: 'PARENT', child_sku: 'CHILD-1', variation_values: {}, asset_paths: []
+    }]},
+    listings: {parent: {}, children: {'CHILD-1': {}}},
+    image_slots: {'CHILD-1': [{source: 'children/CHILD-1/main.png', slot_id: 'main'}]}
+  };
+  const result = projectUploadPreparation({delivery, input: {
+    image_role_order: ['main', 'readability']
+  }});
+  assert.deepEqual(result.findings.map(item => item.code), ['IMAGE_ROLE_MISSING']);
+});
+
 test('projects one sellable row and immutable identity for a single delivery', () => {
   const delivery = {
     delivery_identity: 'single:final-3:3',

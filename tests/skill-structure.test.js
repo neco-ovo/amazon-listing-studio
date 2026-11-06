@@ -56,6 +56,8 @@ test('Skill routes optional Variation work to one focused reference', async () =
   assert.match(reference, /child_secondary/);
   assert.match(reference, /set-variation-display-values/);
   assert.match(reference, /leaves physical facts, Product Masters, and images unchanged/i);
+  assert.match(reference, /same.Child.+same.role.+superseded.+approval history/is);
+  assert.match(reference, /first Final approval.+draft.+version 0.+locked version 1.+no separate/i);
   assert.match(reference, /retain.+exclude|exclude.+retain/is);
   assert.match(reference, /array.+object.+(?:semantic|deep)|(?:semantic|deep).+array.+object/is);
 });
@@ -258,7 +260,7 @@ test('SIGNAGE upload seed separates reusable defaults from account and product f
     'backend_search_terms', 'batteries_required', 'brand', 'bullet_points', 'color',
     'condition_type', 'country_of_origin', 'dangerous_goods_regulation', 'description',
     'fulfillment_channel', 'included_components', 'item_dimensions', 'item_highlights',
-    'item_weight', 'main_and_other_image_urls', 'manufacturer', 'material',
+    'item_type_keyword', 'item_weight', 'main_and_other_image_urls', 'manufacturer', 'material',
     'number_of_items', 'package_dimensions', 'package_weight', 'parent_child_relationship',
     'part_number', 'price', 'product_id_type', 'product_type', 'record_action',
     'seller_sku', 'shipping_template', 'stock', 'title', 'variation_value'
@@ -266,6 +268,8 @@ test('SIGNAGE upload seed separates reusable defaults from account and product f
   assert.equal(seed.upload_field_map.package_dimensions.required_when, 'the current template condition or Seller Central feedback requires package dimensions for this Child');
   assert.equal(seed.upload_field_map.package_weight.required_when, 'the current template condition or Seller Central feedback requires package weight for this Child');
   assert.equal(seed.upload_field_map.main_and_other_image_urls.scope, 'children');
+  assert.deepEqual(seed.upload_field_map.main_and_other_image_urls.columns, []);
+  assert.deepEqual(seed.upload_field_map.item_type_keyword.columns, []);
   assert.deepEqual(seed.upload_field_map.bullet_points.columns, ['AE', 'AF', 'AG', 'AH', 'AI']);
   assert.deepEqual(seed.upload_field_map.variation_value.columns, ['AW']);
   assert.equal(seed.upload_field_map.batteries_required.scope, 'parent');
@@ -290,8 +294,14 @@ test('optional upload preparation asks once and preserves exact template semanti
   const delivery = await readFile(path.join(root, 'references', 'delivery-and-compliance.md'), 'utf8');
   const listing = await readFile(path.join(root, 'references', 'listing-workflow.md'), 'utf8');
   assert.match(skill, /prepare-upload/);
-  assert.match(delivery, /hosting_required.+one consolidated question/is);
-  assert.match(delivery, /same delivery identity.+exact object keys/is);
+  assert.match(delivery, /manual_upload_required.+image.+ZIP/is);
+  assert.match(delivery, /item_type_keyword.+image_role_order/is);
+  assert.match(delivery, /same delivery identity.+bucket.+public base URL/is);
+  assert.match(delivery, /host-images-r2/is);
+  assert.match(delivery, /map-r2-images/is);
+  assert.match(delivery, /whoami.+manual_upload_required/is);
+  assert.match(delivery, /hosted-input\.json/is);
+  assert.match(delivery, /Wrangler/is);
   assert.match(delivery, /do not.+download.+hash/is);
   assert.match(delivery, /verified delivery\.zip.+current final approval/is);
   assert.match(listing, /shipping template.+marketplace.+seller account/is);
@@ -311,6 +321,7 @@ test('approval and delivery guidance expose shared preflight and direct ZIP veri
   assert.match(variation, /approve-variation.+locks.+Family Identity.+same transaction/is);
   assert.match(variation, /hash.+automatic.+not.+separate user confirmation/is);
   assert.match(variation, /subset_shared.+Child.+facts?.+(?:not|without).+Family common/is);
+  assert.match(variation, /reverify-variation-rules.+template.+reapprove.+rebuild delivery/is);
   assert.match(delivery, /verify-delivery/);
   assert.match(delivery, /without extraction/i);
 });

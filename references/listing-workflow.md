@@ -57,4 +57,6 @@ System scope fields come from current project state at approval, not from consum
 
 Draft revisions are mutable under `.studio/work/`. Preserve every unselected field byte-for-byte. Reject a stale expected draft revision or unknown path. Render Markdown from JSON; never maintain independent prose copies. On explicit approval, run `scripts/studio.js approve --project-dir <dir> --type listing`; only then publish the current formal JSON and Markdown under `listing/` with their hashes.
 
+After final Listing approval, when selected images are complete and upload delivery is within the authorized task, read `listing-audit.md` and complete or verify the matching pre-upload audit in the same handoff. A copy-only naturalness/keyword review cannot establish cross-media audit completion. If the user requested only copy, retain the audit as a pending prerequisite for later upload preparation; do not expand the task.
+
 For Parent baselines, exact Child overrides, compound tuples, or Variation Listing approval, add `references/variation-workflow.md` only for a Variation Family.

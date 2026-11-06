@@ -44,8 +44,12 @@ function semanticValue(value) {
 
 function lockDraftFamilyIdentity(state) {
   const identity = state.variation.family_identity;
-  if (identity.status === 'locked') return state;
-  if (identity.status !== 'draft' || !(Number(identity.version) > 0)) {
+  const version = Number(identity.version);
+  if (identity.status === 'locked') {
+    if (Number.isInteger(version) && version > 0) return state;
+    fail('BLOCKING_INPUT', 'Final Variation approval requires a current Family identity');
+  }
+  if (identity.status !== 'draft' || !Number.isInteger(version) || version < 0) {
     fail('BLOCKING_INPUT', 'Final Variation approval requires a current Family identity');
   }
   const children = activeChildren(state.variation);
@@ -58,6 +62,7 @@ function lockDraftFamilyIdentity(state) {
     }
   }
   const next = structuredClone(state);
+  next.variation.family_identity.version = Math.max(1, version);
   next.variation.family_identity.status = 'locked';
   next.variation.family_identity.facts = Object.fromEntries(Object.keys(common).map(field => {
     const representative = children.map(child => child.facts?.[field])
@@ -330,8 +335,18 @@ async function approveChildSecondary(state, input, options) {
     approved_at: now, user_action: input.userAction
   };
   const next = structuredClone(state);
-  next.variation.children[child.sku].assets[input.artifactId] = {
-    ...next.variation.children[child.sku].assets[input.artifactId],
+  const nextChild = next.variation.children[child.sku];
+  for (const assets of [nextChild.assets, nextChild.gallery?.assets, next.variation.child_assets?.[child.sku]]) {
+    for (const [artifactId, asset] of Object.entries(assets ?? {})) {
+      if (artifactId !== input.artifactId && asset.kind === candidate.kind && asset.status === 'approved') {
+        assets[artifactId] = {
+          ...asset, status: 'superseded', superseded_at: now, superseded_by: input.artifactId
+        };
+      }
+    }
+  }
+  nextChild.assets[input.artifactId] = {
+    ...nextChild.assets[input.artifactId],
     status: 'approved', sha256, approval_id: id, approved_at: now,
     product_master_version: child.product_master.version
   };
@@ -663,6 +678,48 @@ export function approveVariationListing(state, input) {
   return approveChildListing(state, input);
 }
 
+export function reverifyVariationRules(state, input) {
+  explicitApproval(input);
+  assertVariationState(state);
+  const verified = [...new Set(input?.verifiedRuleIds ?? [])];
+  if (verified.length === 0 || verified.some(id => typeof id !== 'string' || !id)) {
+    fail('BLOCKING_INPUT', 'Variation rule reverification requires verified rule identifiers');
+  }
+  const currentFinal = [...(state.variation.versions ?? [])].reverse()
+    .find(version => version.status === 'approved');
+  const currentApproval = state.approvals.find(approval => approval.id === currentFinal?.approval_id);
+  if (!currentApproval || currentApproval.scope_type !== 'variation_final'
+      || !verified.every(id => currentApproval.rule_scope?.rules_unverified?.includes(id))) {
+    fail('BLOCKING_INPUT', 'Verified rules must match unresolved rules in the current Final approval');
+  }
+  const verifiedSet = new Set(verified);
+  const patchRules = (content, version) => {
+    const remaining = [...new Set(content.rules_unverified ?? [])].filter(id => !verifiedSet.has(id));
+    return {
+      ...structuredClone(content), version,
+      rule_status: remaining.length === 0 ? 'verified' : 'rules_unverified',
+      rules_unverified: remaining,
+      upload_ready: remaining.length === 0
+    };
+  };
+  const now = input.now ?? new Date().toISOString();
+  let next = approveVariationListing(state, {
+    scopeType: 'parent_listing', userAction: input.userAction, now,
+    content: patchRules(
+      state.variation.parent.listing.approved.at(-1).content,
+      Number(state.variation.parent.listing.approved.at(-1).version) + 1
+    )
+  });
+  for (const child of activeChildren(next.variation)) {
+    const snapshot = child.listing.approved.at(-1);
+    next = approveVariationListing(next, {
+      scopeType: 'child_listing', childSku: child.sku, userAction: input.userAction, now,
+      content: patchRules(snapshot.content, Number(snapshot.version) + 1)
+    });
+  }
+  return approveVariationVersion(next, {userAction: input.userAction, now});
+}
+
 function approvalFor(state, id, scopeType) {
   const approval = state.approvals.find(item => item.id === id);
   if (!approval || approval.scope_version !== 1 || approval.scope_type !== scopeType
@@ -704,11 +761,13 @@ function childSpecificAssets(state, child) {
 }
 
 function finalChildSecondaries(state, child) {
-  const secondary = [];
+  const secondary = new Map();
   for (const [artifactId, asset] of childSpecificAssets(state, child)) {
     if (artifactId === child.product_master?.approved_main_id || asset?.kind === 'main' || asset?.status !== 'approved') continue;
     const approval = state.approvals.find(item => item.id === asset.approval_id);
     const isLegacy = child.legacy_refs?.gallery_asset_ids?.includes(artifactId) === true;
+    if (isLegacy && Number.isInteger(asset.product_master_version)
+        && asset.product_master_version !== child.product_master.version) continue;
     const approvalScope = approval?.scope_type ?? null;
     const explicitScope = approvalScope === 'child_secondary';
     const legacyScope = approvalScope === null && isLegacy;
@@ -731,7 +790,11 @@ function finalChildSecondaries(state, child) {
         child_sku: child.sku, artifact_id: artifactId
       });
     }
-    secondary.push({
+    const role = asset.kind ?? artifactId;
+    const selected = secondary.get(role);
+    const approvedAt = approval.approved_at ?? '';
+    if (selected && `${selected.approvedAt}\0${selected.scope.artifact_id}` > `${approvedAt}\0${artifactId}`) continue;
+    secondary.set(role, {approvedAt, scope: {
       artifact_id: artifactId,
       path: approval.path,
       sha256: approval.sha256,
@@ -739,9 +802,9 @@ function finalChildSecondaries(state, child) {
       approval_scope_type: approvalScope,
       child_sku: child.sku,
       product_master_version: child.product_master.version
-    });
+    }});
   }
-  return secondary;
+  return [...secondary.values()].map(item => item.scope);
 }
 
 function finalChildScope(state, child, parentScope) {
@@ -889,6 +952,9 @@ export function approveVariationVersion(state, input) {
   if (state.variation.theme?.verification_status !== 'verified') {
     fail('BLOCKING_INPUT', 'Final Variation approval requires a verified Variation Theme');
   }
+  const draftIdentityVersion = state.variation.family_identity?.status === 'draft'
+    ? Number(state.variation.family_identity.version)
+    : null;
   state = lockDraftFamilyIdentity(state);
   const children = activeChildren(state.variation);
   if (children.length === 0) fail('BLOCKING_INPUT', 'Final Variation approval requires active Children');
@@ -896,10 +962,13 @@ export function approveVariationVersion(state, input) {
   const parentListing = parent.listing?.approved?.at(-1);
   const parentApproval = approvalFor(state, parentListing?.approval_id, 'parent_listing');
   const parentRuleMatches = isDeepStrictEqual(ruleScope(parentApproval), ruleScope(parentListing?.content));
+  const parentIdentityMatches = parentApproval.family_identity_version === state.variation.family_identity.version
+    || (draftIdentityVersion === 0 && state.variation.family_identity.version === 1
+      && parentApproval.family_identity_version === 0);
   if (parent.status !== 'approved' || parentListing?.status !== 'approved'
       || parent.version !== parentListing.version
       || parentApproval.parent_sku !== parent.sku
-      || parentApproval.family_identity_version !== state.variation.family_identity.version
+      || !parentIdentityMatches
       || parentApproval.listing_version !== parentListing.version
       || parentApproval.marketplace !== state.project.marketplace
       || parentApproval.product_type !== state.project.product_type
@@ -915,10 +984,14 @@ export function approveVariationVersion(state, input) {
     approvalId: parentApproval.id
   }));
   const ruleScopes = [parentApproval, ...childScopes.map(item => item.listingApproval)].map(ruleScope);
-  if (ruleScopes.some(scope => !isDeepStrictEqual(scope, ruleScopes[0]))) {
-    fail('BLOCKING_INPUT', 'Parent and Child Listing rule scopes must match for final approval');
-  }
-  const finalRuleScope = ruleScopes[0];
+  const rulesUnverified = [...new Set(ruleScopes.flatMap(scope => scope.rules_unverified))].sort();
+  const uploadReady = rulesUnverified.length === 0
+    && ruleScopes.every(scope => scope.rule_status === 'verified' && scope.upload_ready);
+  const finalRuleScope = {
+    rule_status: uploadReady ? 'verified' : 'rules_unverified',
+    rules_unverified: rulesUnverified,
+    upload_ready: uploadReady
+  };
   const childSkus = children.map(child => child.sku);
   const version = Number(state.variation.versions?.at(-1)?.version ?? 0) + 1;
   const now = input.now ?? new Date().toISOString();

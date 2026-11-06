@@ -6,7 +6,8 @@ import {
   approveVariationArtifact,
   approveVariationListing,
   approveVariationVersion,
-  hashVariationFinalScope
+  hashVariationFinalScope,
+  reverifyVariationRules
 } from '../../scripts/lib/variation-approvals.js';
 import {materializeChildListing} from '../../scripts/lib/variation-listing.js';
 
@@ -657,6 +658,62 @@ test('final rule scope must match each immutable Listing snapshot rule tuple', a
   );
 });
 
+test('final approval conservatively combines valid per-Listing rule scopes', async () => {
+  const state = await fullyApprovedState();
+  const child = state.variation.children['HORSE-12X16'];
+  const snapshot = child.listing.approved.at(-1);
+  const approval = state.approvals.find(item => item.id === snapshot.approval_id);
+  snapshot.content.rule_status = 'rules_unverified';
+  snapshot.content.rules_unverified = ['color_size_variation_values'];
+  snapshot.content.upload_ready = false;
+  snapshot.content_sha256 = contentHash(snapshot.content);
+  snapshot.json_sha256 = snapshot.content_sha256;
+  approval.rule_status = snapshot.content.rule_status;
+  approval.rules_unverified = [...snapshot.content.rules_unverified];
+  approval.upload_ready = false;
+  approval.content_sha256 = snapshot.content_sha256;
+
+  const next = approveVariationVersion(state, {userAction: 'approved', now});
+  assert.deepEqual(next.approvals.at(-1).rule_scope, {
+    rule_status: 'rules_unverified',
+    rules_unverified: ['color_size_variation_values'],
+    upload_ready: false
+  });
+});
+
+test('template rule reverification creates new Listing approvals and a new upload-ready Final', async () => {
+  const state = await fullyApprovedState();
+  for (const snapshot of [
+    state.variation.parent.listing.approved.at(-1),
+    ...Object.values(state.variation.children).map(child => child.listing.approved.at(-1))
+  ]) {
+    snapshot.content.rule_status = 'rules_unverified';
+    snapshot.content.rules_unverified = ['amazon_us_signage_schema', 'color_size_variation_values'];
+    snapshot.content.upload_ready = false;
+    snapshot.content_sha256 = contentHash(snapshot.content);
+    snapshot.json_sha256 = snapshot.content_sha256;
+    const approval = state.approvals.find(item => item.id === snapshot.approval_id);
+    approval.rule_status = snapshot.content.rule_status;
+    approval.rules_unverified = [...snapshot.content.rules_unverified];
+    approval.upload_ready = false;
+    approval.content_sha256 = snapshot.content_sha256;
+  }
+  const firstFinal = approveVariationVersion(state, {userAction: 'approved', now});
+
+  const next = reverifyVariationRules(firstFinal, {
+    userAction: 'approved',
+    verifiedRuleIds: ['amazon_us_signage_schema', 'color_size_variation_values'],
+    now: '2026-08-27T09:00:00.000Z'
+  });
+
+  assert.equal(next.variation.parent.listing.approved.at(-1).version, 2);
+  assert.ok(Object.values(next.variation.children).every(child => child.listing.approved.at(-1).version === 2));
+  assert.deepEqual(next.approvals.at(-1).rule_scope, {
+    rule_status: 'verified', rules_unverified: [], upload_ready: true
+  });
+  assert.equal(next.approvals.at(-1).variation_version, 2);
+});
+
 test('final approval validates and freezes locked Product Master main path and hash', async () => {
   const state = await fullyApprovedState();
   state.variation.children['HORSE-12X16'].product_master.approved_main_sha256 = hash('f');
@@ -694,6 +751,82 @@ test('final asset map includes approved Child-specific secondary assets', async 
     child_sku: 'HORSE-12X16',
     product_master_version: 1
   }]);
+});
+
+test('approving a revised Child secondary supersedes the prior asset for the same role', async () => {
+  const state = await fullyApprovedState();
+  const childRecord = state.variation.children['HORSE-12X16'];
+  const prior = childRecord.assets['horse-12x16-size'];
+  const priorApproval = structuredClone(state.approvals.find(item => item.id === prior.approval_id));
+  const artifactId = 'horse-12x16-size-v2';
+  const candidatePath = '.studio/work/secondary/horse-12x16-size-v2.png';
+  childRecord.assets[artifactId] = {
+    id: artifactId, kind: 'size_spec', child_sku: childRecord.sku,
+    status: 'candidate', inspection_status: 'pass', path: candidatePath,
+    candidate_sha256: hash('f'),
+    inspection_binding: {
+      scope_type: 'child_secondary', kind: 'size_spec', path: candidatePath, child_sku: childRecord.sku
+    }
+  };
+
+  const approved = await approveVariationArtifact(state, {
+    artifactId, artifactType: 'child_secondary', childSku: childRecord.sku,
+    path: candidatePath, userAction: 'approved', now: '2026-08-27T09:00:00.000Z'
+  }, {hashFile: async () => hash('f')});
+
+  assert.equal(approved.variation.children[childRecord.sku].assets['horse-12x16-size'].status, 'superseded');
+  assert.equal(approved.variation.children[childRecord.sku].assets[artifactId].status, 'approved');
+  assert.deepEqual(approved.approvals.find(item => item.id === prior.approval_id), priorApproval);
+});
+
+test('final approval selects the newest approved asset from a legacy duplicate role', async () => {
+  const state = await fullyApprovedState();
+  const childRecord = state.variation.children['HORSE-12X16'];
+  childRecord.assets['horse-12x16-size-v2'] = {
+    id: 'horse-12x16-size-v2', kind: 'size_spec', child_sku: childRecord.sku,
+    status: 'approved', inspection_status: 'pass',
+    path: 'children/HORSE-12X16/assets/size-v2.png', sha256: hash('f'),
+    approval_id: 'approval-horse-12x16-size-v2', approved_at: '2026-08-27T09:00:00.000Z',
+    product_master_version: 1
+  };
+  state.approvals.push({
+    id: 'approval-horse-12x16-size-v2', type: 'image', scope_version: 1,
+    scope_type: 'child_secondary', artifact_id: 'horse-12x16-size-v2', child_sku: childRecord.sku,
+    path: 'children/HORSE-12X16/assets/size-v2.png', sha256: hash('f'), product_master_version: 1,
+    approved_at: '2026-08-27T09:00:00.000Z', user_action: 'approved'
+  });
+
+  const final = approveVariationVersion(state, {userAction: 'approved', now: '2026-08-27T09:01:00.000Z'});
+  assert.deepEqual(
+    final.approvals.at(-1).asset_map.child_secondary[childRecord.sku].map(item => item.artifact_id),
+    ['horse-12x16-size-v2']
+  );
+});
+
+test('final approval ignores historical legacy secondaries bound to an older Product Master', async () => {
+  const state = await fullyApprovedState();
+  const childRecord = state.variation.children['HORSE-12X16'];
+  const artifactId = 'legacy-horse-size';
+  const approvalId = 'approval-legacy-horse-size';
+  state.gallery ??= {assets: {}};
+  state.gallery.assets ??= {};
+  state.gallery.assets[artifactId] = {
+    id: artifactId, kind: 'size_spec', status: 'approved', path: 'assets/legacy-horse-size.png',
+    sha256: hash('e'), approval_id: approvalId, product_master_version: 0
+  };
+  childRecord.legacy_refs ??= {};
+  childRecord.legacy_refs.gallery_asset_ids = [artifactId];
+  state.approvals.push({
+    id: approvalId, type: 'image', artifact_id: artifactId, path: 'assets/legacy-horse-size.png',
+    sha256: hash('e'), product_master_version: 0, approved_at: '2026-08-26T09:00:00.000Z',
+    user_action: 'approved'
+  });
+
+  const final = approveVariationVersion(state, {userAction: 'approved', now});
+  assert.deepEqual(
+    final.approvals.at(-1).asset_map.child_secondary[childRecord.sku].map(item => item.artifact_id),
+    ['horse-12x16-size']
+  );
 });
 
 test('final approval rejects stale identity and Child-main versions', async () => {
@@ -745,6 +878,23 @@ test('final approval atomically locks a current draft Family identity', async ()
   assert.equal(next.variation.family_identity.status, 'locked');
   assert.equal(next.variation.versions.at(-1).status, 'approved');
   assert.match(next.variation.versions.at(-1).scope_sha256, /^[a-f0-9]{64}$/);
+});
+
+test('first final approval atomically promotes a valid draft Family identity from version zero', async () => {
+  const state = await fullyApprovedState();
+  state.variation.family_identity.status = 'draft';
+  state.variation.family_identity.version = 0;
+  const parentApproval = state.approvals.find(item => item.scope_type === 'parent_listing');
+  parentApproval.family_identity_version = 0;
+
+  const next = approveVariationVersion(state, {userAction: 'approved', now});
+
+  assert.equal(state.variation.family_identity.version, 0);
+  assert.equal(parentApproval.family_identity_version, 0);
+  assert.equal(next.variation.family_identity.status, 'locked');
+  assert.equal(next.variation.family_identity.version, 1);
+  assert.equal(next.approvals.at(-1).family_identity_version, 1);
+  assert.equal(next.variation.versions.at(-1).version, 1);
 });
 
 test('final approval rejects unsupported facts already placed in a draft Family identity', async () => {

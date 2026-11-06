@@ -4,7 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 
-import {strToU8, zipSync} from 'fflate';
+import {strFromU8, strToU8, unzipSync, zipSync} from 'fflate';
 
 import {runCli} from '../../scripts/studio.js';
 import {createProjectState} from '../../scripts/lib/project-state.js';
@@ -65,25 +65,29 @@ function args(item, output = 'outputs/upload-1') {
     '--rules-library', item.rulesLibrary];
 }
 
-test('returns one hosting request without creating the output directory', async () => {
+test('returns a verified image-only ZIP for the default manual hosting path', async () => {
   const item = await fixture();
   await writeFile(item.inputPath, JSON.stringify({offer: {record_action: 'Create or Replace (Full Update)'}}));
   const result = await runCli(args(item), dependencies(item.manifest));
   assert.equal(result.ok, true);
-  assert.equal(result.result.status, 'hosting_required');
+  assert.equal(result.result.status, 'manual_upload_required');
   assert.deepEqual(result.result.proposed_images.map(image => image.object_key), ['skp-main.png']);
+  const imageArchive = unzipSync(await readFile(result.result.image_zip_path));
+  assert.deepEqual(Object.keys(imageArchive), ['images/main.png']);
   await assert.rejects(access(path.join(item.projectDir, 'outputs/upload-1')));
 });
 
 test('atomically replaces the one current upload workbook', async () => {
   const item = await fixture();
   await writeFile(item.inputPath, JSON.stringify({
+    item_type_keyword: 'industrial-warning-signs',
     offer: {record_action: 'Create or Replace (Full Update)'},
     image_urls: {delivery_identity: 'single:final-1:1', images: {'skp-main.png': 'https://img.example/skp-main.png'}}
   }));
   const first = await runCli(args(item), dependencies(item.manifest));
   assert.equal(first.ok, true, JSON.stringify(first));
   assert.equal(first.result.status, 'upload-ready');
+  assert.equal(first.result.rows[0].item_type_keyword, 'industrial-warning-signs');
   await access(first.result.workbook_path);
   const saved = JSON.parse(await readFile(first.result.manifest_path, 'utf8'));
   assert.deepEqual(Object.keys(saved.image_urls), ['skp-main.png']);
@@ -121,6 +125,35 @@ test('hosting request defers current-rule resolution', async () => {
     }
   });
   assert.equal(result.ok, true);
-  assert.equal(result.result.status, 'hosting_required');
+  assert.equal(result.result.status, 'manual_upload_required');
   assert.ok(result.result.unresolved.some(item => item.code === 'RULES_CHECK_DEFERRED'));
+});
+
+test('writes a non-first upload sheet using moved technical-header columns', async () => {
+  const item = await fixture();
+  const template = uploadTemplate({
+    macro: true,
+    leadingInstructionSheet: true,
+    technicalHeaders: {
+      N: 'item_type_keyword[marketplace_id=ATVPDKIKX0DER]#1.value',
+      V: 'main_product_image_locator[marketplace_id=ATVPDKIKX0DER]#1.media_location'
+    }
+  });
+  await writeFile(item.templatePath, template);
+  await writeFile(item.inputPath, JSON.stringify({
+    item_type_keyword: 'industrial-warning-signs',
+    offer: {record_action: 'Create or Replace (Full Update)'},
+    image_urls: {delivery_identity: 'single:final-1:1', images: {'skp-main.png': 'https://img.example/skp-main.png'}}
+  }));
+  const result = await runCli(args(item), dependencies(item.manifest));
+  assert.equal(result.ok, true, JSON.stringify(result));
+  const before = unzipSync(template);
+  const after = unzipSync(await readFile(result.result.workbook_path));
+  assert.deepEqual(after['xl/worksheets/sheet1.xml'], before['xl/worksheets/sheet1.xml']);
+  const upload = strFromU8(after['xl/worksheets/sheet2.xml']);
+  const shared = strFromU8(after['xl/sharedStrings.xml']);
+  assert.match(upload, /r="N7"[^>]*t="s"/);
+  assert.match(upload, /r="V7"[^>]*t="s"/);
+  assert.match(shared, /industrial-warning-signs/);
+  assert.match(shared, /https:\/\/img\.example\/skp-main\.png/);
 });

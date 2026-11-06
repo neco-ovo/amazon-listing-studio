@@ -107,11 +107,28 @@ function inspectBackground(raw, options = {}) {
 }
 
 export async function validateMainImage(filePath, options = {}) {
+  const ratioPolicy = options.ratioPolicy ?? 'advisory';
+  if (!['advisory', 'required'].includes(ratioPolicy)) throw new TypeError('ratioPolicy must be advisory or required.');
+  const ratioTolerance = options.ratioTolerance ?? 0.02;
+  if (!Number.isFinite(ratioTolerance) || ratioTolerance < 0) throw new TypeError('ratioTolerance must be a finite nonnegative number.');
+  if (ratioPolicy === 'required' && (
+    options.ratioTolerance == null || typeof options.ratioConstraintSource !== 'string'
+    || !options.ratioConstraintSource.trim()
+    || options.physicalWidth === undefined || options.physicalHeight === undefined
+  )) throw new TypeError('Required ratio checks need explicit ratioTolerance, ratioConstraintSource and physical dimensions.');
+  const warnings = [];
   const {data, info} = await sharp(filePath).ensureAlpha().raw().toBuffer({resolveWithObject: true});
   const raw = {data, width: info.width, height: info.height, channels: info.channels};
   const bounds = measureNonWhiteBounds(raw, options);
   const background = inspectBackground(raw, options);
   const failures = [];
+  const longestEdge = Math.max(info.width, info.height);
+  if (longestEdge < 1600) failures.push({
+    code: 'MAIN_IMAGE_TOO_SMALL',
+    message: 'Main image longest edge must be at least 1600 pixels.',
+    actual: longestEdge,
+    minimum: 1600,
+  });
   const minOccupancy = options.minOccupancy ?? 0.85;
   if (!bounds) failures.push({code: 'MISSING_PRODUCT', message: 'No nonwhite product pixels were detected.'});
   const occupancy = bounds ? (bounds.width >= bounds.height ? bounds.width / info.width : bounds.height / info.height) : 0;
@@ -127,9 +144,22 @@ export async function validateMainImage(filePath, options = {}) {
       physicalHeight: options.physicalHeight,
       renderedWidth: bounds.width,
       renderedHeight: bounds.height,
-      tolerance: options.ratioTolerance ?? 0.02,
+      tolerance: ratioTolerance,
     });
-    if (!physicalRatioCheck.ok) failures.push({code: 'PHYSICAL_RATIO_MISMATCH', message: 'Rendered product shape does not match its confirmed physical ratio.', ...physicalRatioCheck});
+    physicalRatioCheck.policy = ratioPolicy;
+    physicalRatioCheck.source = ratioPolicy === 'required'
+      ? options.ratioConstraintSource.trim()
+      : 'Internal bounding-box review hint; not a verified marketplace limit.';
+    if (!physicalRatioCheck.ok) {
+      const finding = {
+        code: 'PHYSICAL_RATIO_MISMATCH',
+        message: ratioPolicy === 'required'
+          ? 'Measured ratio exceeds the explicitly required tolerance.'
+          : 'Bounding-box ratio differs from dimensions; inspect identity and perspective before deciding on any repair.',
+        ...physicalRatioCheck,
+      };
+      (ratioPolicy === 'required' ? failures : warnings).push(finding);
+    }
   }
   return {
     ok: failures.length === 0,
@@ -141,6 +171,7 @@ export async function validateMainImage(filePath, options = {}) {
     fully_visible: fullyVisible,
     physical_ratio_ok: physicalRatioCheck?.ok ?? null,
     physical_ratio: physicalRatioCheck,
+    warnings,
     failures,
   };
 }

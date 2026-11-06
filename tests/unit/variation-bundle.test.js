@@ -159,7 +159,7 @@ async function png(filePath, color) {
   await sharp({create: {width: 32, height: 32, channels: 3, background: color}}).png().toFile(filePath);
 }
 
-async function approvedProject(root, {legacyRuleField = false} = {}) {
+async function approvedProject(root, {legacyRuleField = false, childRuleGap = false} = {}) {
   const projectDir = path.join(root, 'project');
   let state = variationState();
   const approvedParentContent = structuredClone(parentContent);
@@ -242,8 +242,14 @@ async function approvedProject(root, {legacyRuleField = false} = {}) {
     scopeType: 'parent_listing', content: approvedParentContent, userAction: 'approved', now
   });
   for (const sku of ['HORSE-12X16', 'KIDS-12X16']) {
+    const content = childContent(state, sku, approvedParentContent);
+    if (childRuleGap && sku === 'HORSE-12X16') {
+      content.rule_status = 'rules_unverified';
+      content.rules_unverified = ['color_size_variation_values'];
+      content.upload_ready = false;
+    }
     state = approveVariationListing(state, {
-      scopeType: 'child_listing', childSku: sku, content: childContent(state, sku, approvedParentContent),
+      scopeType: 'child_listing', childSku: sku, content,
       userAction: 'approved', now
     });
   }
@@ -261,6 +267,25 @@ test('finalizes legacy Variation Listings whose approved content predates rule_s
     const result = await buildVariationDelivery({
       projectDir: project.projectDir,
       outputDir: path.join(project.projectDir, 'delivery', 'legacy-rule-field'),
+      finalApproval: project.finalApproval
+    });
+
+    assert.equal(result.verification.ok, true);
+  });
+});
+
+test('delivers when Final conservatively aggregates a Child-only rule gap', async () => {
+  await withTempWorkspace(async root => {
+    const project = await approvedProject(root, {childRuleGap: true});
+    assert.deepEqual(project.finalApproval.rule_scope, {
+      rule_status: 'rules_unverified',
+      rules_unverified: ['color_size_variation_values'],
+      upload_ready: false
+    });
+
+    const result = await buildVariationDelivery({
+      projectDir: project.projectDir,
+      outputDir: path.join(project.projectDir, 'delivery', 'child-rule-gap'),
       finalApproval: project.finalApproval
     });
 
@@ -803,7 +828,7 @@ test('verification rejects incomplete, stale, conflicting, or changed Variation 
         const artifact = manifest.artifacts.find(item => item.archive_path === archivePath);
         artifact.byte_size = files[archivePath].length;
         artifact.sha256 = digest(files[archivePath]);
-      }, 'APPROVAL_SCOPE_MISMATCH'],
+      }, 'HASH_MISMATCH'],
       ['changed shared asset', ({files}) => { files['shared/sf-shared-material.png'] = Buffer.from('changed'); }, 'HASH_MISMATCH'],
       ['rehashed changed shared asset', ({files, manifest}) => {
         const archivePath = 'shared/sf-shared-material.png';
